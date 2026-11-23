@@ -1,0 +1,57 @@
+# artcraftCloud with Docker Compose (or `podman compose`).
+#
+#   docker compose up -d                      # the office suite only
+#   docker compose --profile mail up -d       # plus the optional Stalwart mail server
+#
+# First start downloads the ArtCraft apps into the volume (about 550 MB) and prints the
+# generated admin password in the logs unless ARTCRAFT_ADMIN_PASSWORD is set:
+#   docker compose logs artcraft-cloud | grep -A2 "admin password"
+# Put a TLS reverse proxy in front for anything but localhost (the apps need a secure context).
+
+services:
+  artcraft-cloud:
+    image: ${ARTCRAFT_IMAGE:-ghcr.io/gheiler/artcraft-cloud:latest}
+    build: .
+    container_name: artcraft-cloud
+    restart: unless-stopped
+    ports:
+      - "${ARTCRAFT_PORT:-8080}:8080"
+    environment:
+      ARTCRAFT_PUBLIC_URL: ${ARTCRAFT_PUBLIC_URL:-}
+      ARTCRAFT_ADMIN_USER: ${ARTCRAFT_ADMIN_USER:-admin}
+      ARTCRAFT_ADMIN_PASSWORD: ${ARTCRAFT_ADMIN_PASSWORD:-}
+      # auto: Secure cookies when ARTCRAFT_PUBLIC_URL is https. Force with 1/0.
+      ARTCRAFT_COOKIE_SECURE: ${ARTCRAFT_COOKIE_SECURE:-auto}
+      ARTCRAFT_MAX_UPLOAD_MB: ${ARTCRAFT_MAX_UPLOAD_MB:-512}
+      # Optional: a GitHub token lifts the 60 requests/hour limit for app updates.
+      ARTCRAFT_GITHUB_TOKEN: ${ARTCRAFT_GITHUB_TOKEN:-}
+    volumes:
+      - artcraft-data:/data
+    mem_limit: 128m
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # Optional mail (AGPL-3.0, runs as its own container, never linked into artcraftCloud).
+  # Read docs/mail.md before turning this on: sending straight from a home or dynamic IP lands in spam.
+  stalwart:
+    profiles: ["mail"]
+    image: docker.io/stalwartlabs/stalwart:latest
+    container_name: artcraft-mail
+    restart: unless-stopped
+    ports:
+      - "25:25"
+      - "465:465"
+      - "587:587"
+      - "993:993"
+      - "127.0.0.1:8081:8080"   # Stalwart admin UI, keep it private
+    volumes:
+      - stalwart-data:/opt/stalwart
+    mem_limit: 256m
+
+volumes:
+  artcraft-data:
+  stalwart-data:

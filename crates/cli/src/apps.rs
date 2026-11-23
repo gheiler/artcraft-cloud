@@ -25,7 +25,7 @@ pub async fn sync_missing(data: &Path, token: Option<&str>) -> Result<(), String
             continue;
         }
         tracing::info!(app = app.id, "downloading web build");
-        if let Err(err) = update_one(data, token, app.id).await {
+        if let Err(err) = update_one(data, token, app.id, None).await {
             tracing::error!(app = app.id, "{err}");
             errors.push(format!("{}: {err}", app.id));
         }
@@ -37,16 +37,16 @@ pub async fn sync_missing(data: &Path, token: Option<&str>) -> Result<(), String
     }
 }
 
-pub async fn update(data: &Path, token: Option<&str>, only: Option<&str>) -> Result<(), String> {
+pub async fn update(data: &Path, token: Option<&str>, only: Option<&str>, version: Option<&str>) -> Result<(), String> {
     if let Some(id) = only {
         if app_by_id(id).is_none() {
             return Err(format!("unknown app {id}"));
         }
-        return update_one(data, token, id).await;
+        return update_one(data, token, id, version).await;
     }
     let mut errors = Vec::new();
     for app in catalog() {
-        if let Err(err) = update_one(data, token, app.id).await {
+        if let Err(err) = update_one(data, token, app.id, None).await {
             errors.push(format!("{}: {err}", app.id));
         }
     }
@@ -93,11 +93,16 @@ pub fn print_list(data: &Path) {
     }
 }
 
-async fn update_one(data: &Path, token: Option<&str>, app_id: &str) -> Result<(), String> {
+async fn update_one(data: &Path, token: Option<&str>, app_id: &str, pinned: Option<&str>) -> Result<(), String> {
     let app = app_by_id(app_id).ok_or_else(|| format!("unknown app {app_id}"))?;
     let client = reqwest::Client::builder().user_agent(USER_AGENT).build().map_err(|err| err.to_string())?;
-    let release = github_latest(&client, app.repo, token).await?;
+    let release = github_release(&client, app.repo, token, pinned).await?;
     let version = release.tag_name.trim_start_matches('v').to_string();
+    let installed = read_manifest(data).apps.get(app_id).map(|row| row.version.clone());
+    if pinned.is_none() && installed.as_deref() == Some(version.as_str()) && version_dir(data, app_id, &version).join("index.html").is_file() {
+        println!("{app_id} {version} is already the latest");
+        return Ok(());
+    }
     let zip_name = format!("{app_id}-web-{version}.zip");
     let zip_url = asset_url(&release, &zip_name)?;
     let sums_url = asset_url(&release, "SHA256SUMS.txt")?;
@@ -425,8 +430,11 @@ struct Asset {
     browser_download_url: String,
 }
 
-async fn github_latest(client: &reqwest::Client, repo: &str, token: Option<&str>) -> Result<Release, String> {
-    let url = format!("https://api.github.com/repos/storytold/{repo}/releases/latest");
+async fn github_release(client: &reqwest::Client, repo: &str, token: Option<&str>, version: Option<&str>) -> Result<Release, String> {
+    let url = match version {
+        Some(version) => format!("https://api.github.com/repos/storytold/{repo}/releases/tags/v{}", version.trim_start_matches('v')),
+        None => format!("https://api.github.com/repos/storytold/{repo}/releases/latest"),
+    };
     let mut request = client.get(url).header("accept", "application/vnd.github+json");
     if let Some(token) = token {
         request = request.bearer_auth(token);

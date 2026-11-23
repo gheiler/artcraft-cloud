@@ -33,7 +33,12 @@ enum Command {
 #[derive(Subcommand)]
 enum AppsCmd {
     /// Download the latest signed web builds. Pass an app id to limit the run.
-    Update { app: Option<String> },
+    Update {
+        app: Option<String>,
+        /// Install this release (e.g. 0.18.0) instead of the latest; needs an app id.
+        #[arg(long, requires = "app")]
+        version: Option<String>,
+    },
     /// Switch one app back to the version kept from the previous update.
     Rollback { app: String },
     /// Show the catalog and what is installed.
@@ -60,7 +65,7 @@ enum UserCmd {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+    tracing_subscriber::fmt().with_ansi(std::io::IsTerminal::is_terminal(&std::io::stdout())).with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
     let cli = Cli::parse();
     let command = cli.command.unwrap_or(Command::Serve);
     match run(command).await {
@@ -94,7 +99,7 @@ async fn run(command: Command) -> Result<(), String> {
         }
         Command::Healthcheck => healthcheck(&config),
         Command::Apps { cmd } => match cmd {
-            AppsCmd::Update { app } => apps::update(&config.data_dir, config.github_token.as_deref(), app.as_deref()).await,
+            AppsCmd::Update { app, version } => apps::update(&config.data_dir, config.github_token.as_deref(), app.as_deref(), version.as_deref()).await,
             AppsCmd::Rollback { app } => apps::rollback(&config.data_dir, &app),
             AppsCmd::List => {
                 apps::print_list(&config.data_dir);

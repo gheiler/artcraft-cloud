@@ -1,0 +1,52 @@
+image:
+  repository: ghcr.io/gheiler/artcraft-cloud
+  tag: ""            # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+
+# Public https URL, e.g. https://office.example.com. Turns on Secure cookies.
+publicUrl: ""
+
+admin:
+  username: admin
+  # Leave empty to have a password generated on first start (printed once in the pod log),
+  # or point existingSecret at a Secret with the key "password".
+  password: ""
+  existingSecret: ""
+
+# Optional GitHub token for app updates (lifts the anonymous 60 requests/hour limit).
+githubToken: ""
+maxUploadMB: 512
+extraEnv: []
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  host: office.example.com
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt
+  # The apps need a secure context (HTTPS) for WebGPU and the clipboard.
+  tls:
+    enabled: true
+    secretName: artcraft-cloud-tls
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

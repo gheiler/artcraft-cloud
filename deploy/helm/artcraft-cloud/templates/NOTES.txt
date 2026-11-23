@@ -1,0 +1,20 @@
+artcraftCloud is starting. The first start downloads the ArtCraft apps (about 550 MB) into the volume.
+
+{{- if not (or .Values.admin.password .Values.admin.existingSecret) }}
+
+The admin password was generated; read it once from the log:
+  kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "artcraft-cloud.fullname" . }} | grep -A2 "admin password"
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+Open https://{{ .Values.ingress.host }}/
+{{- else }}
+
+Try it locally:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "artcraft-cloud.fullname" . }} 8080:{{ .Values.service.port }}
+  open http://localhost:8080/
+{{- end }}
+
+Update the apps later:
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "artcraft-cloud.fullname" . }} -- artcraft-cloud apps update
