@@ -331,6 +331,13 @@ async fn webdav_round_trip() {
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(&bytes[..], b"dav");
 
+    // A name that starts with "dav" keeps it.
+    let response = env.app.clone().oneshot(Request::builder().method("PUT").uri("/dav/dav-notes.txt").header(header::AUTHORIZATION, &auth).body(Body::from("notes")).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let (status, _, body) = env.call(Request::builder().uri("/api/files/content?path=dav-notes.txt").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(&body[..], b"notes");
+
     let response = env
         .app
         .clone()

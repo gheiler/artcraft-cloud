@@ -112,7 +112,8 @@ fn options() -> Response {
 
 fn dav_rel(path: &str) -> Result<RelPath, Error> {
     let decoded = percent_decode_str(path).decode_utf8_lossy();
-    let rest = decoded.trim_start_matches("/dav").trim_start_matches('/');
+    // strip_prefix, not trim_start_matches: "/dav/dav-notes.txt" must keep its own "dav".
+    let rest = decoded.strip_prefix("/dav").unwrap_or(&decoded).trim_start_matches('/');
     RelPath::parse(rest)
 }
 
