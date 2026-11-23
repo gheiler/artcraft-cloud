@@ -1,7 +1,7 @@
 mod files;
 mod session;
 mod shares;
-mod users;
+pub(crate) mod users;
 
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, Method, StatusCode};
@@ -28,6 +28,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/users/{id}/disable", post(users::disable_user))
         .route("/api/users/{id}/enable", post(users::enable_user))
         .route("/api/users/{id}/password", post(users::reset_password))
+        .route("/api/users/{id}/role", post(users::set_role))
+        .route("/api/directory", get(users::directory))
+        .route("/api/groups", get(users::list_groups).post(users::create_group))
+        .route("/api/groups/{id}", axum::routing::delete(users::delete_group))
+        .route("/api/groups/{id}/members", post(users::add_member))
+        .route("/api/groups/{id}/members/{username}", axum::routing::delete(users::remove_member))
+        .route("/api/settings/{app}", get(users::get_settings).put(users::put_settings))
+        .route("/api/files/kind", get(files::file_kind))
         .route("/api/files", get(files::list_files))
         .route("/api/files/content", get(files::read_file).put(files::write_file))
         .route("/api/files/upload", post(files::upload))

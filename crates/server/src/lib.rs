@@ -10,6 +10,7 @@ mod oidc;
 mod password;
 mod paths;
 mod state;
+mod sniff;
 mod static_files;
 mod store;
 mod throttle;

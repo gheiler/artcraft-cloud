@@ -200,3 +200,16 @@ fn trash_entry(row: crate::db::TrashRow) -> TrashEntry {
         deleted_at: row.deleted_at,
     }
 }
+
+/// `GET /api/files/kind?path=`: which app a file belongs to by its content (LightCraft zips).
+pub async fn file_kind(State(state): State<AppState>, AuthUser(user): AuthUser, Query(query): Query<PathQuery>) -> Result<Json<artcraft_cloud_types::FileKind>, ApiError> {
+    let rel = rel_of(query.path.as_deref())?;
+    let store = state.store.clone();
+    let id = user.id;
+    let kind = blocking(move || {
+        let (path, _) = store.open_path(id, &rel)?;
+        crate::sniff::kind_of(&path).map_err(crate::error::Error::from)
+    })
+    .await?;
+    Ok(Json(kind))
+}

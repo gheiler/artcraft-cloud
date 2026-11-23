@@ -7,7 +7,9 @@ use crate::manifest::read_manifest;
 use crate::password::hash_password;
 use crate::paths::{check_password_policy, display_name_of, normalize_username};
 use crate::state::AppState;
-use artcraft_cloud_types::{AdminPasswordReset, AppStatus, CreateUserRequest, User};
+use artcraft_cloud_types::{
+    AdminPasswordReset, AppStatus, CreateGroupRequest, CreateUserRequest, Directory, DirectoryGroup, DirectoryUser, Group, GroupMemberRequest, SetRoleRequest, User,
+};
 
 use super::session::AuthUser;
 
@@ -26,6 +28,9 @@ pub async fn create_user(State(state): State<AppState>, AuthUser(actor): AuthUse
         Some("user") | None => "user",
         Some(_) => return Err(ApiError::new(StatusCode::BAD_REQUEST, "role must be admin or user")),
     };
+    if role == "admin" {
+        require_super(&actor)?;
+    }
     let display = display_name_of(body.display_name.as_deref(), &username).map_err(ApiError::from)?;
     let hash = hash_password(&body.password, state.config.argon_memory_kib, state.config.argon_time, state.config.argon_parallelism).map_err(ApiError::from)?;
     let account = match state.db.insert_user(&username, &hash, role, &display) {
@@ -53,6 +58,12 @@ async fn set_enabled(state: &AppState, actor: &crate::db::Account, id: i64, disa
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "you cannot disable your own account"));
     }
     let target = state.db.user_by_id(id).map_err(ApiError::from)?.ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "not found"))?;
+    if target.is_super && disabled {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "the super admin cannot be disabled"));
+    }
+    if target.is_admin() && actor.id != id {
+        require_super(actor)?;
+    }
     if disabled && target.is_admin() && !target.disabled && state.db.enabled_admin_count().map_err(ApiError::from)? <= 1 {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "the last admin cannot be disabled"));
     }
@@ -67,6 +78,10 @@ pub async fn reset_password(
     Json(body): Json<AdminPasswordReset>,
 ) -> Result<StatusCode, ApiError> {
     require_admin(&actor)?;
+    let target = state.db.user_by_id(id).map_err(ApiError::from)?.ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "not found"))?;
+    if target.is_admin() && actor.id != id {
+        require_super(&actor)?;
+    }
     check_password_policy(&body.password).map_err(ApiError::from)?;
     let hash = hash_password(&body.password, state.config.argon_memory_kib, state.config.argon_time, state.config.argon_parallelism).map_err(ApiError::from)?;
     state.db.set_password(id, &hash).map_err(ApiError::from)?;
@@ -93,6 +108,141 @@ pub async fn apps(State(state): State<AppState>, AuthUser(_user): AuthUser) -> J
         })
         .collect();
     Json(apps)
+}
+
+/// `POST /api/users/{id}/role`: promote to admin or demote to user. Only the super admin may.
+pub async fn set_role(
+    State(state): State<AppState>,
+    AuthUser(actor): AuthUser,
+    Path(id): Path<i64>,
+    Json(body): Json<SetRoleRequest>,
+) -> Result<Json<User>, ApiError> {
+    require_super(&actor)?;
+    if body.role != "admin" && body.role != "user" {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "role must be admin or user"));
+    }
+    let target = state.db.user_by_id(id).map_err(ApiError::from)?.ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "not found"))?;
+    if target.is_super {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "the super admin stays an admin"));
+    }
+    state.db.set_role(id, &body.role).map_err(ApiError::from)?;
+    let updated = state.db.user_by_id(id).map_err(ApiError::from)?.ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "not found"))?;
+    Ok(Json(updated.public()))
+}
+
+/// `GET /api/directory`: who the signed-in user can share with.
+pub async fn directory(State(state): State<AppState>, AuthUser(user): AuthUser) -> Result<Json<Directory>, ApiError> {
+    let users = state
+        .db
+        .list_users()
+        .map_err(ApiError::from)?
+        .into_iter()
+        .filter(|account| !account.disabled && account.id != user.id)
+        .map(|account| DirectoryUser { username: account.username, display_name: account.display_name })
+        .collect();
+    let groups = state
+        .db
+        .list_groups()
+        .map_err(ApiError::from)?
+        .into_iter()
+        .map(|group| DirectoryGroup { name: group.name, members: group.members.len() })
+        .collect();
+    Ok(Json(Directory { users, groups }))
+}
+
+pub async fn list_groups(State(state): State<AppState>, AuthUser(user): AuthUser) -> Result<Json<Vec<Group>>, ApiError> {
+    require_admin(&user)?;
+    Ok(Json(state.db.list_groups().map_err(ApiError::from)?))
+}
+
+pub async fn create_group(State(state): State<AppState>, AuthUser(user): AuthUser, Json(body): Json<CreateGroupRequest>) -> Result<(StatusCode, Json<Group>), ApiError> {
+    require_admin(&user)?;
+    let name = body.name.trim();
+    if name.is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "a group name is 1 to 64 characters"));
+    }
+    let id = match state.db.create_group(name) {
+        Ok(id) => id,
+        Err(crate::error::Error::Db(err)) if err.to_string().to_lowercase().contains("unique") => {
+            return Err(ApiError::new(StatusCode::CONFLICT, "a group with that name exists"));
+        }
+        Err(err) => return Err(err.into()),
+    };
+    Ok((StatusCode::CREATED, Json(Group { id, name: name.to_string(), members: Vec::new() })))
+}
+
+pub async fn delete_group(State(state): State<AppState>, AuthUser(user): AuthUser, Path(id): Path<i64>) -> Result<StatusCode, ApiError> {
+    require_admin(&user)?;
+    state.db.delete_group(id).map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn add_member(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<i64>,
+    Json(body): Json<GroupMemberRequest>,
+) -> Result<StatusCode, ApiError> {
+    require_admin(&user)?;
+    let member = member_of(&state, id, &body.username)?;
+    state.db.add_member(id, member).map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn remove_member(State(state): State<AppState>, AuthUser(user): AuthUser, Path((id, username)): Path<(i64, String)>) -> Result<StatusCode, ApiError> {
+    require_admin(&user)?;
+    let member = member_of(&state, id, &username)?;
+    state.db.remove_member(id, member).map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn member_of(state: &AppState, group: i64, username: &str) -> Result<i64, ApiError> {
+    if !state.db.list_groups().map_err(ApiError::from)?.iter().any(|g| g.id == group) {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "no such group"));
+    }
+    let account = state.db.user_by_username(username.trim()).map_err(ApiError::from)?.ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "no such user"))?;
+    Ok(account.id)
+}
+
+/// Largest settings blob one app may store for one user.
+pub const SETTINGS_LIMIT: usize = 1024 * 1024;
+
+fn settings_key(app: &str) -> Result<&str, ApiError> {
+    if app == "shell" || artcraft_cloud_types::catalog().iter().any(|row| row.id == app) {
+        Ok(app)
+    } else {
+        Err(ApiError::new(StatusCode::NOT_FOUND, "no such app"))
+    }
+}
+
+/// `GET /api/settings/{app}`: the JSON object the shell stored for this user and app, or `{}`.
+pub async fn get_settings(State(state): State<AppState>, AuthUser(user): AuthUser, Path(app): Path<String>) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    let key = settings_key(&app)?;
+    let data = state.db.setting(user.id, key).map_err(ApiError::from)?.unwrap_or_else(|| "{}".to_string());
+    Ok(([(axum::http::header::CONTENT_TYPE, "application/json"), (axum::http::header::CACHE_CONTROL, "no-store")], data).into_response())
+}
+
+/// `PUT /api/settings/{app}`: replace the stored settings. The body must be a JSON object.
+pub async fn put_settings(State(state): State<AppState>, AuthUser(user): AuthUser, Path(app): Path<String>, body: axum::body::Bytes) -> Result<StatusCode, ApiError> {
+    let key = settings_key(&app)?;
+    if body.len() > SETTINGS_LIMIT {
+        return Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "settings are limited to 1 MiB per app"));
+    }
+    let value: serde_json::Value = serde_json::from_slice(&body).map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "settings must be JSON"))?;
+    if !value.is_object() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "settings must be a JSON object"));
+    }
+    state.db.put_setting(user.id, key, &value.to_string()).map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn require_super(user: &crate::db::Account) -> Result<(), ApiError> {
+    if user.is_admin() && user.is_super {
+        Ok(())
+    } else {
+        Err(ApiError::new(StatusCode::FORBIDDEN, "only the super admin can manage admins"))
+    }
 }
 
 fn require_admin(user: &crate::db::Account) -> Result<(), ApiError> {

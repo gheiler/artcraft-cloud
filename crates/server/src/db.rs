@@ -19,6 +19,7 @@ pub struct Account {
     pub role: String,
     pub disabled: bool,
     pub password_hash: String,
+    pub is_super: bool,
 }
 
 impl Account {
@@ -33,6 +34,7 @@ impl Account {
             display_name: self.display_name.clone(),
             role: self.role.clone(),
             disabled: self.disabled,
+            super_admin: self.is_super,
         }
     }
 }
@@ -58,6 +60,7 @@ pub struct NewShare<'a> {
     pub owner: i64,
     pub path: &'a str,
     pub grantee: Option<i64>,
+    pub group: Option<i64>,
     pub permission: &'a str,
     pub token: Option<&'a str>,
     pub password_hash: Option<&'a str>,
@@ -76,6 +79,8 @@ pub struct ShareRow {
     pub token: Option<String>,
     pub password_hash: Option<String>,
     pub expires_at: Option<i64>,
+    pub group_id: Option<i64>,
+    pub group_name: Option<String>,
 }
 
 impl Db {
@@ -89,6 +94,7 @@ impl Db {
         conn.pragma_update(None, "busy_timeout", "5000")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Self { conn: Arc::new(Mutex::new(conn)) })
     }
 
@@ -114,6 +120,8 @@ impl Db {
                 params![username, password_hash, role, display_name, now_secs()],
             )?;
             let id = c.last_insert_rowid();
+            ensure_super(c)?;
+            let is_super: bool = c.query_row("SELECT is_super FROM users WHERE id = ?1", params![id], |row| row.get::<_, i64>(0))? != 0;
             Ok(Account {
                 id,
                 username: username.to_string(),
@@ -121,6 +129,7 @@ impl Db {
                 role: role.to_string(),
                 disabled: false,
                 password_hash: password_hash.to_string(),
+                is_super,
             })
         })
     }
@@ -128,7 +137,7 @@ impl Db {
     pub fn user_by_username(&self, username: &str) -> Result<Option<Account>, Error> {
         self.with(|c| {
             c.query_row(
-                "SELECT id, username, display_name, role, disabled, password_hash FROM users WHERE username = ?1 COLLATE NOCASE",
+                "SELECT id, username, display_name, role, disabled, password_hash, is_super FROM users WHERE username = ?1 COLLATE NOCASE",
                 params![username],
                 map_account,
             )
@@ -140,7 +149,7 @@ impl Db {
     pub fn user_by_id(&self, id: i64) -> Result<Option<Account>, Error> {
         self.with(|c| {
             c.query_row(
-                "SELECT id, username, display_name, role, disabled, password_hash FROM users WHERE id = ?1",
+                "SELECT id, username, display_name, role, disabled, password_hash, is_super FROM users WHERE id = ?1",
                 params![id],
                 map_account,
             )
@@ -151,7 +160,7 @@ impl Db {
 
     pub fn list_users(&self) -> Result<Vec<Account>, Error> {
         self.with(|c| {
-            let mut stmt = c.prepare("SELECT id, username, display_name, role, disabled, password_hash FROM users ORDER BY username")?;
+            let mut stmt = c.prepare("SELECT id, username, display_name, role, disabled, password_hash, is_super FROM users ORDER BY username")?;
             let rows = stmt.query_map([], map_account)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(Error::from)
         })
@@ -203,7 +212,7 @@ impl Db {
         self.with(|c| {
             let row = c
                 .query_row(
-                    "SELECT u.id, u.username, u.display_name, u.role, u.disabled, u.password_hash, s.expires_at
+                    "SELECT u.id, u.username, u.display_name, u.role, u.disabled, u.password_hash, s.expires_at, u.is_super
                      FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?1",
                     params![hash],
                     |row| {
@@ -215,6 +224,7 @@ impl Db {
                                 role: row.get(3)?,
                                 disabled: row.get::<_, i64>(4)? != 0,
                                 password_hash: row.get(5)?,
+                                is_super: row.get::<_, i64>(7)? != 0,
                             },
                             row.get::<_, i64>(6)?,
                         ))
@@ -375,9 +385,9 @@ impl Db {
     pub fn insert_share(&self, share: NewShare<'_>) -> Result<i64, Error> {
         self.with(|c| {
             c.execute(
-                "INSERT INTO shares (owner_id, path, grantee_id, permission, token, password_hash, expires_at, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![share.owner, share.path, share.grantee, share.permission, share.token, share.password_hash, share.expires_at, now_secs()],
+                "INSERT INTO shares (owner_id, path, grantee_id, permission, token, password_hash, expires_at, created_at, group_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![share.owner, share.path, share.grantee, share.permission, share.token, share.password_hash, share.expires_at, now_secs(), share.group],
             )?;
             Ok(c.last_insert_rowid())
         })
@@ -409,16 +419,113 @@ impl Db {
     pub fn shares_in(&self, grantee: i64) -> Result<Vec<ShareRow>, Error> {
         let now = now_secs();
         self.with(|c| {
-            let sql = "SELECT s.id, s.owner_id, ou.username, s.path, s.grantee_id, gu.username, s.permission, s.token,
-                              s.password_hash, s.expires_at
-                       FROM shares s
-                       JOIN users ou ON ou.id = s.owner_id
-                       LEFT JOIN users gu ON gu.id = s.grantee_id
-                       WHERE s.grantee_id = ?1 AND (s.expires_at IS NULL OR s.expires_at > ?2)
-                       ORDER BY s.id DESC";
-            let mut stmt = c.prepare(sql)?;
+            let sql = format!(
+                "{} AND (s.expires_at IS NULL OR s.expires_at > ?2) AND s.owner_id != ?1 ORDER BY s.id DESC",
+                share_select("(s.grantee_id = ?1 OR s.group_id IN (SELECT group_id FROM group_members WHERE user_id = ?1))")
+            );
+            let mut stmt = c.prepare(&sql)?;
             let rows = stmt.query_map(params![grantee, now], map_share)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(Error::from)
+        })
+    }
+
+    pub fn find_group_share(&self, owner: i64, path: &str, group: i64) -> Result<Option<i64>, Error> {
+        self.with(|c| {
+            c.query_row("SELECT id FROM shares WHERE owner_id = ?1 AND path = ?2 AND group_id = ?3", params![owner, path, group], |row| row.get(0))
+                .optional()
+                .map_err(Error::from)
+        })
+    }
+
+    pub fn in_group(&self, user: i64, group: i64) -> Result<bool, Error> {
+        self.with(|c| {
+            Ok(c.query_row("SELECT COUNT(*) FROM group_members WHERE user_id = ?1 AND group_id = ?2", params![user, group], |row| row.get::<_, i64>(0))? > 0)
+        })
+    }
+
+    pub fn set_role(&self, id: i64, role: &str) -> Result<(), Error> {
+        self.with(|c| {
+            let changed = c.execute("UPDATE users SET role = ?1 WHERE id = ?2 AND is_super = 0", params![role, id])?;
+            if changed == 0 {
+                return Err(Error::NotFound);
+            }
+            Ok(())
+        })
+    }
+
+    pub fn create_group(&self, name: &str) -> Result<i64, Error> {
+        self.with(|c| {
+            c.execute("INSERT INTO groups (name, created_at) VALUES (?1, ?2)", params![name, now_secs()])?;
+            Ok(c.last_insert_rowid())
+        })
+    }
+
+    pub fn delete_group(&self, id: i64) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute("DELETE FROM shares WHERE group_id = ?1", params![id])?;
+            c.execute("DELETE FROM group_members WHERE group_id = ?1", params![id])?;
+            if c.execute("DELETE FROM groups WHERE id = ?1", params![id])? == 0 {
+                return Err(Error::NotFound);
+            }
+            Ok(())
+        })
+    }
+
+    pub fn group_by_name(&self, name: &str) -> Result<Option<(i64, String)>, Error> {
+        self.with(|c| {
+            c.query_row("SELECT id, name FROM groups WHERE name = ?1 COLLATE NOCASE", params![name], |row| Ok((row.get(0)?, row.get(1)?)))
+                .optional()
+                .map_err(Error::from)
+        })
+    }
+
+    /// Every group with the usernames of its members.
+    pub fn list_groups(&self) -> Result<Vec<artcraft_cloud_types::Group>, Error> {
+        self.with(|c| {
+            let mut stmt = c.prepare("SELECT id, name FROM groups ORDER BY name COLLATE NOCASE")?;
+            let groups = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))?.collect::<Result<Vec<_>, _>>()?;
+            let mut members = c.prepare(
+                "SELECT u.username FROM group_members m JOIN users u ON u.id = m.user_id WHERE m.group_id = ?1 ORDER BY u.username",
+            )?;
+            let mut out = Vec::new();
+            for (id, name) in groups {
+                let names = members.query_map(params![id], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?;
+                out.push(artcraft_cloud_types::Group { id, name, members: names });
+            }
+            Ok(out)
+        })
+    }
+
+    pub fn add_member(&self, group: i64, user: i64) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute("INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?1, ?2)", params![group, user])?;
+            Ok(())
+        })
+    }
+
+    pub fn remove_member(&self, group: i64, user: i64) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute("DELETE FROM group_members WHERE group_id = ?1 AND user_id = ?2", params![group, user])?;
+            Ok(())
+        })
+    }
+
+    pub fn setting(&self, user: i64, app: &str) -> Result<Option<String>, Error> {
+        self.with(|c| {
+            c.query_row("SELECT data FROM app_settings WHERE user_id = ?1 AND app = ?2", params![user, app], |row| row.get(0))
+                .optional()
+                .map_err(Error::from)
+        })
+    }
+
+    pub fn put_setting(&self, user: i64, app: &str, data: &str) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute(
+                "INSERT INTO app_settings (user_id, app, data, updated_at) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(user_id, app) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+                params![user, app, data, now_secs()],
+            )?;
+            Ok(())
         })
     }
 
@@ -482,6 +589,7 @@ fn map_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
         role: row.get(3)?,
         disabled: row.get::<_, i64>(4)? != 0,
         password_hash: row.get(5)?,
+        is_super: row.get::<_, i64>(6)? != 0,
     })
 }
 
@@ -513,10 +621,11 @@ fn meta_of(c: &Connection, owner: i64, path: &str) -> Result<Option<Meta>, Error
 fn share_select(filter: &str) -> String {
     format!(
         "SELECT s.id, s.owner_id, ou.username, s.path, s.grantee_id, gu.username, s.permission, s.token,
-                s.password_hash, s.expires_at
+                s.password_hash, s.expires_at, s.group_id, g.name
          FROM shares s
          JOIN users ou ON ou.id = s.owner_id
          LEFT JOIN users gu ON gu.id = s.grantee_id
+         LEFT JOIN groups g ON g.id = s.group_id
          WHERE {filter}"
     )
 }
@@ -540,6 +649,8 @@ fn map_share(row: &rusqlite::Row<'_>) -> rusqlite::Result<ShareRow> {
         token: row.get(7)?,
         password_hash: row.get(8)?,
         expires_at: row.get(9)?,
+        group_id: row.get(10)?,
+        group_name: row.get(11)?,
     })
 }
 
@@ -591,4 +702,82 @@ CREATE TABLE IF NOT EXISTS shares (
 );
 CREATE INDEX IF NOT EXISTS idx_shares_owner ON shares(owner_id);
 CREATE INDEX IF NOT EXISTS idx_shares_grantee ON shares(grantee_id);
+CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS group_members (
+    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (group_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_group_members_user ON group_members(user_id);
+CREATE TABLE IF NOT EXISTS app_settings (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    app TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, app)
+);
 "#;
+
+/// Columns added after the first release. `ALTER TABLE ... ADD COLUMN` is not idempotent in
+/// SQLite, so each one is added only when `table_info` does not list it yet.
+fn migrate(c: &Connection) -> Result<(), Error> {
+    if !has_column(c, "users", "is_super")? {
+        c.execute_batch("ALTER TABLE users ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0")?;
+    }
+    if !has_column(c, "shares", "group_id")? {
+        c.execute_batch("ALTER TABLE shares ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE")?;
+    }
+    c.execute_batch("CREATE INDEX IF NOT EXISTS idx_shares_group ON shares(group_id)")?;
+    ensure_super(c)
+}
+
+fn has_column(c: &Connection, table: &str, column: &str) -> Result<bool, Error> {
+    let mut stmt = c.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = stmt.query_map([], |row| row.get::<_, String>(1))?.collect::<Result<Vec<_>, _>>()?;
+    Ok(names.iter().any(|name| name == column))
+}
+
+/// The first admin is the super admin. Runs at start-up (existing installs) and after every new
+/// account (the bootstrap admin), and only ever picks one when there is none.
+fn ensure_super(c: &Connection) -> Result<(), Error> {
+    c.execute(
+        "UPDATE users SET is_super = 1
+         WHERE id = (SELECT MIN(id) FROM users WHERE role = 'admin')
+           AND NOT EXISTS (SELECT 1 FROM users WHERE is_super = 1)",
+        [],
+    )?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+
+    #[test]
+    fn an_existing_install_gets_a_super_admin_and_group_shares() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL,
+                     role TEXT NOT NULL CHECK (role IN ('admin', 'user')), disabled INTEGER NOT NULL DEFAULT 0, display_name TEXT NOT NULL, created_at INTEGER NOT NULL);
+                 CREATE TABLE shares (id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id), path TEXT NOT NULL, grantee_id INTEGER REFERENCES users(id),
+                     permission TEXT NOT NULL CHECK (permission IN ('view', 'edit')), token TEXT UNIQUE, password_hash TEXT, expires_at INTEGER, created_at INTEGER NOT NULL);
+                 INSERT INTO users VALUES (1, 'zed', 'h', 'user', 0, 'Zed', 0), (2, 'root', 'h', 'admin', 0, 'Root', 0), (3, 'second', 'h', 'admin', 0, 'Second', 0);",
+            )
+            .unwrap();
+        }
+        let db = Db::open(&path).unwrap();
+        let supers: Vec<String> = db.list_users().unwrap().into_iter().filter(|a| a.is_super).map(|a| a.username).collect();
+        assert_eq!(supers, vec!["root".to_string()], "the lowest-id admin becomes the super admin");
+        drop(db);
+        let db = Db::open(&path).unwrap();
+        assert_eq!(db.list_users().unwrap().iter().filter(|a| a.is_super).count(), 1, "opening again changes nothing");
+        assert!(db.shares_out(2).unwrap().is_empty());
+    }
+}

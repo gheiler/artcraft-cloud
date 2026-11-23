@@ -143,6 +143,9 @@ pub struct User {
     pub display_name: String,
     pub role: String,
     pub disabled: bool,
+    /// The main admin: the only account that can promote or demote admins.
+    #[serde(default)]
+    pub super_admin: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +236,9 @@ pub struct CreateShareRequest {
     pub password: Option<String>,
     /// Unix seconds. `None` means the link does not expire.
     pub expires_at: Option<i64>,
+    /// Name of a group to share with (instead of `grantee`).
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -247,6 +253,9 @@ pub struct Share {
     pub has_password: bool,
     pub expires_at: Option<i64>,
     pub is_dir: bool,
+    /// Set when the share is with a group rather than one person.
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -326,4 +335,56 @@ mod tests {
         assert_eq!(conflict_copy_name("dir/Report.docx", 2), "Report (copy 2).docx");
         assert_eq!(conflict_copy_name("README", 1), "README (copy)");
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SetRoleRequest {
+    /// `admin` or `user`.
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Group {
+    pub id: i64,
+    pub name: String,
+    /// Usernames of the members.
+    pub members: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CreateGroupRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GroupMemberRequest {
+    pub username: String,
+}
+
+/// Who a file can be shared with: every other enabled account, and every group.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct Directory {
+    pub users: Vec<DirectoryUser>,
+    pub groups: Vec<DirectoryGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DirectoryUser {
+    pub username: String,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DirectoryGroup {
+    pub name: String,
+    pub members: usize,
+}
+
+/// What `GET /api/files/kind` found out about a file from its content.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct FileKind {
+    /// App id that should open it, when the content says so (for example a LightCraft library backup zip).
+    pub app: Option<String>,
+    /// Short label of what the file is, for example `LightCraft library backup`.
+    pub label: Option<String>,
 }

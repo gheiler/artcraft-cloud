@@ -412,3 +412,159 @@ fn home_stays_on_disk() {
     assert!(Path::new(dir.path()).join("db.sqlite").is_file() || dir.path().join("db.sqlite").exists());
     let _ = boot;
 }
+
+fn req(method: &str, uri: &str, body: &str, cookie: Option<&str>) -> Request<Body> {
+    let mut req = Request::builder().method(method).uri(uri).body(Body::from(body.to_string())).unwrap();
+    if let Some(cookie) = cookie {
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+    }
+    req
+}
+
+async fn make_user(env: &Env, name: &str, role: &str) -> i64 {
+    let (status, _, body) = env
+        .call(req("POST", "/api/users", &format!(r#"{{"username":"{name}","password":"{name}-password","role":"{role}"}}"#), None))
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{}", String::from_utf8_lossy(&body));
+    json::<artcraft_cloud_types::User>(&body).id
+}
+
+#[tokio::test]
+async fn the_first_admin_is_super_and_alone_manages_admins() {
+    let env = Env::boot().await;
+    let (_, _, body) = env.call(req("GET", "/api/me", "", None)).await;
+    let me: artcraft_cloud_types::User = json(&body);
+    assert!(me.super_admin, "the bootstrap admin is the super admin");
+
+    let bob = make_user(&env, "bob", "admin").await;
+    let carol = make_user(&env, "carol", "user").await;
+    let dave = make_user(&env, "dave", "user").await;
+    let bob_cookie = env.login("bob", "bob-password").await;
+    let carol_cookie = env.login("carol", "carol-password").await;
+
+    // People list works for every admin, super or not (the People tab's first request).
+    let (status, _, body) = env.call(req("GET", "/api/users", "", Some(&bob_cookie))).await;
+    assert_eq!(status, StatusCode::OK);
+    let users: Vec<artcraft_cloud_types::User> = json(&body);
+    assert_eq!(users.len(), 4);
+    assert_eq!(users.iter().filter(|u| u.super_admin).count(), 1);
+    assert!(!users.iter().find(|u| u.username == "bob").unwrap().super_admin);
+
+    // A plain admin can create users but not admins, and cannot promote, demote or disable an admin.
+    let (status, _, _) = env.call(req("POST", "/api/users", r#"{"username":"erin","password":"erin-password","role":"user"}"#, Some(&bob_cookie))).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let (status, _, _) = env.call(req("POST", "/api/users", r#"{"username":"frank","password":"frank-password","role":"admin"}"#, Some(&bob_cookie))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = env.call(req("POST", &format!("/api/users/{carol}/role"), r#"{"role":"admin"}"#, Some(&bob_cookie))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = env.call(req("POST", &format!("/api/users/{}/role", me.id), r#"{"role":"user"}"#, Some(&bob_cookie))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = env.call(req("POST", &format!("/api/users/{}/disable", me.id), "", Some(&bob_cookie))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = env.call(req("POST", &format!("/api/users/{}/password", me.id), r#"{"password":"taken-over-123"}"#, Some(&bob_cookie))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // ...but can still disable a regular user.
+    let (status, _, _) = env.call(req("POST", &format!("/api/users/{dave}/disable"), "", Some(&bob_cookie))).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // A regular user can do none of it.
+    let (status, _, _) = env.call(req("POST", "/api/users", r#"{"username":"gus","password":"gus-password"}"#, Some(&carol_cookie))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = env.call(req("POST", &format!("/api/users/{carol}/role"), r#"{"role":"admin"}"#, Some(&carol_cookie))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // The super admin promotes and demotes.
+    let (status, _, body) = env.call(req("POST", &format!("/api/users/{carol}/role"), r#"{"role":"admin"}"#, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json::<artcraft_cloud_types::User>(&body).role, "admin");
+    let (status, _, _) = env.call(req("GET", "/api/users", "", Some(&carol_cookie))).await;
+    assert_eq!(status, StatusCode::OK, "the role change applies to the existing session");
+    let (status, _, body) = env.call(req("POST", &format!("/api/users/{bob}/role"), r#"{"role":"user"}"#, None)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json::<artcraft_cloud_types::User>(&body).role, "user");
+    let (status, _, _) = env.call(req("GET", "/api/users", "", Some(&bob_cookie))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = env.call(req("POST", &format!("/api/users/{carol}/role"), r#"{"role":"owner"}"#, None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // The super admin cannot be demoted or disabled, not even by itself.
+    let (status, _, _) = env.call(req("POST", &format!("/api/users/{}/role", me.id), r#"{"role":"user"}"#, None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = env.call(req("POST", &format!("/api/users/{}/disable", me.id), "", Some(&carol_cookie))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn groups_share_with_every_member() {
+    let env = Env::boot().await;
+    make_user(&env, "ann", "user").await;
+    make_user(&env, "ben", "user").await;
+    let ann = env.login("ann", "ann-password").await;
+    let ben = env.login("ben", "ben-password").await;
+
+    let (status, _, body) = env.call(req("POST", "/api/groups", r#"{"name":"Finance"}"#, None)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let group: artcraft_cloud_types::Group = json(&body);
+    let (status, _, _) = env.call(req("POST", "/api/groups", r#"{"name":"finance"}"#, None)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _, _) = env.call(req("POST", "/api/groups", r#"{"name":"Nope"}"#, Some(&ann))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "only admins manage groups");
+    let (status, _, _) = env.call(req("POST", &format!("/api/groups/{}/members", group.id), r#"{"username":"ann"}"#, None)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // Everyone can read the directory for the share picker; it leaves out the caller.
+    let (status, _, body) = env.call(req("GET", "/api/directory", "", Some(&ben))).await;
+    assert_eq!(status, StatusCode::OK);
+    let dir: artcraft_cloud_types::Directory = json(&body);
+    assert!(dir.users.iter().any(|u| u.username == "ann") && !dir.users.iter().any(|u| u.username == "ben"));
+    assert_eq!(dir.groups, vec![artcraft_cloud_types::DirectoryGroup { name: "Finance".into(), members: 1 }]);
+
+    let (status, _, _) = env.call(Request::builder().method("PUT").uri("/api/files/content?path=report.txt").body(Body::from("q4")).unwrap()).await;
+    assert!(status.is_success());
+    let (status, _, body) = env.call(req("POST", "/api/shares", r#"{"path":"report.txt","permission":"view","public":false,"group":"Finance"}"#, None)).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let share: artcraft_cloud_types::Share = json(&body);
+    assert_eq!(share.group.as_deref(), Some("Finance"));
+
+    let (_, _, body) = env.call(req("GET", "/api/shares?box=in", "", Some(&ann))).await;
+    let incoming: Vec<artcraft_cloud_types::Share> = json(&body);
+    assert_eq!(incoming.len(), 1, "a member sees the group share");
+    let (status, _, body) = env.call(req("GET", &format!("/api/shares/{}/content", share.id), "", Some(&ann))).await;
+    assert_eq!((status, body.as_slice()), (StatusCode::OK, b"q4".as_slice()));
+
+    let (_, _, body) = env.call(req("GET", "/api/shares?box=in", "", Some(&ben))).await;
+    assert!(json::<Vec<artcraft_cloud_types::Share>>(&body).is_empty());
+    let (status, _, _) = env.call(req("GET", &format!("/api/shares/{}/content", share.id), "", Some(&ben))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "a non-member cannot read it");
+
+    // Leaving the group ends the access.
+    let (status, _, _) = env.call(req("DELETE", &format!("/api/groups/{}/members/ann", group.id), "", None)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _, _) = env.call(req("GET", &format!("/api/shares/{}/content", share.id), "", Some(&ann))).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn app_settings_are_kept_per_user_and_app() {
+    let env = Env::boot().await;
+    make_user(&env, "ivy", "user").await;
+    let ivy = env.login("ivy", "ivy-password").await;
+    let (status, _, body) = env.call(req("GET", "/api/settings/wordcraft", "", None)).await;
+    assert_eq!((status, body.as_slice()), (StatusCode::OK, b"{}".as_slice()));
+    let prefs = r#"{"wordcraft.ui":"{\"author\":\"GH\"}"}"#;
+    let (status, _, _) = env.call(req("PUT", "/api/settings/wordcraft", prefs, None)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, _, body) = env.call(req("GET", "/api/settings/wordcraft", "", None)).await;
+    assert_eq!(json::<serde_json::Value>(&body)["wordcraft.ui"], "{\"author\":\"GH\"}");
+    let (_, _, body) = env.call(req("GET", "/api/settings/wordcraft", "", Some(&ivy))).await;
+    assert_eq!(body, b"{}", "settings are per user");
+    let (_, _, body) = env.call(req("GET", "/api/settings/gridcraft", "", None)).await;
+    assert_eq!(body, b"{}", "and per app");
+    let (status, _, _) = env.call(req("PUT", "/api/settings/notanapp", "{}", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = env.call(req("PUT", "/api/settings/gridcraft", "[1,2]", None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let big = format!(r#"{{"k":"{}"}}"#, "x".repeat(super::http::users::SETTINGS_LIMIT));
+    let (status, _, _) = env.call(req("PUT", "/api/settings/gridcraft", &big, None)).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+}

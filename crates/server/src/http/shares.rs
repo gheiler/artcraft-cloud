@@ -28,8 +28,33 @@ async fn create_share_inner(state: AppState, user: crate::db::Account, body: Cre
         return Err(Error::Invalid("expiry is already in the past".into()));
     }
     let grantee_named = body.grantee.as_deref().map(str::trim).filter(|s| !s.is_empty());
-    if body.public && grantee_named.is_some() {
+    let group_named = body.group.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    if body.public && (grantee_named.is_some() || group_named.is_some()) {
         return Err(Error::Invalid("a public link does not take a grantee".into()));
+    }
+    if grantee_named.is_some() && group_named.is_some() {
+        return Err(Error::Invalid("share with a person or a group, not both".into()));
+    }
+    if let Some(group_name) = group_named {
+        let (group_id, _) = state.db.group_by_name(group_name)?.ok_or_else(|| Error::Invalid("no such group".into()))?;
+        let id = match state.db.find_group_share(user.id, rel.as_str(), group_id)? {
+            Some(existing) => {
+                state.db.update_user_share(existing, &body.permission, body.expires_at)?;
+                existing
+            }
+            None => state.db.insert_share(crate::db::NewShare {
+                owner: user.id,
+                path: rel.as_str(),
+                grantee: None,
+                group: Some(group_id),
+                permission: &body.permission,
+                token: None,
+                password_hash: None,
+                expires_at: body.expires_at,
+            })?,
+        };
+        let row = state.db.share_by_id(id)?.ok_or(Error::NotFound)?;
+        return Ok(Json(to_share(&row, stat.is_dir, true)));
     }
     if !body.public && grantee_named.is_none() {
         return Err(Error::Invalid("name the person to share with, or make a public link".into()));
@@ -60,6 +85,7 @@ async fn create_share_inner(state: AppState, user: crate::db::Account, body: Cre
                 owner: user.id,
                 path: rel.as_str(),
                 grantee: Some(grantee_id),
+                group: None,
                 permission: &body.permission,
                 token: None,
                 password_hash: None,
@@ -71,6 +97,7 @@ async fn create_share_inner(state: AppState, user: crate::db::Account, body: Cre
             owner: user.id,
             path: rel.as_str(),
             grantee: None,
+            group: None,
             permission: &body.permission,
             token: token.as_deref(),
             password_hash: password_hash.as_deref(),
@@ -259,7 +286,11 @@ pub async fn public_write(
 
 fn load_grantee(state: &AppState, id: i64, user: i64) -> Result<ShareRow, ApiErrorCompat> {
     let row = state.db.share_by_id(id).map_err(ApiErrorCompat::from)?.ok_or(Error::NotFound).map_err(ApiErrorCompat::from)?;
-    if row.grantee_id != Some(user) && row.owner_id != user {
+    let via_group = match row.group_id {
+        Some(group) => state.db.in_group(user, group).map_err(ApiErrorCompat::from)?,
+        None => false,
+    };
+    if row.grantee_id != Some(user) && row.owner_id != user && !via_group {
         return Err(Error::Forbidden.into());
     }
     if row.expires_at.is_some_and(|when| when < now_secs()) {
@@ -369,6 +400,7 @@ fn to_share(row: &ShareRow, is_dir: bool, include_token: bool) -> Share {
         has_password: row.password_hash.is_some(),
         expires_at: row.expires_at,
         is_dir,
+        group: row.group_name.clone(),
     }
 }
 
