@@ -1,0 +1,6 @@
+/target
+/data
+**/*.rs.bk
+crates/shell/dist
+.DS_Store
+*.log

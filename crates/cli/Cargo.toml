@@ -1,0 +1,32 @@
+[package]
+name = "artcraft-cloud"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "artcraftCloud server and the apps update CLI"
+
+[[bin]]
+name = "artcraft-cloud"
+path = "src/main.rs"
+
+[dependencies]
+artcraft-cloud-server = { path = "../server" }
+artcraft-cloud-types = { path = "../types" }
+brotli = "8"
+clap = { version = "4", features = ["derive"] }
+flate2 = "1"
+fs2 = "0.4"
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json", "gzip"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3"
