@@ -8,7 +8,7 @@ tail="$(sed -n '/^# ---$/,$p' "$out")"
 {
   printf '%s\n---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: artcraft-cloud\n' "$head"
   helm template artcraft-cloud deploy/helm/artcraft-cloud --namespace artcraft-cloud \
-    | grep -v -E '^# Source:|helm.sh/chart:|app.kubernetes.io/managed-by:' \
+    | grep -v -E '^# Source:|helm.sh/chart:|app.kubernetes.io/managed-by:|^[[:space:]]*$' \
     | sed 's/^metadata:$/metadata:\n  namespace: artcraft-cloud/'
   printf '%s\n' "$tail"
 } > "$out.tmp"
