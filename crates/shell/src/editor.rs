@@ -157,8 +157,14 @@ pub fn install(editor: Editor) {
     on_leave.forget();
 }
 
+/// The live editor iframe. `<Show>` builds a new iframe for every file opened, and the node ref
+/// only reports the first one, so look it up in the document and keep the ref as a fallback.
 fn current_frame(editor: Editor) -> Option<HtmlIFrameElement> {
-    editor.frame.try_with_value(|frame| frame.clone()).flatten()
+    let live = web_sys::window()
+        .and_then(|window| window.document())
+        .and_then(|document| document.query_selector("section.editor iframe").ok().flatten())
+        .and_then(|element| element.dyn_into::<HtmlIFrameElement>().ok());
+    live.or_else(|| editor.frame.try_with_value(|frame| frame.clone()).flatten())
 }
 
 fn on_ready(editor: Editor, frame: &HtmlIFrameElement) {
