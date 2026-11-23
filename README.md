@@ -127,7 +127,9 @@ Measured on Linux x86_64 with the release binary (23 Nov 2026):
 | After a login | 8.1 MB |
 | Peak under load: 200 downloads of the 61 MB WordCraft wasm (32 at a time), 30 uploads of 20 MB, 20 logins, a WordCraft open/edit/save in Chrome | 52 MB (argon2 takes 19 MiB per login in flight) |
 | Settled after that load | 12 MB |
-| In the container, after the first-start download of all 8 apps and an end-to-end WordCraft save | 11.7 MB (peak 31 MB) |
+| In the container (rootless Podman, `--read-only`, 128 MB limit): idle | 7.8 MB |
+| In the container: during the first-start download of all 8 apps | 11.4 MB (peak 26 MB) |
+| In the container: after an end-to-end WordCraft open, edit and save | 8.6 MB (peak 28 MB) |
 
 Image: about 100 MB (Debian slim + gpg + a 9 MB binary). The drive UI is a 780 KB wasm file (250 KB gzipped).
 
