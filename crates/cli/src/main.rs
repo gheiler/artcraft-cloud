@@ -28,6 +28,36 @@ enum Command {
         #[command(subcommand)]
         cmd: UserCmd,
     },
+    /// Connect the Stalwart mail server (the same as Mail in the web UI).
+    Mail {
+        #[command(subcommand)]
+        cmd: MailCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum MailCmd {
+    /// Store the server's address and an API key. With --admin, the admin password is read from
+    /// standard input, used once to create an API key, and only the key is stored.
+    Connect {
+        /// Stalwart's HTTP address, e.g. http://stalwart:8080.
+        #[arg(long)]
+        url: String,
+        /// Read the API key from this environment variable.
+        #[arg(long, conflicts_with = "admin")]
+        api_key_env: Option<String>,
+        /// A Stalwart admin account (e.g. admin@example.com); the password comes on stdin.
+        #[arg(long)]
+        admin: Option<String>,
+        /// With --admin: store the admin login instead of creating an API key (not recommended).
+        #[arg(long, requires = "admin")]
+        keep_admin_login: bool,
+        /// The host name people put in other mail apps (default: the domain's MX).
+        #[arg(long, default_value = "")]
+        public_host: String,
+    },
+    /// Check that the stored credential can manage mailboxes.
+    Test,
 }
 
 #[derive(Subcommand)]
@@ -107,6 +137,59 @@ async fn run(command: Command) -> Result<(), String> {
             }
         },
         Command::User { cmd } => user_cmd(&config, cmd),
+        Command::Mail { cmd } => mail_cmd(&config, cmd).await,
+    }
+}
+
+async fn mail_cmd(config: &Config, cmd: MailCmd) -> Result<(), String> {
+    let boot = bootstrap(config).map_err(|err| err.to_string())?;
+    if let Some(password) = &boot.generated_admin_password {
+        print_generated_password(password);
+    }
+    match cmd {
+        MailCmd::Connect { url, api_key_env, admin, keep_admin_login, public_host } => {
+            let update = match (api_key_env, admin) {
+                (Some(var), None) => {
+                    let key = std::env::var(&var).map_err(|_| format!("{var} is not set"))?;
+                    artcraft_cloud_types::MailConfigUpdate { base_url: url, auth: "bearer".into(), secret: Some(key), public_host, ..Default::default() }
+                }
+                (None, Some(admin)) => {
+                    let mut password = String::new();
+                    std::io::stdin().read_line(&mut password).map_err(|err| err.to_string())?;
+                    let password = password.trim_end_matches(['\r', '\n']).to_string();
+                    if password.is_empty() {
+                        return Err("pipe the admin password on standard input".into());
+                    }
+                    artcraft_cloud_types::MailConfigUpdate {
+                        base_url: url,
+                        auth: "basic".into(),
+                        username: admin,
+                        secret: Some(password),
+                        create_api_key: !keep_admin_login,
+                        public_host,
+                    }
+                }
+                _ => return Err("pass --api-key-env VAR or --admin USER (password on stdin)".into()),
+            };
+            let stored = artcraft_cloud_server::mail_connect(&boot.state, update).await?;
+            println!("mail server {} stored ({})", stored.base_url, if stored.auth == "bearer" { "API key" } else { "admin login" });
+            let test = artcraft_cloud_server::mail_test(&boot.state).await?;
+            println!("{}", test.message);
+            if test.ok {
+                Ok(())
+            } else {
+                Err("the credential cannot manage mailboxes yet".into())
+            }
+        }
+        MailCmd::Test => {
+            let test = artcraft_cloud_server::mail_test(&boot.state).await?;
+            println!("{}", test.message);
+            if test.ok {
+                Ok(())
+            } else {
+                Err("not ready".into())
+            }
+        }
     }
 }
 

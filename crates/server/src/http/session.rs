@@ -45,6 +45,7 @@ pub async fn login(State(state): State<AppState>, Json(body): Json<LoginRequest>
     let token = random_token(32);
     state.db.insert_session(&token, account.id, state.config.session_ttl_secs).map_err(ApiError::from)?;
     state.store.ensure_home(account.id).map_err(ApiError::from)?;
+    super::mail::sync_after_login(&state, account.id, &body.password);
     let mut response = Json(account.public()).into_response();
     let cookie = session_cookie(&token, state.config.session_ttl_secs, state.config.cookie_is_secure());
     response.headers_mut().insert(header::SET_COOKIE, HeaderValue::from_str(&cookie).map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "cookie"))?);
@@ -87,7 +88,10 @@ pub async fn change_password(
     state.basic_cache.clear();
     let token = random_token(32);
     state.db.insert_session(&token, user.id, state.config.session_ttl_secs).map_err(ApiError::from)?;
-    let mut response = StatusCode::NO_CONTENT.into_response();
+    // The artcraftCloud password has changed; the mailbox follows (or is retried, and the
+    // answer says so).
+    let mail = super::mail::sync_password(&state, user.id, &body.next).await;
+    let mut response = Json(mail).into_response();
     let cookie = session_cookie(&token, state.config.session_ttl_secs, state.config.cookie_is_secure());
     response.headers_mut().insert(header::SET_COOKIE, HeaderValue::from_str(&cookie).map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "cookie"))?);
     Ok(response)

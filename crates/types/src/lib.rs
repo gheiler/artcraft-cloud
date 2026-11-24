@@ -199,6 +199,10 @@ pub struct User {
     /// A mailbox on the configured mail server is linked to this user.
     #[serde(default)]
     pub mailbox: bool,
+    /// Whether the mailbox's password is the user's artcraftCloud password: `synced`,
+    /// `pending` (set at their next sign-in or password change) or `failed`. Empty without a mailbox.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub mail_sync: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,6 +251,9 @@ pub struct MailConfig {
     /// A base URL from the environment (`ARTCRAFT_MAIL_URL`) to offer when none is set.
     #[serde(default)]
     pub suggested_url: String,
+    /// The mail host name people put in other mail apps (IMAP/SMTP); empty: the domain's MX.
+    #[serde(default)]
+    pub public_host: String,
 }
 
 /// `PUT /api/mail/config`.
@@ -259,6 +266,12 @@ pub struct MailConfigUpdate {
     /// New password or API key; `None` or empty keeps the stored one.
     #[serde(default)]
     pub secret: Option<String>,
+    /// With `basic`: use the admin login once to create an API key for artcraftCloud, and store
+    /// only the key.
+    #[serde(default)]
+    pub create_api_key: bool,
+    #[serde(default)]
+    pub public_host: String,
 }
 
 /// `POST /api/mail/test`.
@@ -334,6 +347,38 @@ pub struct UserMail {
     /// The email's domain is one the mail server serves.
     #[serde(default)]
     pub domain_served: bool,
+    /// `synced`, `pending` or `failed` (see [`User::mail_sync`]); empty without a mailbox.
+    #[serde(default)]
+    pub password_sync: String,
+    /// Why the last update of the mailbox password failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_error: Option<String>,
+    /// How to set up another mail app (only in `GET /api/mail/me`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client: Option<MailClient>,
+}
+
+/// IMAP/SMTP settings for other mail apps. The password is the artcraftCloud password.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MailClient {
+    /// Empty when the server cannot tell (no MX, no public host set).
+    pub host: String,
+    pub username: String,
+    /// IMAP over TLS.
+    pub imap_port: u16,
+    /// SMTP submission over TLS.
+    pub smtp_port: u16,
+    /// SMTP submission with STARTTLS.
+    pub smtp_starttls_port: u16,
+}
+
+/// `POST /api/me/password` and `POST /api/users/{id}/password`: what happened to the mailbox.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PasswordChanged {
+    /// `none` (no mailbox), `synced` or `failed`.
+    pub mail: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

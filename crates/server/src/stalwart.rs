@@ -1,6 +1,7 @@
-//! A small client for Stalwart's management API (Stalwart 0.16 and later: JMAP methods
-//! `x:Domain/*` and `x:Account/*` on `/jmap/`, plus `GET /api/account`). artcraftCloud only lists
-//! and adds domains, and creates or deletes the mailboxes of its users.
+//! A small client for Stalwart's management API (Stalwart 1.x: JMAP methods `x:Domain/*`,
+//! `x:Account/*`, `x:AppPassword/*` and `x:ApiKey/*` on `/jmap/`, plus `GET /api/account`).
+//! artcraftCloud lists and adds domains, creates or deletes its users' mailboxes, sets their
+//! passwords, and gives each one an app password for its JMAP proxy.
 
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -64,7 +65,10 @@ impl Stalwart {
 
     /// Run JMAP method calls; returns each response as `(name, arguments)`.
     async fn jmap(&self, calls: Value) -> Result<Vec<(String, Value)>, String> {
-        let body = json!({ "using": USING, "methodCalls": calls });
+        self.jmap_body(json!({ "using": USING, "methodCalls": calls })).await
+    }
+
+    async fn jmap_body(&self, body: Value) -> Result<Vec<(String, Value)>, String> {
         let response = self.request(reqwest::Method::POST, "/jmap/").json(&body).send().await.map_err(reach)?;
         let status = response.status();
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
@@ -114,10 +118,10 @@ impl Stalwart {
         if permissions.contains(&"sysBootstrapUpdate") && !permissions.contains(&"sysDomainGet") {
             return MailTest { ok: false, message: "Stalwart is still in setup mode: finish its setup at /admin first".into(), edition, can_manage: false };
         }
-        let needed = ["sysDomainGet", "sysDomainQuery", "sysDomainCreate", "sysAccountGet", "sysAccountQuery", "sysAccountCreate", "sysAccountDestroy"];
+        let needed = NEEDED;
         let missing: Vec<&str> = needed.iter().copied().filter(|p| !permissions.contains(p)).collect();
         if missing.is_empty() {
-            MailTest { ok: true, message: "The credential can manage domains and accounts.".into(), edition, can_manage: true }
+            MailTest { ok: true, message: "The credential can manage domains, mailboxes and their passwords.".into(), edition, can_manage: true }
         } else {
             MailTest { ok: false, message: format!("Connected, but the credential lacks {}", missing.join(", ")), edition, can_manage: false }
         }
@@ -183,6 +187,61 @@ impl Stalwart {
         created(&responses, "x:Account/set", "u")
     }
 
+    /// Make `password` the account's sign-in password (IMAP, SMTP, JMAP, the web UI).
+    pub async fn set_password(&self, account_id: &str, password: &str) -> Result<(), String> {
+        let responses = self.jmap(json!([["x:Account/get", {"ids": [account_id], "properties": ["credentials"]}, "g"]])).await?;
+        let account = responses
+            .iter()
+            .find(|(name, _)| name == "x:Account/get")
+            .and_then(|(_, args)| args.get("list"))
+            .and_then(Value::as_array)
+            .and_then(|list| list.first())
+            .ok_or("the mailbox is not on the mail server any more")?;
+        // Credentials are a map; the password is the entry of type Password (app passwords sit
+        // beside it and are kept).
+        let key = account
+            .get("credentials")
+            .and_then(Value::as_object)
+            .and_then(|map| map.iter().find(|(_, c)| c.get("@type").and_then(Value::as_str) == Some("Password")).map(|(k, _)| k.clone()));
+        let patch = match key {
+            Some(key) => json!({ format!("credentials/{key}/secret"): password }),
+            None => json!({ "credentials/p": {"@type": "Password", "secret": password} }),
+        };
+        let responses = self.jmap(json!([["x:Account/set", {"update": {account_id: patch}}, "s"]])).await?;
+        let args = responses.iter().find(|(name, _)| name == "x:Account/set").map(|(_, args)| args).ok_or("no answer from the mail server")?;
+        if let Some(err) = args.get("notUpdated").and_then(|m| m.get(account_id)) {
+            return Err(set_error(err));
+        }
+        Ok(())
+    }
+
+    /// A new app password of the account (needs `impersonate` and `sysAppPasswordCreate`):
+    /// `(credential id, secret)`. The server shows the secret only now.
+    pub async fn create_app_password(&self, account_id: &str, description: &str) -> Result<(String, String), String> {
+        let body = json!({
+            "using": USING,
+            "methodCalls": [["x:AppPassword/set", {"accountId": account_id, "create": {"p": {"description": description, "permissions": {"@type": "Inherit"}, "allowedIps": {}}}}, "s"]],
+        });
+        let responses = self.jmap_body(body).await?;
+        created_secret(&responses, "x:AppPassword/set", "p")
+    }
+
+    pub async fn destroy_app_password(&self, account_id: &str, id: &str) -> Result<(), String> {
+        let body = json!({ "using": USING, "methodCalls": [["x:AppPassword/set", {"accountId": account_id, "destroy": [id]}, "s"]] });
+        let responses = self.jmap_body(body).await?;
+        let args = responses.iter().find(|(name, _)| name == "x:AppPassword/set").map(|(_, args)| args).ok_or("no answer")?;
+        match args.get("notDestroyed").and_then(|m| m.get(id)) {
+            Some(err) if err.get("type").and_then(Value::as_str) != Some("notFound") => Err(set_error(err)),
+            _ => Ok(()),
+        }
+    }
+
+    /// An API key on the signed-in (admin) account, with that account's permissions.
+    pub async fn create_api_key(&self, description: &str) -> Result<String, String> {
+        let responses = self.jmap(json!([["x:ApiKey/set", {"create": {"k": {"description": description, "permissions": {"@type": "Inherit"}, "allowedIps": {}}}}, "s"]])).await?;
+        created_secret(&responses, "x:ApiKey/set", "k").map(|(_, secret)| secret)
+    }
+
     pub async fn destroy_account(&self, id: &str) -> Result<(), String> {
         let responses = self.jmap(json!([["x:Account/set", {"destroy": [id]}, "s"]])).await?;
         let args = responses.iter().find(|(name, _)| name == "x:Account/set").map(|(_, args)| args).ok_or("no answer")?;
@@ -194,6 +253,31 @@ impl Stalwart {
         }
         Ok(())
     }
+}
+
+/// What the credential artcraftCloud uses must be allowed to do.
+pub const NEEDED: [&str; 11] = [
+    "sysDomainGet",
+    "sysDomainQuery",
+    "sysDomainCreate",
+    "sysAccountGet",
+    "sysAccountQuery",
+    "sysAccountCreate",
+    "sysAccountUpdate",
+    "sysAccountDestroy",
+    "impersonate",
+    "sysAppPasswordCreate",
+    "sysAppPasswordDestroy",
+];
+
+fn created_secret(responses: &[(String, Value)], method: &str, key: &str) -> Result<(String, String), String> {
+    let args = responses.iter().find(|(name, _)| name == method).map(|(_, args)| args).ok_or("no answer from the mail server")?;
+    if let Some(made) = args.get("created").and_then(|m| m.get(key)) {
+        let id = made.get("id").and_then(Value::as_str).unwrap_or_default().to_string();
+        let secret = made.get("secret").and_then(Value::as_str).filter(|s| !s.is_empty()).ok_or("the mail server returned no secret")?;
+        return Ok((id, secret.to_string()));
+    }
+    Err(args.get("notCreated").and_then(|m| m.get(key)).map(set_error).unwrap_or_else(|| "the mail server created nothing".into()))
 }
 
 fn reach(err: reqwest::Error) -> String {

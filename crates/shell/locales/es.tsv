@@ -1,5 +1,7 @@
 # artcraftCloud shell, es: English<TAB>translation. Keep {placeholders}.
 API key	Clave de API
+API key (recommended)	Clave de API (recomendado)
+API key created and stored. The admin password was not kept.	Clave de API creada y guardada. La contraseña de administrador no se conservó.
 Account	Cuenta
 Accounts	Cuentas
 Actions	Acciones
@@ -12,8 +14,9 @@ Add people or groups	Añadir personas o grupos
 Address to confirm	Dirección para confirmar
 Admin	Administrador
 Admin account	Cuenta de administrador
+Admin account (fallback)	Cuenta de administrador (alternativa)
 All	Todos
-An API key, or an administrator account of the mail server.	Una clave de API o una cuenta de administrador del servidor de correo.
+An API key from Stalwart (Account › Credentials › API Keys) is recommended. An admin login also works, and can make the key for you.	Se recomienda una clave de API de Stalwart (Cuenta › Credenciales › Claves de API). Un inicio de sesión de administrador también sirve y puede crear la clave por ti.
 Animations	Animaciones
 Anyone with the link	Cualquiera con el enlace
 Anyone with the link can edit	Cualquiera con el enlace puede editar
@@ -21,6 +24,7 @@ Anyone with the link can view	Cualquiera con el enlace puede ver
 App	Aplicación
 Appearance	Apariencia
 Applies to	Se aplica a
+Ask your administrator	Pregunta a tu administrador
 At least 10 characters. Your other sessions are signed out.	Al menos 10 caracteres. Se cerrarán tus otras sesiones.
 Autosave	Guardado automático
 Autosaving…	Guardando automáticamente…
@@ -36,7 +40,7 @@ Collapse	Contraer
 Collapse or expand	Contraer o expandir
 Collapse sidebar	Contraer la barra lateral
 Confirm new password	Confirmar nueva contraseña
-Connect a Stalwart mail server. People whose email address is on one of its domains can get a mailbox there, and MailCraft opens it for them without asking for a password.	Conecta un servidor de correo Stalwart. Las personas cuya dirección de correo esté en uno de sus dominios pueden tener allí un buzón, y MailCraft se lo abre sin pedir contraseña.
+Connect a Stalwart mail server. People whose email address is on one of its domains can get a mailbox there. MailCraft opens it without asking for a password, and other mail apps sign in with the address and the artcraftCloud password.	Conecta un servidor de correo Stalwart. Las personas cuya dirección esté en uno de sus dominios pueden tener allí un buzón. MailCraft lo abre sin pedir contraseña, y otras apps de correo inician sesión con la dirección y la contraseña de artcraftCloud.
 Connect a mail server first.	Conecta primero un servidor de correo.
 Connected.	Conectado.
 Copied.	Copiado.
@@ -93,7 +97,7 @@ Folder name	Nombre de la carpeta
 For rulers, margins and sizes.	Para reglas, márgenes y tamaños.
 From this device…	Desde este dispositivo…
 Full name (optional)	Nombre completo (opcional)
-Give someone an email address in People. When its domain is on this server, artcraftCloud can create the mailbox with a long random password it keeps sealed; the person never needs it, because MailCraft is let in through this server. Disabling a person keeps the mailbox but locks MailCraft out; removing a mailbox unlinks it unless you choose to delete it.	Da a alguien una dirección de correo en Personas. Si su dominio está en este servidor, artcraftCloud puede crear el buzón con una contraseña aleatoria larga que guarda cifrada; la persona nunca la necesita, porque MailCraft entra a través de este servidor. Desactivar a una persona conserva el buzón pero bloquea MailCraft; quitar un buzón lo desvincula, salvo que elijas eliminarlo.
+Give someone an email address in People. When its domain is on this server, artcraftCloud creates the mailbox with the person's artcraftCloud password, so they can use other mail apps too, and changes it whenever they change theirs. MailCraft gets in with a separate app password that this server keeps sealed. Disabling a person locks MailCraft out (suspend the account in Stalwart to stop other apps too); removing a mailbox unlinks it unless you choose to delete it.	Asigna a alguien una dirección de correo en Personas. Si su dominio está en este servidor, artcraftCloud crea el buzón con la contraseña de artcraftCloud de esa persona, para que también pueda usar otras apps de correo, y la cambia cada vez que cambie la suya. MailCraft entra con una contraseña de aplicación aparte que este servidor guarda sellada. Desactivar a una persona bloquea MailCraft (suspende la cuenta en Stalwart para detener también otras apps); quitar un buzón lo desvincula salvo que elijas eliminarlo.
 Group {group}	Grupo {group}
 Group · 1 member	Grupo · 1 miembro
 Group · {count} members	Grupo · {count} miembros
@@ -101,6 +105,7 @@ Groups	Grupos
 Handed off from the previous app.	Recibido de la aplicación anterior.
 Has a mailbox on the mail server	Tiene un buzón en el servidor de correo
 Inches	Pulgadas
+Incoming (IMAP)	Entrante (IMAP)
 Initials	Iniciales
 Interface language	Idioma de la interfaz
 Language	Idioma
@@ -112,6 +117,7 @@ Link permission	Permiso del enlace
 Links	Enlaces
 Loading	Cargando
 Mail	Correo
+Mail host for other apps	Servidor de correo para otras apps
 Mail server	Servidor de correo
 Mail server saved.	Servidor de correo guardado.
 MailCraft opens this mailbox for them. To change the address, unlink the mailbox first.	MailCraft abre este buzón para esa persona. Para cambiar la dirección, desvincula primero el buzón.
@@ -167,10 +173,16 @@ Open with…	Abrir con…
 Open {app}	Abrir {app}
 Open {name} with	Abrir {name} con
 Opening…	Abriendo…
+Other mail apps	Otras apps de correo
+Outgoing (SMTP)	Saliente (SMTP)
 Password	Contraseña
 Password (10+ characters)	Contraseña (10+ caracteres)
 Password (at least 10 characters)	Contraseña (al menos 10 caracteres)
 Password (optional)	Contraseña (opcional)
+Password changed for artcraftCloud and the mailbox. Their sessions were signed out.	Contraseña cambiada en artcraftCloud y en el buzón. Se cerraron sus sesiones.
+Password changed for artcraftCloud and your mailbox. You were signed out everywhere else.	Contraseña cambiada en artcraftCloud y en tu buzón. Se cerró tu sesión en todos los demás sitios.
+Password changed for artcraftCloud, but not yet for your mailbox. See Other mail apps below.	Contraseña cambiada en artcraftCloud, pero aún no en tu buzón. Consulta Otras apps de correo más abajo.
+Password changed, but the mail server did not take it yet ({error}). Their mailbox keeps the old password until artcraftCloud's retry gets through.	Contraseña cambiada, pero el servidor de correo aún no la aceptó ({error}). Su buzón conserva la contraseña anterior hasta que el reintento de artcraftCloud lo consiga.
 Password changed. Their sessions were signed out.	Contraseña cambiada. Se cerraron sus sesiones.
 Password changed. You were signed out everywhere else.	Contraseña cambiada. Se cerró tu sesión en todos los demás sitios.
 People	Personas
@@ -199,6 +211,7 @@ Save into {folder}	Guardar en {folder}
 Saved {candidate}.	Se guardó {candidate}.
 Saved.	Guardado.
 Saved. Each app uses it the next time it opens.	Guardado. Cada aplicación lo usará la próxima vez que se abra.
+Server	Servidor
 Server address	Dirección del servidor
 Set password	Establecer contraseña
 Settings	Configuración
@@ -230,15 +243,18 @@ Testing…	Probando…
 That app	Esa aplicación
 The account name, e.g. admin or admin@example.com.	El nombre de la cuenta, p. ej. admin o admin@example.com.
 The account was created, but the mail server did not create the mailbox. Try again from Email.	Se creó la cuenta, pero el servidor de correo no creó el buzón. Inténtalo de nuevo desde Correo.
+The admin password is then kept on this server (encrypted). An API key can be revoked on its own without changing the admin password.	En ese caso la contraseña de administrador se guarda (cifrada) en este servidor. Una clave de API se puede revocar por separado sin cambiar la contraseña de administrador.
 The app sent a save with no bytes.	La aplicación envió un guardado sin datos.
 The current password is not right.	La contraseña actual no es correcta.
 The drive and the apps that have this language use it.	El drive y las aplicaciones que tienen este idioma lo usan.
 The drive is not translated into this language yet and shows English; the apps that have it use it.	El drive aún no está traducido a este idioma y se muestra en inglés; las aplicaciones que lo tienen lo usan.
 The mail server does not serve this domain, so only the address is kept.	El servidor de correo no atiende este dominio, así que solo se guarda la dirección.
 The mail server has no domains yet. Add the one your addresses end in.	El servidor de correo aún no tiene dominios. Añade aquel en el que terminan tus direcciones.
+The mailbox still has a generated password. It becomes their artcraftCloud password at their next sign-in or password change; until then other mail apps cannot sign in.	El buzón aún tiene una contraseña generada. Pasa a ser su contraseña de artcraftCloud en su próximo inicio de sesión o cambio de contraseña; hasta entonces otras apps de correo no pueden iniciar sesión.
 The new password is the same as the current one.	La nueva contraseña es igual a la actual.
 The new passwords do not match.	Las nuevas contraseñas no coinciden.
 The trash is empty.	La papelera está vacía.
+Their last password change did not reach the mail server. artcraftCloud retries every few minutes and at their next sign-in.	Su último cambio de contraseña no llegó al servidor de correo. artcraftCloud lo reintenta cada pocos minutos y en su próximo inicio de sesión.
 Theme	Tema
 These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.	Esta configuración es tuya en cualquier navegador. Cada cambio se escribe en las opciones de cada aplicación y se aplica la próxima vez que se abra.
 This cannot be undone.	No se puede deshacer.
@@ -256,17 +272,28 @@ Unsaved changes	Cambios sin guardar
 Up one folder	Subir una carpeta
 Upload	Subir
 Use it	Usarla
+Use this login once to create an API key, and store only the key (recommended)	Usar este inicio de sesión una vez para crear una clave de API y guardar solo la clave (recomendado)
+Used once to create the API key, then forgotten.	Se usa una vez para crear la clave de API y luego se olvida.
 User	Usuario
 Username	Nombre de usuario
 Value	Valor
 View only — the file was not stored.	Solo lectura: el archivo no se guardó.
+What people enter as IMAP and SMTP server in other mail apps. Leave empty to use the MX host of their domain.	Lo que las personas escriben como servidor IMAP y SMTP en otras apps de correo. Déjalo vacío para usar el host MX de su dominio.
 You can restore it from the trash later.	Podrás restaurarlo desde la papelera más tarde.
 You have not shared anything yet.	Todavía no has compartido nada.
+Your artcraftCloud password	Tu contraseña de artcraftCloud
 Your files	Tus archivos
 Your files, in the Crafting Apps.	Tus archivos, en las Crafting Apps.
+Your last password change has not reached the mail server yet ({error}). Other mail apps still use your previous password; artcraftCloud keeps retrying every few minutes and at your next sign-in.	Tu último cambio de contraseña aún no llegó al servidor de correo ({error}). Otras apps de correo siguen usando tu contraseña anterior; artcraftCloud lo reintenta cada pocos minutos y en tu próximo inicio de sesión.
 Your latest changes to this document have not been saved to the drive.	Tus últimos cambios en este documento no se han guardado en el drive.
+Your mailbox gets your artcraftCloud password the next time you sign in or change it. Until then other mail apps cannot sign in; MailCraft works already.	Tu buzón recibirá tu contraseña de artcraftCloud la próxima vez que inicies sesión o la cambies. Hasta entonces otras apps de correo no pueden iniciar sesión; MailCraft ya funciona.
+Your mailbox works in any IMAP mail app (Thunderbird, Apple Mail, Outlook, phones) with your email address and your artcraftCloud password.	Tu buzón funciona en cualquier app de correo IMAP (Thunderbird, Apple Mail, Outlook, móviles) con tu dirección y tu contraseña de artcraftCloud.
 Your name in documents	Tu nombre en los documentos
+mail password at next sign-in	contraseña de correo en el próximo inicio
+mail password not updated	contraseña de correo sin actualizar
 password	contraseña
+port {port}, SSL/TLS	puerto {port}, SSL/TLS
+port {port}, SSL/TLS (or {starttls} with STARTTLS)	puerto {port}, SSL/TLS (o {starttls} con STARTTLS)
 {app} is still downloading	{app} todavía se está descargando
 {count} DNS records	{count} registros DNS
 {count} optional records (autoconfig, SRV, MTA-STS…)	{count} registros opcionales (autoconfig, SRV, MTA-STS…)

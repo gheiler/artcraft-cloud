@@ -4,7 +4,9 @@
 //! The server keeps the admin credential and every mailbox password sealed; none of them reaches
 //! this page. MailCraft gets a short-lived token instead (`/api/mail/mailcraft.js`).
 
-use artcraft_cloud_types::{MailConfig, MailDomain, MailTest, User, UserMail};
+use artcraft_cloud_types::{
+    MailClient, MailConfig, MailDomain, MailTest, PasswordChanged, User, UserMail,
+};
 use leptos::prelude::*;
 
 use crate::api;
@@ -36,7 +38,9 @@ pub fn MailPage() -> impl IntoView {
     let ui = ui();
     let config = RwSignal::new(MailConfig::default());
     let base_url = RwSignal::new(String::new());
-    let auth = RwSignal::new(String::from("basic"));
+    let auth = RwSignal::new(String::from("bearer"));
+    let create_key = RwSignal::new(true);
+    let public_host = RwSignal::new(String::new());
     let username = RwSignal::new(String::new());
     let secret = RwSignal::new(String::new());
     let test = RwSignal::new(None::<MailTest>);
@@ -65,8 +69,9 @@ pub fn MailPage() -> impl IntoView {
             match api::get_json::<MailConfig>("/api/mail/config").await {
                 Ok(c) => {
                     let _ = base_url.try_set(c.base_url.clone());
+                    let _ = public_host.try_set(c.public_host.clone());
                     let _ = auth.try_set(if c.auth.is_empty() {
-                        "basic".into()
+                        "bearer".into()
                     } else {
                         c.auth.clone()
                     });
@@ -108,12 +113,21 @@ pub fn MailPage() -> impl IntoView {
             "auth": auth.get_untracked(),
             "username": username.get_untracked().trim(),
             "secret": Some(secret.get_untracked()).filter(|s| !s.is_empty()),
+            "create_api_key": auth.get_untracked() == "basic" && create_key.get_untracked(),
+            "public_host": public_host.get_untracked().trim(),
         });
+        let made_key = auth.get_untracked() == "basic" && create_key.get_untracked();
         wasm_bindgen_futures::spawn_local(async move {
             match api::json::<MailConfig>("PUT", "/api/mail/config", &body).await {
-                Ok(_) => {
+                Ok(saved) => {
                     let _ = secret.try_set(String::new());
-                    ui.say(t("Mail server saved."));
+                    if made_key && saved.auth == "bearer" {
+                        ui.say(t(
+                            "API key created and stored. The admin password was not kept.",
+                        ));
+                    } else {
+                        ui.say(t("Mail server saved."));
+                    }
                     let _ = tick.try_update(|n| *n += 1);
                     run_test();
                 }
@@ -157,11 +171,13 @@ pub fn MailPage() -> impl IntoView {
         });
     };
     let configured = move || config.with(|c| !c.base_url.is_empty());
+    // A stored secret counts only for the sign-in kind it was saved with.
+    let stored = move || config.with(|c| c.has_secret && c.auth == auth.get());
     let suggested = move || config.with(|c| c.suggested_url.clone());
     view! {
         <section class="drive settings-page mail-page">
             <header class="toolbar"><nav class="crumbs"><span class="crumb">{t("Mail")}</span></nav></header>
-            <p class="muted intro">{t("Connect a Stalwart mail server. People whose email address is on one of its domains can get a mailbox there, and MailCraft opens it for them without asking for a password.")}</p>
+            <p class="muted intro">{t("Connect a Stalwart mail server. People whose email address is on one of its domains can get a mailbox there. MailCraft opens it without asking for a password, and other mail apps sign in with the address and the artcraftCloud password.")}</p>
 
             <form class="card settings-card" on:submit=save>
                 <h2>{t("Mail server")}</h2>
@@ -177,10 +193,10 @@ pub fn MailPage() -> impl IntoView {
                     </div>
                 </Show>
                 <div class="setting">
-                    <div class="setting-text"><strong>{t("Sign in with")}</strong><span class="muted">{t("An API key, or an administrator account of the mail server.")}</span></div>
+                    <div class="setting-text"><strong>{t("Sign in with")}</strong><span class="muted">{t("An API key from Stalwart (Account › Credentials › API Keys) is recommended. An admin login also works, and can make the key for you.")}</span></div>
                     <select class="field narrow" aria-label=t("Sign in with") on:change=move |ev| auth.set(event_target_value(&ev))>
-                        <option value="basic" prop:selected=move || auth.get() == "basic">{t("Admin account")}</option>
-                        <option value="bearer" prop:selected=move || auth.get() == "bearer">{t("API key")}</option>
+                        <option value="bearer" prop:selected=move || auth.get() == "bearer">{t("API key (recommended)")}</option>
+                        <option value="basic" prop:selected=move || auth.get() == "basic">{t("Admin account (fallback)")}</option>
                     </select>
                 </div>
                 <Show when=move || auth.get() == "basic">
@@ -188,22 +204,33 @@ pub fn MailPage() -> impl IntoView {
                         <div class="setting-text"><strong>{t("Admin account")}</strong><span class="muted">{t("The account name, e.g. admin or admin@example.com.")}</span></div>
                         <input class="field" autocomplete="off" required prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) />
                     </div>
+                    <label class="check key-check">
+                        <input type="checkbox" prop:checked=move || create_key.get() on:change=move |ev| create_key.set(event_target_checked(&ev)) />
+                        <span>{t("Use this login once to create an API key, and store only the key (recommended)")}</span>
+                    </label>
+                    <Show when=move || !create_key.get()>
+                        <p class="muted fallback-note">{t("The admin password is then kept on this server (encrypted). An API key can be revoked on its own without changing the admin password.")}</p>
+                    </Show>
                 </Show>
                 <div class="setting">
                     <div class="setting-text">
                         <strong>{move || if auth.get() == "basic" { t("Password") } else { t("API key") }}</strong>
-                        <span class="muted">{move || if config.with(|c| c.has_secret) { t("Stored encrypted and never shown. Leave empty to keep it.") } else { t("Stored encrypted on this server and never shown again.") }}</span>
+                        <span class="muted">{move || if auth.get() == "basic" && create_key.get() { t("Used once to create the API key, then forgotten.") } else if stored() { t("Stored encrypted and never shown. Leave empty to keep it.") } else { t("Stored encrypted on this server and never shown again.") }}</span>
                     </div>
                     <input class="field" type="password" autocomplete="new-password"
-                        placeholder=move || if config.with(|c| c.has_secret) { "••••••••••" } else { "" }
+                        placeholder=move || if stored() { "••••••••••" } else { "" }
                         prop:value=move || secret.get() on:input=move |ev| secret.set(event_target_value(&ev)) />
+                </div>
+                <div class="setting">
+                    <div class="setting-text"><strong>{t("Mail host for other apps")}</strong><span class="muted">{t("What people enter as IMAP and SMTP server in other mail apps. Leave empty to use the MX host of their domain.")}</span></div>
+                    <input class="field" autocomplete="off" placeholder="mail.example.com" prop:value=move || public_host.get() on:input=move |ev| public_host.set(event_target_value(&ev)) />
                 </div>
                 <div class="form-actions">
                     <Show when=configured>
                         <button type="button" class="button danger" on:click=disconnect>{t("Disconnect")}</button>
                         <button type="button" class="button" disabled=move || testing.get() on:click=move |_| run_test()>{move || if testing.get() { t("Testing…") } else { t("Test connection") }}</button>
                     </Show>
-                    <button type="submit" class="button primary" disabled=move || base_url.get().trim().is_empty() || (!config.with(|c| c.has_secret) && secret.get().is_empty())>{t("Save")}</button>
+                    <button type="submit" class="button primary" disabled=move || base_url.get().trim().is_empty() || (!stored() && secret.get().is_empty())>{t("Save")}</button>
                 </div>
                 {move || test.get().map(|result| view! {
                     <p class="test-result" class:ok=result.ok class:bad=!result.ok role="status">
@@ -243,7 +270,7 @@ pub fn MailPage() -> impl IntoView {
 
             <section class="card settings-card">
                 <h2>{t("Mailboxes")}</h2>
-                <p class="muted">{t("Give someone an email address in People. When its domain is on this server, artcraftCloud can create the mailbox with a long random password it keeps sealed; the person never needs it, because MailCraft is let in through this server. Disabling a person keeps the mailbox but locks MailCraft out; removing a mailbox unlinks it unless you choose to delete it.")}</p>
+                <p class="muted">{t("Give someone an email address in People. When its domain is on this server, artcraftCloud creates the mailbox with the person's artcraftCloud password, so they can use other mail apps too, and changes it whenever they change theirs. MailCraft gets in with a separate app password that this server keeps sealed. Disabling a person locks MailCraft out (suspend the account in Stalwart to stop other apps too); removing a mailbox unlinks it unless you choose to delete it.")}</p>
                 <button type="button" class="button" on:click=move |_| ui.go(Route::People)>{icon(Icon::People)}<span>{t("Open People")}</span></button>
             </section>
         </section>
@@ -411,11 +438,14 @@ pub fn AccountCard() -> impl IntoView {
     let busy = RwSignal::new(false);
     let error = RwSignal::new(String::new());
     let mail = RwSignal::new(None::<UserMail>);
-    wasm_bindgen_futures::spawn_local(async move {
-        if let Ok(me) = api::get_json::<UserMail>("/api/mail/me").await {
-            let _ = mail.try_set(Some(me));
-        }
-    });
+    let load = move || {
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Ok(me) = api::get_json::<UserMail>("/api/mail/me").await {
+                let _ = mail.try_set(Some(me));
+            }
+        })
+    };
+    load();
     let user = move || {
         ui.user
             .get()
@@ -433,14 +463,19 @@ pub fn AccountCard() -> impl IntoView {
         let _ = busy.try_set(true);
         let _ = error.try_set(String::new());
         wasm_bindgen_futures::spawn_local(async move {
-            let result = api::call("POST", "/api/me/password", Some(&body)).await;
+            let result = api::json::<PasswordChanged>("POST", "/api/me/password", &body).await;
             let _ = busy.try_set(false);
             match result {
-                Ok(()) => {
+                Ok(done) => {
                     let _ = current.try_set(String::new());
                     let _ = next.try_set(String::new());
                     let _ = again.try_set(String::new());
-                    ui.say(t("Password changed. You were signed out everywhere else."));
+                    match done.mail.as_str() {
+                        "synced" => ui.say(t("Password changed for artcraftCloud and your mailbox. You were signed out everywhere else.")),
+                        "failed" => ui.say(t("Password changed for artcraftCloud, but not yet for your mailbox. See Other mail apps below.")),
+                        _ => ui.say(t("Password changed. You were signed out everywhere else.")),
+                    }
+                    load();
                 }
                 Err(err) => {
                     let message = if err.contains("current password") {
@@ -489,6 +524,39 @@ pub fn AccountCard() -> impl IntoView {
                     </button>
                 </div>
             </form>
+            {move || mail.get().and_then(|m| m.client.clone().map(|client| (client, m.password_sync.clone(), m.sync_error.clone()))).map(|(client, sync, sync_error)| view! { <MailClientInfo client sync sync_error /> })}
+        </div>
+    }
+}
+
+/// IMAP/SMTP settings for other mail apps, and whether the mailbox has the password yet.
+#[component]
+fn MailClientInfo(client: MailClient, sync: String, sync_error: Option<String>) -> impl IntoView {
+    let host = if client.host.is_empty() {
+        t("Ask your administrator").to_string()
+    } else {
+        client.host.clone()
+    };
+    let row = |label: &'static str, value: String| {
+        view! { <tr><th scope="row">{label}</th><td><code>{value}</code></td></tr> }
+    };
+    view! {
+        <div class="mail-client">
+            <div class="setting-text"><strong>{t("Other mail apps")}</strong><span class="muted">{t("Your mailbox works in any IMAP mail app (Thunderbird, Apple Mail, Outlook, phones) with your email address and your artcraftCloud password.")}</span></div>
+            {match sync.as_str() {
+                "pending" => Some(view! { <p class="sync-note" role="status">{t("Your mailbox gets your artcraftCloud password the next time you sign in or change it. Until then other mail apps cannot sign in; MailCraft works already.")}</p> }.into_any()),
+                "failed" => Some(view! { <p class="sync-note bad" role="alert">{tf("Your last password change has not reached the mail server yet ({error}). Other mail apps still use your previous password; artcraftCloud keeps retrying every few minutes and at your next sign-in.", &[("error", &sync_error.unwrap_or_default())])}</p> }.into_any()),
+                _ => None,
+            }}
+            <table class="client-table">
+                <tbody>
+                    {row(t("Server"), host)}
+                    {row(t("Username"), client.username.clone())}
+                    {row(t("Password"), t("Your artcraftCloud password").to_string())}
+                    {row(t("Incoming (IMAP)"), tf("port {port}, SSL/TLS", &[("port", &client.imap_port.to_string())]))}
+                    {row(t("Outgoing (SMTP)"), tf("port {port}, SSL/TLS (or {starttls} with STARTTLS)", &[("port", &client.smtp_port.to_string()), ("starttls", &client.smtp_starttls_port.to_string())]))}
+                </tbody>
+            </table>
         </div>
     }
 }

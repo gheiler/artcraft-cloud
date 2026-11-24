@@ -4,7 +4,12 @@
 //! MailCraft's browser build reads JMAP. The shell serves it with `window.mailcraftJmap` naming
 //! the user's mailbox at `/jmap/session` on this origin, and a `secret()` that asks
 //! `POST /api/mail/token` for a short-lived token. `/jmap/*` checks that token and forwards the
-//! request to Stalwart with the mailbox's own credential, which never reaches the browser.
+//! request to Stalwart with the mailbox's own app password, which never reaches the browser.
+//!
+//! The mailbox's sign-in password is the user's artcraftCloud password, so other mail apps
+//! (IMAP, SMTP) work with the email address and that password. It is set when the mailbox is
+//! made with the password at hand, and otherwise at the user's next sign-in; every password
+//! change is passed on (`sync_password`), and one that cannot reach the server is retried.
 
 use axum::body::Body;
 use axum::extract::{Path, Request, State};
@@ -22,15 +27,27 @@ use crate::paths::now_secs;
 use crate::stalwart::{normalize_base, Auth, Stalwart};
 use crate::state::AppState;
 use crate::vault;
-use artcraft_cloud_types::{MailConfig, MailConfigUpdate, MailDomain, MailTest, NewMailDomain, RemoveMailbox, SetUserEmail, UserMail};
+use artcraft_cloud_types::{MailClient, MailConfig, MailConfigUpdate, MailDomain, MailTest, NewMailDomain, PasswordChanged, RemoveMailbox, SetUserEmail, UserMail};
 
 const CONFIG_CONTEXT: &str = "mail_config";
 const TOKEN_TTL: i64 = 15 * 60;
 /// Largest request MailCraft sends through the proxy (an upload of a message to send).
 const PROXY_BODY_LIMIT: usize = 64 * 1024 * 1024;
 
+/// What the app password is called on the mail server (Account › Credentials).
+const APP_PASSWORD_NAME: &str = "artcraftCloud MailCraft";
+/// How often a password change that did not reach the mail server is retried, and for how long.
+const RETRY_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+const RETRY_LIMIT: i64 = 24 * 12;
+/// One password update at a time, so a retry never overtakes a newer change.
+static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn mailbox_context(user_id: i64) -> String {
     format!("mailbox:{user_id}")
+}
+
+fn pending_context(user_id: i64) -> String {
+    format!("mailbox-pending:{user_id}")
 }
 
 fn bad_gateway(message: impl Into<String>) -> ApiError {
@@ -57,10 +74,11 @@ fn server(state: &AppState) -> Result<Option<Stalwart>, ApiError> {
 fn view(state: &AppState, row: Option<&MailConfigRow>) -> MailConfig {
     MailConfig {
         base_url: row.map(|r| r.base_url.clone()).unwrap_or_default(),
-        auth: row.map(|r| r.auth.clone()).unwrap_or_else(|| "basic".into()),
+        auth: row.map(|r| r.auth.clone()).unwrap_or_else(|| "bearer".into()),
         username: row.map(|r| r.username.clone()).unwrap_or_default(),
         has_secret: row.is_some_and(|r| r.secret.is_some()),
         suggested_url: state.config.mail_url.clone().unwrap_or_default(),
+        public_host: row.map(|r| r.public_host.clone()).unwrap_or_default(),
     }
 }
 
@@ -74,6 +92,15 @@ pub async fn get_config(State(state): State<AppState>, AuthUser(user): AuthUser)
 /// `PUT /api/mail/config`: store the address and credential. An empty secret keeps the stored one.
 pub async fn put_config(State(state): State<AppState>, AuthUser(user): AuthUser, Json(body): Json<MailConfigUpdate>) -> Result<Json<MailConfig>, ApiError> {
     require_super(&user).map_err(|_| ApiError::new(StatusCode::FORBIDDEN, "only the super admin sets up mail"))?;
+    let config = connect(&state, &body).await?;
+    tracing::info!(by = %user.username, url = %config.base_url, auth = %config.auth, "mail server configured");
+    Ok(Json(config))
+}
+
+/// Store a mail server connection (the Mail page and `artcraft-cloud mail connect`). With an
+/// admin login and `create_api_key`, the login is used once to make an API key, and only the
+/// key is kept.
+pub async fn connect(state: &AppState, body: &MailConfigUpdate) -> Result<MailConfig, ApiError> {
     let base_url = normalize_base(&body.base_url).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
     let auth = match body.auth.as_str() {
         "basic" | "bearer" => body.auth.clone(),
@@ -86,15 +113,34 @@ pub async fn put_config(State(state): State<AppState>, AuthUser(user): AuthUser,
     if username.len() > 320 || body.secret.as_deref().is_some_and(|s| s.len() > 4096) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "too long"));
     }
-    let old = state.db.mail_config().map_err(ApiError::from)?;
-    let secret = match body.secret.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(secret) => Some(vault::seal(&state.secret, CONFIG_CONTEXT, secret).map_err(ApiError::from)?),
-        None => old.as_ref().filter(|old| old.auth == auth).and_then(|old| old.secret.clone()),
+    let public_host = match body.public_host.trim() {
+        "" => String::new(),
+        host => normalize_domain(host).ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "the mail host name is not a host name"))?,
     };
-    let row = MailConfigRow { base_url, auth, username: if body.auth == "bearer" { String::new() } else { username }, secret };
+    let old = state.db.mail_config().map_err(ApiError::from)?;
+    let typed = body.secret.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let (auth, username, secret) = if auth == "basic" && body.create_api_key {
+        let pass = match typed {
+            Some(pass) => pass,
+            None => match old.as_ref().filter(|old| old.auth == "basic").and_then(|old| old.secret.as_ref()) {
+                Some(sealed) => vault::open(&state.secret, CONFIG_CONTEXT, sealed).map_err(ApiError::from)?,
+                None => return Err(ApiError::new(StatusCode::BAD_REQUEST, "the admin password is needed to create an API key")),
+            },
+        };
+        let admin = Stalwart::new(&base_url, Auth::Basic { user: username.clone(), pass }).map_err(bad_gateway)?;
+        let key = admin.create_api_key("artcraftCloud").await.map_err(|err| bad_gateway(format!("could not create an API key: {err}")))?;
+        ("bearer".to_string(), String::new(), Some(vault::seal(&state.secret, CONFIG_CONTEXT, &key).map_err(ApiError::from)?))
+    } else {
+        let secret = match typed {
+            Some(secret) => Some(vault::seal(&state.secret, CONFIG_CONTEXT, &secret).map_err(ApiError::from)?),
+            None => old.as_ref().filter(|old| old.auth == auth).and_then(|old| old.secret.clone()),
+        };
+        let username = if auth == "bearer" { String::new() } else { username };
+        (auth, username, secret)
+    };
+    let row = MailConfigRow { base_url, auth, username, secret, public_host };
     state.db.set_mail_config(&row).map_err(ApiError::from)?;
-    tracing::info!(by = %user.username, url = %row.base_url, "mail server configured");
-    Ok(Json(view(&state, Some(&row))))
+    Ok(view(state, Some(&row)))
 }
 
 /// `DELETE /api/mail/config`: forget the connection (mailboxes on the server stay).
@@ -107,8 +153,12 @@ pub async fn delete_config(State(state): State<AppState>, AuthUser(user): AuthUs
 /// `POST /api/mail/test`
 pub async fn test(State(state): State<AppState>, AuthUser(user): AuthUser) -> Result<Json<MailTest>, ApiError> {
     require_super(&user).map_err(|_| ApiError::new(StatusCode::FORBIDDEN, "only the super admin sets up mail"))?;
-    let server = server(&state)?.ok_or_else(not_configured)?;
-    Ok(Json(server.test().await))
+    Ok(Json(test_stored(&state).await?))
+}
+
+pub async fn test_stored(state: &AppState) -> Result<MailTest, ApiError> {
+    let server = server(state)?.ok_or_else(not_configured)?;
+    Ok(server.test().await)
 }
 
 /// `GET /api/mail/domains`: the server's domains with the DNS records each needs.
@@ -176,7 +226,7 @@ fn target(state: &AppState, actor: &Account, id: i64) -> Result<Account, ApiErro
 
 async fn user_mail(state: &AppState, user_id: i64) -> Result<UserMail, ApiError> {
     let email = state.db.user_email(user_id).map_err(ApiError::from)?;
-    let mailbox = state.db.mailbox(user_id).map_err(ApiError::from)?.map(|row| row.address);
+    let mailbox = state.db.mailbox(user_id).map_err(ApiError::from)?;
     let server = server(state)?;
     let domain_served = match (&server, &email) {
         (Some(server), Some(email)) => match email.split_once('@') {
@@ -185,7 +235,15 @@ async fn user_mail(state: &AppState, user_id: i64) -> Result<UserMail, ApiError>
         },
         _ => false,
     };
-    Ok(UserMail { email, mailbox, configured: server.is_some(), domain_served })
+    Ok(UserMail {
+        email,
+        password_sync: mailbox.as_ref().map(|m| m.password_sync.clone()).unwrap_or_default(),
+        sync_error: mailbox.as_ref().and_then(|m| m.sync_error.clone()),
+        mailbox: mailbox.map(|row| row.address),
+        configured: server.is_some(),
+        domain_served,
+        client: None,
+    })
 }
 
 /// `GET /api/users/{id}/mail`
@@ -194,16 +252,53 @@ pub async fn get_user_mail(State(state): State<AppState>, AuthUser(actor): AuthU
     Ok(Json(user_mail(&state, id).await?))
 }
 
-/// `GET /api/mail/me`
+/// `GET /api/mail/me`: the user's mailbox, and how to reach it from other mail apps.
 pub async fn me(State(state): State<AppState>, AuthUser(user): AuthUser) -> Result<Json<UserMail>, ApiError> {
     let email = state.db.user_email(user.id).map_err(ApiError::from)?;
-    let mailbox = state.db.mailbox(user.id).map_err(ApiError::from)?.map(|row| row.address);
-    let configured = state.db.mail_config().map_err(ApiError::from)?.is_some();
-    Ok(Json(UserMail { email, mailbox, configured, domain_served: false }))
+    let mailbox = state.db.mailbox(user.id).map_err(ApiError::from)?;
+    let config = state.db.mail_config().map_err(ApiError::from)?;
+    let client = match (&mailbox, &config) {
+        (Some(mailbox), Some(config)) => Some(MailClient {
+            host: client_host(&state, config, &mailbox.address).await,
+            username: mailbox.address.clone(),
+            imap_port: 993,
+            smtp_port: 465,
+            smtp_starttls_port: 587,
+        }),
+        _ => None,
+    };
+    Ok(Json(UserMail {
+        email,
+        password_sync: mailbox.as_ref().map(|m| m.password_sync.clone()).unwrap_or_default(),
+        sync_error: mailbox.as_ref().and_then(|m| m.sync_error.clone()),
+        mailbox: mailbox.map(|m| m.address),
+        configured: config.is_some(),
+        domain_served: false,
+        client,
+    }))
 }
 
-/// Set a user's email; with `create_mailbox`, also make the mailbox on the mail server.
-pub async fn set_email(state: &AppState, target: &Account, body: &SetUserEmail) -> Result<UserMail, ApiError> {
+/// The host name for IMAP/SMTP: the one set on the Mail page, else the domain's MX target.
+async fn client_host(state: &AppState, config: &MailConfigRow, address: &str) -> String {
+    if !config.public_host.is_empty() {
+        return config.public_host.clone();
+    }
+    let Some((_, domain)) = address.split_once('@') else { return String::new() };
+    let Ok(Some(server)) = server(state) else { return String::new() };
+    let Ok(domains) = server.domains().await else { return String::new() };
+    domains
+        .iter()
+        .find(|d| d.name.eq_ignore_ascii_case(domain))
+        .and_then(|d| d.records.iter().find(|r| r.kind.eq_ignore_ascii_case("MX")))
+        .and_then(|r| r.value.split_whitespace().last())
+        .map(|host| host.trim_end_matches('.').to_string())
+        .unwrap_or_default()
+}
+
+/// Set a user's email; with `create_mailbox`, also make the mailbox on the mail server. With
+/// `password` (the admin just typed it for a new user) the mailbox gets it at once; without, a
+/// generated one until the user's next sign-in.
+pub async fn set_email(state: &AppState, target: &Account, body: &SetUserEmail, password: Option<&str>) -> Result<UserMail, ApiError> {
     let email = match body.email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
         Some(email) => Some(normalize_email(email)?),
         None => None,
@@ -224,7 +319,7 @@ pub async fn set_email(state: &AppState, target: &Account, body: &SetUserEmail) 
         let Some((address, local, domain)) = email else {
             return Err(ApiError::new(StatusCode::BAD_REQUEST, "an email is needed for a mailbox"));
         };
-        if let Err(err) = provision(state, target, &address, &local, &domain).await {
+        if let Err(err) = provision(state, target, &address, &local, &domain, password).await {
             let _ = state.db.set_user_email(target.id, previous.as_deref());
             return Err(err);
         }
@@ -232,8 +327,10 @@ pub async fn set_email(state: &AppState, target: &Account, body: &SetUserEmail) 
     user_mail(state, target.id).await
 }
 
-/// Create `local@domain` on the mail server with a generated password, and link it.
-async fn provision(state: &AppState, target: &Account, address: &str, local: &str, domain: &str) -> Result<(), ApiError> {
+/// Create `local@domain` on the mail server, give it an app password for the JMAP proxy, and
+/// link it. The sign-in password is `password`, or a generated one nobody knows until the
+/// user's next sign-in replaces it.
+async fn provision(state: &AppState, target: &Account, address: &str, local: &str, domain: &str, password: Option<&str>) -> Result<(), ApiError> {
     let server = server(state)?.ok_or_else(not_configured)?;
     let domain_id = server
         .domain_id(domain)
@@ -243,25 +340,147 @@ async fn provision(state: &AppState, target: &Account, address: &str, local: &st
     if server.find_account(local, &domain_id).await.map_err(bad_gateway)?.is_some() {
         return Err(ApiError::new(StatusCode::CONFLICT, format!("{address} already exists on the mail server; artcraftCloud links only mailboxes it creates")));
     }
-    let password = crate::state::generate_password() + &crate::state::generate_password();
-    let account_id = server.create_user(local, &domain_id, &target.display_name, &password).await.map_err(bad_gateway)?;
-    let sealed = vault::seal(&state.secret, &mailbox_context(target.id), &password).map_err(ApiError::from)?;
-    let row = MailboxRow { user_id: target.id, address: address.to_string(), account_id: account_id.clone(), secret: sealed };
+    let generated = crate::state::generate_password() + &crate::state::generate_password();
+    let account_id = server.create_user(local, &domain_id, &target.display_name, password.unwrap_or(&generated)).await.map_err(bad_gateway)?;
+    let undo = |message: String| {
+        let server = server.clone();
+        let account_id = account_id.clone();
+        async move {
+            let _ = server.destroy_account(&account_id).await;
+            message
+        }
+    };
+    let (proxy_id, proxy) = match server.create_app_password(&account_id, APP_PASSWORD_NAME).await {
+        Ok(made) => made,
+        Err(err) => {
+            let message = undo(format!("the mail server made the mailbox but no app password for it ({err}); the mail credential needs the impersonate and sysAppPasswordCreate permissions")).await;
+            return Err(bad_gateway(message));
+        }
+    };
+    let sealed = vault::seal(&state.secret, &mailbox_context(target.id), &proxy).map_err(ApiError::from)?;
+    let row = MailboxRow {
+        user_id: target.id,
+        address: address.to_string(),
+        account_id: account_id.clone(),
+        secret: sealed,
+        proxy_kind: "app".into(),
+        proxy_id: Some(proxy_id),
+        password_sync: if password.is_some() { "synced" } else { "pending" }.into(),
+        sync_error: None,
+        pending_secret: None,
+        sync_attempts: 0,
+    };
     if let Err(err) = state.db.link_mailbox(&row) {
-        let _ = server.destroy_account(&account_id).await;
+        undo(String::new()).await;
         return Err(match err {
             Error::Exists => ApiError::new(StatusCode::CONFLICT, "that mailbox is linked to another user"),
             other => other.into(),
         });
     }
-    tracing::info!(user = %target.username, %address, "mailbox created");
+    if password.is_some() {
+        let _ = state.db.mailbox_synced(target.id);
+    }
+    tracing::info!(user = %target.username, %address, synced = password.is_some(), "mailbox created");
     Ok(())
+}
+
+/// Make `password` (the user's new or just-verified artcraftCloud password) the mailbox's
+/// sign-in password. When the mail server cannot be reached the change is kept, sealed, and
+/// retried (`retry_loop`) until it lands or the password changes again.
+pub async fn sync_password(state: &AppState, user_id: i64, password: &str) -> PasswordChanged {
+    let _turn = SYNC.lock().await;
+    let mailbox = match state.db.mailbox(user_id) {
+        Ok(Some(mailbox)) => mailbox,
+        Ok(None) => return PasswordChanged { mail: "none".into(), error: None },
+        Err(err) => return PasswordChanged { mail: "failed".into(), error: Some(err.to_string()) },
+    };
+    match push_password(state, &mailbox, password).await {
+        Ok(()) => {
+            let _ = state.db.mailbox_synced(user_id);
+            tracing::info!(user_id, address = %mailbox.address, "mailbox password updated");
+            PasswordChanged { mail: "synced".into(), error: None }
+        }
+        Err(err) => {
+            tracing::warn!(user_id, address = %mailbox.address, "mailbox password not updated: {err}");
+            let pending = vault::seal(&state.secret, &pending_context(user_id), password).ok();
+            let _ = state.db.mailbox_sync_failed(user_id, &err, pending.as_deref(), 1);
+            PasswordChanged { mail: "failed".into(), error: Some(err) }
+        }
+    }
+}
+
+/// Mailboxes whose password is not the user's yet: after a sign-in, bring them in line in the
+/// background (the sign-in does not wait for the mail server).
+pub fn sync_after_login(state: &AppState, user_id: i64, password: &str) {
+    let due = matches!(state.db.mailbox(user_id), Ok(Some(m)) if m.password_sync != "synced" || m.proxy_kind != "app");
+    if due {
+        let state = state.clone();
+        let password = password.to_string();
+        tokio::spawn(async move {
+            sync_password(&state, user_id, &password).await;
+        });
+    }
+}
+
+async fn push_password(state: &AppState, mailbox: &MailboxRow, password: &str) -> Result<(), String> {
+    let server = server(state).map_err(|err| err.message)?.ok_or("no mail server is configured")?;
+    let work = async {
+        // A mailbox from before app passwords signs the proxy in with its account password;
+        // that stops working below, so it gets an app password first.
+        if mailbox.proxy_kind != "app" {
+            let (id, secret) = server.create_app_password(&mailbox.account_id, APP_PASSWORD_NAME).await?;
+            let sealed = vault::seal(&state.secret, &mailbox_context(mailbox.user_id), &secret).map_err(|err| err.to_string())?;
+            state.db.set_mailbox_proxy(mailbox.user_id, &sealed, &id).map_err(|err| err.to_string())?;
+        }
+        server.set_password(&mailbox.account_id, password).await
+    };
+    match tokio::time::timeout(std::time::Duration::from_secs(20), work).await {
+        Ok(result) => result,
+        Err(_) => Err("the mail server did not answer in time".into()),
+    }
+}
+
+/// Retry password changes that did not reach the mail server, every few minutes for a day.
+pub async fn retry_loop(state: AppState) {
+    loop {
+        tokio::time::sleep(RETRY_EVERY).await;
+        retry_pending(&state).await;
+    }
+}
+
+pub async fn retry_pending(state: &AppState) {
+    let Ok(rows) = state.db.mailboxes_to_retry() else { return };
+    for row in rows {
+        let _turn = SYNC.lock().await;
+        // Read again under the lock: a newer change may have landed meanwhile.
+        let Ok(Some(mailbox)) = state.db.mailbox(row.user_id) else { continue };
+        let Some(sealed) = &mailbox.pending_secret else { continue };
+        let current = state.db.user_by_id(mailbox.user_id).ok().flatten();
+        let password = vault::open(&state.secret, &pending_context(mailbox.user_id), sealed).ok();
+        let (Some(current), Some(password)) = (current, password) else { continue };
+        if !crate::password::verify_password(&password, &current.password_hash) {
+            // Not the user's password any more; their next sign-in or change sets the right one.
+            let _ = state.db.mailbox_sync_failed(mailbox.user_id, "the waiting password is out of date", None, mailbox.sync_attempts);
+            continue;
+        }
+        match push_password(state, &mailbox, &password).await {
+            Ok(()) => {
+                let _ = state.db.mailbox_synced(mailbox.user_id);
+                tracing::info!(user_id = mailbox.user_id, address = %mailbox.address, "mailbox password updated on retry");
+            }
+            Err(err) => {
+                let attempts = mailbox.sync_attempts + 1;
+                let keep = (attempts < RETRY_LIMIT).then_some(sealed.as_slice());
+                let _ = state.db.mailbox_sync_failed(mailbox.user_id, &err, keep, attempts);
+            }
+        }
+    }
 }
 
 /// `PUT /api/users/{id}/email`
 pub async fn put_user_email(State(state): State<AppState>, AuthUser(actor): AuthUser, Path(id): Path<i64>, Json(body): Json<SetUserEmail>) -> Result<Json<UserMail>, ApiError> {
     let target = target(&state, &actor, id)?;
-    Ok(Json(set_email(&state, &target, &body).await?))
+    Ok(Json(set_email(&state, &target, &body, None).await?))
 }
 
 /// `DELETE /api/users/{id}/mailbox`: unlink (the mailbox stays on the server), or with
@@ -277,6 +496,12 @@ pub async fn remove_mailbox(State(state): State<AppState>, AuthUser(actor): Auth
         server.destroy_account(&linked.account_id).await.map_err(bad_gateway)?;
         tracing::warn!(by = %actor.username, user = %target.username, address = %linked.address, "mailbox deleted on the mail server");
     } else {
+        // The mailbox stays; artcraftCloud's way in goes.
+        if let (Some(id), "app", Ok(Some(server))) = (&linked.proxy_id, linked.proxy_kind.as_str(), server(&state)) {
+            if let Err(err) = server.destroy_app_password(&linked.account_id, id).await {
+                tracing::warn!(address = %linked.address, "could not revoke the app password: {err}");
+            }
+        }
         tracing::info!(by = %actor.username, user = %target.username, address = %linked.address, "mailbox unlinked");
     }
     state.db.unlink_mailbox(id).map_err(ApiError::from)?;

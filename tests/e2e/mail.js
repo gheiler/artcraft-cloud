@@ -1,10 +1,17 @@
-// Mail end to end against a real Stalwart (see README): the super admin connects the server and
-// sees a domain's DNS records, People creates a person with a mailbox, a person changes their own
-// password, and MailCraft opens that person's inbox through the JMAP proxy.
+// Mail end to end against a real Stalwart (docs/mail.md): the super admin connects the server and
+// sees a domain's DNS records, People creates a person with a mailbox (whose password is theirs),
+// a person changes their own password (and IMAP follows), and MailCraft opens that person's inbox
+// through the JMAP proxy.
 //
 // Needs: artcraftCloud at BASE with MailCraft installed, Stalwart reachable from it, the mail
-// config set (or MAIL_URL/MAIL_ADMIN/MAIL_PASS to set it), jonas with a mailbox holding mail.
+// config set (or MAIL_URL/MAIL_ADMIN/MAIL_PASS to make an API key from that login), jonas with a
+// mailbox holding mail. IMAP_URL (e.g. imaps://127.0.0.1:9993) adds the IMAP checks (curl).
+// The test person it creates gets their mailbox deleted and is disabled at the end.
 const puppeteer = require('puppeteer-core');
+const { spawnSync } = require('child_process');
+const IMAP_URL = process.env.IMAP_URL || '';
+// true when address/password opens INBOX over IMAP.
+const imap = (address, password) => spawnSync('curl', ['-sk', '--max-time', '10', '--url', IMAP_URL + '/INBOX', '--user', `${address}:${password}`, '-X', 'EXAMINE INBOX']).status === 0;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const BASE = process.env.BASE || 'http://127.0.0.1:8090';
 const OUT = process.env.OUT || '/workspace/artcraft-cloud-shots';
@@ -35,12 +42,14 @@ async function signIn(browser, user, pass) {
   // 1. The super admin: Mail page.
   const admin = await signIn(browser, ADMIN, ADMIN_PASS);
   if (process.env.MAIL_URL) {
-    const r = await api(admin, 'PUT', '/api/mail/config', { base_url: process.env.MAIL_URL, auth: 'basic', username: process.env.MAIL_ADMIN, secret: process.env.MAIL_PASS });
-    check(r.status === 200, 'mail config saved');
+    const r = await api(admin, 'PUT', '/api/mail/config', { base_url: process.env.MAIL_URL, auth: 'basic', username: process.env.MAIL_ADMIN, secret: process.env.MAIL_PASS, create_api_key: true });
+    check(r.status === 200 && r.json.auth === 'bearer' && !r.json.username, 'an API key was made from the admin login, and only the key kept');
   }
   const config = await api(admin, 'GET', '/api/mail/config');
   check(config.status === 200 && config.json.has_secret && !JSON.stringify(config.json).includes(process.env.MAIL_PASS || '\u0000'), 'config comes back without the secret');
   await admin.goto(BASE + '/mail', { waitUntil: 'networkidle0' }); await admin.waitForSelector('.mail-page');
+  const options = await admin.$$eval('.mail-page select option', e => e.map(x => x.textContent.trim()));
+  check(options[0] === 'API key (recommended)' && options[1] === 'Admin account (fallback)', 'API key first and recommended: ' + options.join(' / '));
   check((await admin.$$eval('.sidebar nav .nav-label', e => e.map(x => x.textContent.trim()))).includes('Mail'), 'Mail is in the sidebar for the super admin');
   const testButton = await admin.waitForSelector('xpath/.//button[contains(., "Test connection")]');
   await testButton.click(); await admin.waitForSelector('.test-result', { timeout: 10000 }); await sleep(300);
@@ -59,12 +68,13 @@ async function signIn(browser, user, pass) {
   await admin.setViewport({ width: 1440, height: 900 });
 
   // 2. People: a new person with a mailbox, then the Email dialog.
-  const who = 'lena' + Date.now().toString(36).slice(-4);
+  const who = 'e2email' + Date.now().toString(36).slice(-4);
+  const WHO_PASS = 'pass-e2e-12345';
   await admin.goto(BASE + '/people', { waitUntil: 'networkidle0' }); await admin.waitForSelector('.people form');
   await admin.type('.people form input[placeholder=Username]', who);
   await admin.type('.people form input[placeholder="Full name (optional)"]', 'Lena Vogel');
   await admin.type('.people form input[type=email]', `${who}@${DOMAIN}`);
-  await admin.type('.people form input[type=password]', 'pass-lena-12345');
+  await admin.type('.people form input[type=password]', WHO_PASS);
   await admin.waitForSelector('.mailbox-check', { timeout: 5000 });
   check(await admin.$eval('.mailbox-check input', e => e.checked), '"Create the mailbox" offered and on for a served domain');
   await admin.click('.people form button[type=submit]'); await sleep(1500);
@@ -72,6 +82,8 @@ async function signIn(browser, user, pass) {
   const users = (await api(admin, 'GET', '/api/users')).json;
   const lena = users.find(u => u.username === who);
   check(lena && lena.mailbox && lena.email === `${who}@${DOMAIN}`, 'the person is linked to the mailbox');
+  check(lena && lena.mail_sync === 'synced', 'the mailbox has their password from the start');
+  if (IMAP_URL) check(imap(`${who}@${DOMAIN}`, WHO_PASS), 'IMAP sign-in with the new person\'s artcraftCloud password');
   await quiet(admin);
   await admin.evaluate(name => { const row = [...document.querySelectorAll('tr.row')].find(r => r.textContent.includes(name)); [...row.querySelectorAll('button')].find(b => b.textContent.trim() === 'Email').click(); }, who);
   await admin.waitForSelector('.dialog .mailbox-box');
@@ -82,25 +94,27 @@ async function signIn(browser, user, pass) {
   await admin.type('.danger-zone input', `${who}@${DOMAIN}`);
   check(!(await finalBtn()), 'typing the address enables deleting');
   await admin.screenshot({ path: OUT + '/user-email.png' });
-  const cancel = await admin.waitForSelector('xpath/.//div[contains(@class,"danger-zone")]//button[contains(., "Cancel")]'); await cancel.click();
-  const unlink = await admin.waitForSelector('xpath/.//button[contains(., "Unlink mailbox")]'); await unlink.click(); await sleep(1200);
-  check((await toast(admin)).includes('still on the mail server'), 'unlink keeps the mailbox: ' + await toast(admin));
-  const after = (await api(admin, 'GET', `/api/users/${lena.id}/mail`)).json;
-  check(after.mailbox === null || after.mailbox === undefined, 'unlinked');
-  const relink = await api(admin, 'PUT', `/api/users/${lena.id}/email`, { email: `${who}@${DOMAIN}`, create_mailbox: true });
-  check(relink.status === 409, 'an existing mailbox is not taken over silently (409)');
-  // Tidy up the test mailbox on the server via a fresh one: delete needs the typed address.
-  const other = `${who}x@${DOMAIN}`;
-  const made = await api(admin, 'PUT', `/api/users/${lena.id}/email`, { email: other, create_mailbox: true });
-  check(made.status === 200 && made.json.mailbox === other, 'a new mailbox from the Email call');
-  const gone = await api(admin, 'DELETE', `/api/users/${lena.id}/mailbox`, { delete: true, confirm: other });
-  check(gone.status === 200, 'delete with the typed address');
+  const finalDelete = await admin.waitForSelector('.danger-zone .button.danger'); await finalDelete.click(); await sleep(1500);
+  check((await toast(admin)).includes('deleted from the mail server'), 'deleted with the typed address: ' + await toast(admin));
+  if (IMAP_URL) check(!imap(`${who}@${DOMAIN}`, WHO_PASS), 'and the account is gone from IMAP');
   await admin.keyboard.press('Escape');
+  // The test person cannot be deleted (artcraftCloud has no user deletion yet): disable them.
+  check((await api(admin, 'POST', `/api/users/${lena.id}/disable`)).status === 204, 'the test person is disabled');
 
   // 3. A person changes their own password.
   const page = await signIn(browser, USER, PASS);
   const other_session = await signIn(browser, USER, PASS);
+  // A mailbox made before its password was known gets it at sign-in (in the background).
+  for (let i = 0; i < 20 && (await api(page, 'GET', '/api/mail/me')).json.password_sync !== 'synced'; i++) await sleep(500);
+  const mine = (await api(page, 'GET', '/api/mail/me')).json;
+  check(mine.password_sync === 'synced', `${USER}'s mailbox has their password: ${mine.password_sync}`);
+  if (IMAP_URL) check(imap(mine.mailbox, PASS), 'IMAP sign-in with the artcraftCloud password');
   await page.goto(BASE + '/settings', { waitUntil: 'networkidle0' }); await page.waitForSelector('.account-card');
+  await page.waitForSelector('.mail-client', { timeout: 10000 });
+  const info = await page.$eval('.mail-client', e => e.textContent);
+  check(info.includes(mine.mailbox) && info.includes('993') && info.includes('465'), 'Settings › Account shows the IMAP/SMTP settings');
+  const card = await page.$('.account-card');
+  await card.screenshot({ path: OUT + '/mail-client-info.png' });
   const fill = async (cur, next, again) => {
     for (const [sel, v] of [['input[autocomplete=current-password]', cur], ['.password-fields input[autocomplete=new-password]', next]]) { await page.click(sel, { clickCount: 3 }); await page.keyboard.press('Backspace'); await page.type(sel, v); }
     const fields = await page.$$('.password-fields input[autocomplete=new-password]');
@@ -115,11 +129,19 @@ async function signIn(browser, user, pass) {
   await fill(PASS, 'pass-jonas-67890', 'pass-jonas-67890');
   await sleep(300); await page.screenshot({ path: OUT + '/change-password.png' });
   await page.click('.password-form button[type=submit]'); await sleep(1200);
-  check((await toast(page)).includes('Password changed'), 'password changed: ' + await toast(page));
+  check((await toast(page)).includes('and your mailbox'), 'password changed for both: ' + await toast(page));
   check((await api(page, 'GET', '/api/me')).status === 200, 'this browser stays signed in');
   check((await api(other_session, 'GET', '/api/me')).status === 401, 'the other session was signed out');
-  const back = await api(page, 'POST', '/api/me/password', { current: 'pass-jonas-67890', next: PASS });
-  check(back.status === 204, 'and back again');
+  if (IMAP_URL) {
+    check(imap(mine.mailbox, 'pass-jonas-67890'), 'IMAP works with the new password');
+    check(!imap(mine.mailbox, PASS), 'and no longer with the old one');
+  }
+  // MailCraft still opens the inbox (it has its own app password), checked in 4 before changing back.
+  const proxied = await page.evaluate(async () => {
+    const t = await (await fetch('/api/mail/token', { method: 'POST', headers: { 'x-requested-with': 'artcraft' } })).json();
+    return (await fetch('/jmap/session', { headers: { authorization: 'Bearer ' + t.token } })).status;
+  });
+  check(proxied === 200, 'the JMAP proxy still signs in after the change');
 
   // 4. MailCraft opens the person's inbox.
   const mail = (await api(page, 'GET', '/api/mail/me')).json;
@@ -143,6 +165,9 @@ async function signIn(browser, user, pass) {
   const settings = (await api(page, 'GET', '/api/settings/mailcraft')).json;
   check(!('mailcraft.mailbox.v1' in settings), 'the mail itself is not uploaded to the drive settings');
   await page.screenshot({ path: OUT + '/mailcraft-inbox.png' });
+  const back = await api(page, 'POST', '/api/me/password', { current: 'pass-jonas-67890', next: PASS });
+  check(back.status === 200 && back.json.mail === 'synced', 'and back again: ' + JSON.stringify(back.json));
+  if (IMAP_URL) check(imap(mine.mailbox, PASS), 'IMAP follows back');
 
   console.log(fails.length ? `\n${fails.length} failed` : '\nall passed');
   await browser.close();

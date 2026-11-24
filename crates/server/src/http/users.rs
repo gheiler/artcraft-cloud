@@ -8,7 +8,7 @@ use crate::password::hash_password;
 use crate::paths::{check_password_policy, display_name_of, normalize_username};
 use crate::state::AppState;
 use artcraft_cloud_types::{
-    AdminPasswordReset, AppStatus, CreateGroupRequest, CreateUserRequest, Directory, DirectoryGroup, DirectoryUser, Group, GroupMemberRequest, SetRoleRequest, User,
+    AdminPasswordReset, AppStatus, CreateGroupRequest, CreateUserRequest, Directory, DirectoryGroup, DirectoryUser, Group, GroupMemberRequest, PasswordChanged, SetRoleRequest, User,
 };
 
 use super::session::AuthUser;
@@ -23,9 +23,10 @@ pub async fn list_users(State(state): State<AppState>, AuthUser(user): AuthUser)
             .into_iter()
             .map(|account| {
                 let mut user = account.public();
-                if let Some((email, mailbox)) = mail.get(&account.id) {
-                    user.email = email.clone();
-                    user.mailbox = mailbox.is_some();
+                if let Some(info) = mail.get(&account.id) {
+                    user.email = info.email.clone();
+                    user.mailbox = info.mailbox.is_some();
+                    user.mail_sync = info.sync.clone().unwrap_or_default();
                 }
                 user
             })
@@ -49,7 +50,7 @@ pub async fn create_user(State(state): State<AppState>, AuthUser(actor): AuthUse
     let email = match body.email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
         Some(email) => {
             let (email, _, _) = super::mail::normalize_email(email)?;
-            if state.db.user_mail().map_err(ApiError::from)?.values().any(|(other, _)| other.as_deref() == Some(email.as_str())) {
+            if state.db.user_mail().map_err(ApiError::from)?.values().any(|info| info.email.as_deref() == Some(email.as_str())) {
                 return Err(ApiError::new(StatusCode::CONFLICT, "another user has that email"));
             }
             Some(email)
@@ -70,10 +71,12 @@ pub async fn create_user(State(state): State<AppState>, AuthUser(actor): AuthUse
         // The account exists now; a mailbox that cannot be made is reported by the call the shell
         // makes next (`PUT /api/users/{id}/email`), so the email alone is set here.
         let request = artcraft_cloud_types::SetUserEmail { email: Some(email), create_mailbox: body.create_mailbox };
-        match super::mail::set_email(&state, &account, &request).await {
+        // The admin just typed the password, so the mailbox gets it right away.
+        match super::mail::set_email(&state, &account, &request, Some(&body.password)).await {
             Ok(mail) => {
                 user.email = mail.email;
                 user.mailbox = mail.mailbox.is_some();
+                user.mail_sync = mail.password_sync;
             }
             Err(err) => {
                 tracing::warn!(user = %account.username, error = %err.message, "mailbox not created");
@@ -117,7 +120,7 @@ pub async fn reset_password(
     AuthUser(actor): AuthUser,
     Path(id): Path<i64>,
     Json(body): Json<AdminPasswordReset>,
-) -> Result<StatusCode, ApiError> {
+) -> Result<Json<PasswordChanged>, ApiError> {
     require_admin(&actor)?;
     let target = state.db.user_by_id(id).map_err(ApiError::from)?.ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "not found"))?;
     if target.is_admin() && actor.id != id {
@@ -127,7 +130,7 @@ pub async fn reset_password(
     let hash = hash_password(&body.password, state.config.argon_memory_kib, state.config.argon_time, state.config.argon_parallelism).map_err(ApiError::from)?;
     state.db.set_password(id, &hash).map_err(ApiError::from)?;
     state.basic_cache.clear();
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(super::mail::sync_password(&state, id, &body.password).await))
 }
 
 pub async fn apps(State(state): State<AppState>, AuthUser(_user): AuthUser) -> Json<Vec<AppStatus>> {

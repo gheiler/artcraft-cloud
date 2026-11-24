@@ -12,6 +12,7 @@ struct Env {
     _dir: tempfile::TempDir,
     app: axum::Router,
     cookie: String,
+    state: crate::AppState,
 }
 
 impl Env {
@@ -19,8 +20,9 @@ impl Env {
         let dir = tempfile::tempdir().expect("temp");
         let config = Config::for_tests(dir.path());
         let boot = bootstrap(&config).expect("bootstrap");
+        let state = boot.state.clone();
         let app = router(boot.state);
-        let mut env = Self { _dir: dir, app, cookie: String::new() };
+        let mut env = Self { _dir: dir, app, cookie: String::new(), state };
         env.cookie = env.login("admin", "admin-password-test").await;
         env
     }
@@ -648,12 +650,32 @@ mod fake_stalwart {
 
     pub const ADMIN: (&str, &str) = ("admin@example.test", "stalwart-admin-pw");
 
+    pub struct Acct {
+        pub id: String,
+        pub name: String,
+        pub domain: String,
+        pub password: String,
+        /// (credential id, secret)
+        pub apps: Vec<(String, String)>,
+    }
+
     #[derive(Default)]
     pub struct Fake {
         pub domains: Vec<(String, String)>,
-        /// id, local name, domain id, password
-        pub accounts: Vec<(String, String, String, String)>,
+        pub accounts: Vec<Acct>,
+        pub api_keys: Vec<String>,
+        /// Password updates fail as if the server were down.
+        pub fail_updates: bool,
+        /// Mailbox sign-ins, by kind of credential.
+        pub app_logins: u32,
+        pub password_logins: u32,
         next: u32,
+    }
+
+    impl Fake {
+        pub fn account(&self, name: &str) -> &Acct {
+            self.accounts.iter().find(|a| a.name == name).expect("account")
+        }
     }
 
     pub type Shared = Arc<Mutex<Fake>>;
@@ -665,30 +687,36 @@ mod fake_stalwart {
         Some((user.to_string(), pass.to_string()))
     }
 
-    fn is_admin(headers: &HeaderMap) -> bool {
-        basic(headers).is_some_and(|(u, p)| u == ADMIN.0 && p == ADMIN.1)
+    fn is_admin(fake: &Fake, headers: &HeaderMap) -> bool {
+        let bearer = headers.get("authorization").and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "));
+        basic(headers).is_some_and(|(u, p)| u == ADMIN.0 && p == ADMIN.1) || bearer.is_some_and(|key| fake.api_keys.iter().any(|k| k == key))
     }
 
     /// The mailbox signing in, as `local@domain`.
-    fn user(fake: &Fake, headers: &HeaderMap) -> Option<String> {
+    fn user(fake: &mut Fake, headers: &HeaderMap) -> Option<String> {
         let (u, p) = basic(headers)?;
-        fake.accounts.iter().find_map(|(_, name, domain, pass)| {
-            let dname = &fake.domains.iter().find(|(id, _)| id == domain)?.1;
-            (format!("{name}@{dname}") == u && *pass == p).then(|| u.clone())
-        })
+        let (app, password) = fake.accounts.iter().find_map(|a| {
+            let dname = &fake.domains.iter().find(|(id, _)| *id == a.domain)?.1;
+            (format!("{}@{dname}", a.name) == u).then(|| (a.apps.iter().any(|(_, s)| *s == p), a.password == p))
+        })?;
+        if app {
+            fake.app_logins += 1;
+        } else if password {
+            fake.password_logins += 1;
+        }
+        (app || password).then_some(u)
     }
 
-    async fn account(headers: HeaderMap) -> impl IntoResponse {
-        if !is_admin(&headers) {
+    async fn account(State(fake): State<Shared>, headers: HeaderMap) -> impl IntoResponse {
+        if !is_admin(&fake.lock().unwrap(), &headers) {
             return StatusCode::UNAUTHORIZED.into_response();
         }
-        let perms = ["sysDomainGet", "sysDomainQuery", "sysDomainCreate", "sysAccountGet", "sysAccountQuery", "sysAccountCreate", "sysAccountDestroy"];
-        Json(json!({"permissions": perms, "edition": "community", "locale": "en-US"})).into_response()
+        Json(json!({"permissions": crate::stalwart::NEEDED, "edition": "community", "locale": "en-US"})).into_response()
     }
 
     async fn session(State(fake): State<Shared>, headers: HeaderMap) -> impl IntoResponse {
-        let fake = fake.lock().unwrap();
-        let Some(user) = user(&fake, &headers) else { return StatusCode::UNAUTHORIZED.into_response() };
+        let mut fake = fake.lock().unwrap();
+        let Some(user) = user(&mut fake, &headers) else { return StatusCode::UNAUTHORIZED.into_response() };
         Json(json!({
             "username": user,
             "apiUrl": "http://mail.internal:8080/jmap/",
@@ -703,8 +731,8 @@ mod fake_stalwart {
 
     async fn api(State(fake): State<Shared>, headers: HeaderMap, Json(body): Json<Value>) -> impl IntoResponse {
         let mut fake = fake.lock().unwrap();
-        if !is_admin(&headers) {
-            return match user(&fake, &headers) {
+        if !is_admin(&fake, &headers) {
+            return match user(&mut fake, &headers) {
                 Some(user) => Json(json!({"methodResponses": [["Mailbox/get", {"list": [], "who": format!("user:{user}")}, "0"]]})).into_response(),
                 None => StatusCode::UNAUTHORIZED.into_response(),
             };
@@ -727,23 +755,56 @@ mod fake_stalwart {
                 }
                 "x:Account/query" => {
                     let (n, d) = (args["filter"]["name"].as_str().unwrap_or(""), args["filter"]["domainId"].as_str().unwrap_or(""));
-                    json!({"ids": fake.accounts.iter().filter(|a| a.1 == n && a.2 == d).map(|a| a.0.clone()).collect::<Vec<_>>()})
+                    json!({"ids": fake.accounts.iter().filter(|a| a.name == n && a.domain == d).map(|a| a.id.clone()).collect::<Vec<_>>()})
                 }
-                "x:Account/get" => json!({"list": fake.accounts.iter().map(|a| json!({"id": a.0, "name": a.1, "domainId": a.2})).collect::<Vec<_>>()}),
+                "x:Account/get" => json!({"list": fake.accounts.iter().filter(|a| args["ids"].as_array().is_none_or(|ids| ids.iter().any(|i| *i == a.id))).map(|a| json!({
+                    "id": a.id, "name": a.name, "domainId": a.domain,
+                    "credentials": {"0": {"@type": "Password", "credentialId": "a", "secret": "****"}, "1": {"@type": "AppPassword", "credentialId": "b", "secret": "****"}}
+                })).collect::<Vec<_>>()}),
                 "x:Account/set" if args.get("create").is_some() => {
                     let a = &args["create"]["u"];
                     assert_eq!(a["@type"], "User");
-                    let pass = a["credentials"]["0"]["secret"].as_str().unwrap().to_string();
-                    assert!(pass.len() >= 32, "a strong generated password");
+                    let password = a["credentials"]["0"]["secret"].as_str().unwrap().to_string();
+                    assert!(password.len() >= 8);
                     fake.next += 1;
                     let id = format!("a{}", fake.next);
-                    fake.accounts.push((id.clone(), a["name"].as_str().unwrap().into(), a["domainId"].as_str().unwrap().into(), pass));
+                    fake.accounts.push(Acct { id: id.clone(), name: a["name"].as_str().unwrap().into(), domain: a["domainId"].as_str().unwrap().into(), password, apps: Vec::new() });
                     json!({"created": {"u": {"id": id}}})
+                }
+                "x:Account/set" if args.get("update").is_some() => {
+                    if fake.fail_updates {
+                        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                    }
+                    let (id, patch) = args["update"].as_object().unwrap().iter().next().unwrap();
+                    let secret = patch["credentials/0/secret"].as_str().expect("patches the Password credential").to_string();
+                    fake.accounts.iter_mut().find(|a| a.id == *id).unwrap().password = secret;
+                    json!({"updated": {id.clone(): null}})
                 }
                 "x:Account/set" => {
                     let id = args["destroy"][0].as_str().unwrap().to_string();
-                    fake.accounts.retain(|a| a.0 != id);
+                    fake.accounts.retain(|a| a.id != id);
                     json!({"destroyed": [id]})
+                }
+                "x:AppPassword/set" => {
+                    let account = args["accountId"].as_str().expect("for a named account").to_string();
+                    fake.next += 1;
+                    let n = fake.next;
+                    let acct = fake.accounts.iter_mut().find(|a| a.id == account).unwrap();
+                    if let Some(ids) = args["destroy"].as_array() {
+                        acct.apps.retain(|(id, _)| !ids.iter().any(|i| i == id));
+                        json!({"destroyed": ids})
+                    } else {
+                        assert_eq!(args["create"]["p"]["permissions"]["@type"], "Inherit");
+                        let (id, secret) = (format!("ap{n}"), format!("app_secret_{n}"));
+                        acct.apps.push((id.clone(), secret.clone()));
+                        json!({"created": {"p": {"id": id, "secret": secret}}})
+                    }
+                }
+                "x:ApiKey/set" => {
+                    fake.next += 1;
+                    let key = format!("API_key_{}", fake.next);
+                    fake.api_keys.push(key.clone());
+                    json!({"created": {"k": {"id": "k", "secret": key}}})
                 }
                 other => panic!("unexpected {other}"),
             };
@@ -796,6 +857,14 @@ async fn mail_server_domains_mailboxes_and_the_jmap_proxy() {
     let (status, _, body) = env.call(send("POST", "/api/mail/test", "")).await;
     let test: artcraft_cloud_types::MailTest = json(&body);
     assert!(status == StatusCode::OK && test.ok && test.can_manage, "{test:?}");
+    // The recommended way: the admin login makes an API key once, and only the key is kept.
+    let (status, _, body) = env.call(send("PUT", "/api/mail/config", &format!(r#"{{"base_url":"{url}","auth":"basic","username":"{}","create_api_key":true,"public_host":"Mail.Example.test"}}"#, fake_stalwart::ADMIN.0))).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let saved: artcraft_cloud_types::MailConfig = json(&body);
+    assert_eq!((saved.auth.as_str(), saved.username.as_str(), saved.public_host.as_str()), ("bearer", "", "mail.example.test"));
+    assert_eq!(fake.lock().unwrap().api_keys.len(), 1);
+    let (_, _, body) = env.call(send("POST", "/api/mail/test", "")).await;
+    assert!(json::<artcraft_cloud_types::MailTest>(&body).ok, "the API key works");
 
     let (status, _, body) = env.call(send("POST", "/api/mail/domains", r#"{"name":"Example.TEST"}"#)).await;
     assert_eq!(status, StatusCode::CREATED);
@@ -812,7 +881,13 @@ async fn mail_server_domains_mailboxes_and_the_jmap_proxy() {
     assert_eq!(status, StatusCode::CREATED);
     let ada: artcraft_cloud_types::User = json(&body);
     assert_eq!((ada.email.as_deref(), ada.mailbox), (Some("ada@example.test"), true));
-    assert_eq!(fake.lock().unwrap().accounts.iter().filter(|a| a.1 == "ada").count(), 1);
+    assert_eq!(ada.mail_sync, "synced");
+    {
+        let fake = fake.lock().unwrap();
+        let account = fake.account("ada");
+        assert_eq!(account.password, "ada-password", "the mailbox password is the artcraftCloud password");
+        assert_eq!(account.apps.len(), 1, "and the proxy has an app password");
+    }
     let (status, _, body) = env.call(send("POST", "/api/users", r#"{"username":"bob","password":"bob-password","email":"bob@elsewhere.org","create_mailbox":true}"#)).await;
     assert_eq!(status, StatusCode::CREATED);
     let bob: artcraft_cloud_types::User = json(&body);
@@ -853,10 +928,51 @@ async fn mail_server_domains_mailboxes_and_the_jmap_proxy() {
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     let session: serde_json::Value = json(&body);
     assert_eq!((session["username"].as_str(), session["apiUrl"].as_str()), (Some("ada@example.test"), Some("/jmap/")));
+    let logins = {
+        let fake = fake.lock().unwrap();
+        (fake.app_logins, fake.password_logins)
+    };
+    assert_eq!(logins, (1, 0), "the proxy signs in with the app password");
     assert!(session["capabilities"].get("urn:ietf:params:jmap:websocket").is_none());
     let (status, _, body) = env.call(bearer(send("POST", "/jmap/", r#"{"using":[],"methodCalls":[]}"#), &token)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(String::from_utf8_lossy(&body).contains("user:ada@example.test"));
+
+    // Settings › Account: how to set up another mail app.
+    let (_, _, body) = env.call(as_user(get("/api/mail/me"), &ada_cookie)).await;
+    let me: artcraft_cloud_types::UserMail = json(&body);
+    let client = me.client.expect("client settings");
+    assert_eq!((client.host.as_str(), client.username.as_str(), client.imap_port, client.smtp_port), ("mail.example.test", "ada@example.test", 993, 465));
+    assert_eq!(me.password_sync, "synced");
+
+    // A password change reaches the mailbox; the proxy keeps working (it has its own credential).
+    let change = |cookie: &str, current: &str, next: &str| as_user(send("POST", "/api/me/password", &format!(r#"{{"current":"{current}","next":"{next}"}}"#)), cookie);
+    let (status, headers, body) = env.call(change(&ada_cookie, "ada-password", "ada-second-pw")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json::<artcraft_cloud_types::PasswordChanged>(&body).mail, "synced");
+    let ada_cookie = headers.get(header::SET_COOKIE).and_then(|v| v.to_str().ok()).unwrap().split(';').next().unwrap().to_string();
+    assert_eq!(fake.lock().unwrap().account("ada").password, "ada-second-pw");
+    assert_eq!(env.call(bearer(get("/jmap/session"), &token)).await.0, StatusCode::OK);
+    // The mail server is down: the artcraftCloud password changes, the answer says the mailbox
+    // did not follow, and the retry brings it in line.
+    fake.lock().unwrap().fail_updates = true;
+    let (status, headers, body) = env.call(change(&ada_cookie, "ada-second-pw", "ada-third-pw")).await;
+    assert_eq!(status, StatusCode::OK);
+    let changed: artcraft_cloud_types::PasswordChanged = json(&body);
+    assert!(changed.mail == "failed" && changed.error.is_some(), "{changed:?}");
+    let ada_cookie = headers.get(header::SET_COOKIE).and_then(|v| v.to_str().ok()).unwrap().split(';').next().unwrap().to_string();
+    let (_, _, body) = env.call(as_user(get("/api/mail/me"), &ada_cookie)).await;
+    assert_eq!(json::<artcraft_cloud_types::UserMail>(&body).password_sync, "failed");
+    assert_eq!(fake.lock().unwrap().account("ada").password, "ada-second-pw");
+    for file in ["db.sqlite", "db.sqlite-wal"] {
+        let bytes = std::fs::read(env._dir.path().join(file)).unwrap_or_default();
+        assert!(!bytes.windows(12).any(|w| w == b"ada-third-pw"), "the waiting password is sealed ({file})");
+    }
+    fake.lock().unwrap().fail_updates = false;
+    crate::http::mail::retry_pending(&env.state).await;
+    assert_eq!(fake.lock().unwrap().account("ada").password, "ada-third-pw");
+    let (_, _, body) = env.call(as_user(get("/api/mail/me"), &ada_cookie)).await;
+    assert_eq!(json::<artcraft_cloud_types::UserMail>(&body).password_sync, "synced");
 
     // Only options go to the server, never MailCraft's mail.
     let (status, _, _) = env.call(as_user(send("PUT", "/api/settings/mailcraft", r#"{"mailcraft.ui.v1":"{}","mailcraft.mailbox.v1":"{\"mail\":1}"}"#), &ada_cookie)).await;
@@ -885,14 +1001,31 @@ async fn mail_server_domains_mailboxes_and_the_jmap_proxy() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json::<artcraft_cloud_types::UserMail>(&body).mailbox, None);
     assert_eq!(fake.lock().unwrap().accounts.len(), 1, "unlinked, not deleted");
+    assert!(fake.lock().unwrap().account("ada").apps.is_empty(), "artcraftCloud's app password is revoked");
     let (status, _, _) = env.call(bearer(get("/jmap/session"), &token)).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "the token no longer opens anything");
     let (status, _, body) = env.call(send("PUT", &format!("/api/users/{}/email", ada.id), r#"{"email":"ada@example.test","create_mailbox":true}"#)).await;
     assert_eq!(status, StatusCode::CONFLICT, "an existing account is not taken over");
     assert!(String::from_utf8_lossy(&body).contains("already exists"));
+    // Made without the password at hand: a generated one until bob signs in.
     let (status, _, body) = env.call(send("PUT", &format!("/api/users/{}/email", bob.id), r#"{"email":"bob@example.test","create_mailbox":true}"#)).await;
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(json::<artcraft_cloud_types::UserMail>(&body).password_sync, "pending");
     assert_eq!(fake.lock().unwrap().accounts.len(), 2);
+    assert_ne!(fake.lock().unwrap().account("bob").password, "bob-password");
+    env.login("bob", "bob-password").await;
+    for _ in 0..100 {
+        if fake.lock().unwrap().account("bob").password == "bob-password" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_eq!(fake.lock().unwrap().account("bob").password, "bob-password", "set at sign-in");
+    // An admin reset reaches the mailbox too.
+    let (status, _, body) = env.call(send("POST", &format!("/api/users/{}/password", bob.id), r#"{"password":"bob-reset-pw"}"#)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json::<artcraft_cloud_types::PasswordChanged>(&body).mail, "synced");
+    assert_eq!(fake.lock().unwrap().account("bob").password, "bob-reset-pw");
     let (status, _, _) = env.call(send("DELETE", &format!("/api/users/{}/mailbox", bob.id), r#"{"delete":true,"confirm":"BOB@example.test"}"#)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(fake.lock().unwrap().accounts.len(), 1, "deleted on the server");
@@ -915,8 +1048,9 @@ async fn users_change_their_own_password() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _, _) = env.call(change(&first, r#"{"current":"ada-password","next":"ada-password"}"#)).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (status, headers, _) = env.call(change(&first, r#"{"current":"ada-password","next":"ada-new-password"}"#)).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, headers, body) = env.call(change(&first, r#"{"current":"ada-password","next":"ada-new-password"}"#)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json::<artcraft_cloud_types::PasswordChanged>(&body).mail, "none");
     let fresh = headers.get(header::SET_COOKIE).and_then(|v| v.to_str().ok()).unwrap().split(';').next().unwrap().to_string();
     let me = |cookie: &str| {
         let mut req = Request::builder().uri("/api/me").body(Body::empty()).unwrap();

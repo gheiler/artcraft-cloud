@@ -42,23 +42,28 @@ services:
   # Read docs/mail.md before turning this on: sending straight from a home or dynamic IP lands in spam.
   stalwart:
     profiles: ["mail"]
-    image: docker.io/stalwartlabs/stalwart:latest
+    # Pinned: upgrade on purpose after reading the release notes (docs/mail.md, "Upgrading Stalwart").
+    image: docker.io/stalwartlabs/stalwart:${STALWART_TAG:-v1.2.0}
     container_name: artcraft-mail
     restart: unless-stopped
     ports:
-      - "25:25"
-      - "465:465"
-      - "587:587"
-      - "993:993"
+      - "25:25"     # SMTP from other mail servers
+      - "465:465"   # SMTP submission (TLS) for mail apps
+      - "993:993"   # IMAP (TLS) for mail apps
       - "127.0.0.1:8081:8080"   # Stalwart admin UI, keep it private
+      # 587 (STARTTLS submission) and 143 (IMAP) are off in Stalwart's default listeners; add
+      # them here after turning them on in Stalwart (Settings › Network › Listeners).
     # First start prints a one-time admin password (`docker compose logs stalwart`). To pin one
     # instead, uncomment and set STALWART_RECOVERY_ADMIN=admin:<long password> in .env:
     # environment:
     #   STALWART_RECOVERY_ADMIN: ${STALWART_RECOVERY_ADMIN}
     volumes:
-      - stalwart-data:/opt/stalwart
+      # Stalwart 1.x keeps its configuration and its data in these two places.
+      - stalwart-config:/etc/stalwart
+      - stalwart-data:/var/lib/stalwart
     mem_limit: 256m
 
 volumes:
   artcraft-data:
+  stalwart-config:
   stalwart-data:

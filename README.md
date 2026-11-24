@@ -99,8 +99,10 @@ existing issues and pull requests.
   from *People*.
 - **Mail.** The super admin connects a Stalwart server under *Mail* (`/mail`) and adds domains there,
   with the DNS records each needs. Admins give people an email address in *People*; when its domain is
-  on the server, artcraftCloud creates the mailbox and MailCraft opens it without a password. Details,
-  and what disabling or deleting does, in [docs/mail.md](docs/mail.md).
+  on the server, artcraftCloud creates the mailbox and MailCraft opens it without a password. The
+  mailbox password is the person's artcraftCloud password (kept in step on every change), so other
+  mail apps work too; *Settings › Account* shows the IMAP/SMTP settings. Stalwart is pinned
+  (v1.2.0). Details, upgrades, and what disabling or deleting does, in [docs/mail.md](docs/mail.md).
 - **Groups** are managed under *People* by admins. Sharing with a group gives every member access; a
   member who leaves loses it.
 - **Addresses.** `/files/<folder>` is a folder, `/open/<path>?app=<app>` a document, `/new/<app>` a new
@@ -252,9 +254,11 @@ to a same-origin parent.
   signed releases (the updater refuses anything else).
 - The content security policy allows `wasm-unsafe-eval` and `unsafe-eval`, which the apps' wasm
   loaders need.
-- Mail: the Stalwart credential and every mailbox password are sealed in the database
-  (ChaCha20-Poly1305, key derived from `secret.key`) and never sent to a browser. MailCraft reaches
-  the mail server only through `/jmap/…` with 15-minute tokens; disabled people are refused. Changing
+- Mail: the Stalwart API key (or admin login) and each mailbox's app password are sealed in the
+  database (ChaCha20-Poly1305, key derived from `secret.key`) and never sent to a browser; a
+  password change waiting for an unreachable mail server is sealed too and dropped once it lands.
+  MailCraft reaches the mail server only through `/jmap/…` with 15-minute tokens; disabled people
+  are refused. Changing
   your own password needs the current one, is rate limited (8 per 10 minutes) and ends your other
   sessions.
 

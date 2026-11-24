@@ -111,12 +111,17 @@ pub fn People() -> impl IntoView {
                 <table class="file-table">
                     <thead><tr><th class="name-col">{t("Name")}</th><th>{t("Role")}</th><th>{t("Status")}</th><th class="actions-col"><span class="sr-only">{t("Actions")}</span></th></tr></thead>
                     <tbody>
-                        <For each=move || users.get() key=|u| (u.id, u.role.clone(), u.disabled, u.email.clone(), u.mailbox) let(user)>
+                        <For each=move || users.get() key=|u| (u.id, u.role.clone(), u.disabled, u.email.clone(), u.mailbox, u.mail_sync.clone()) let(user)>
                             <tr class="row">
                                 <td class="name-col"><span class="file-name static">
                                     <span class="avatar">{initials(&user.display_name)}</span>
                                     <span class="who"><strong>{user.display_name.clone()}</strong><span class="muted">{user.username.clone()}
                                         {user.email.clone().map(|email| view! { " · "<span class="user-email" class:has-mailbox=user.mailbox title=if user.mailbox { t("Has a mailbox on the mail server") } else { t("Email address only") }>{user.mailbox.then(|| icon(Icon::Mail))}{email}</span> })}
+                                        {match user.mail_sync.as_str() {
+                                            "pending" => Some(view! { <span class="mail-sync" title=t("The mailbox still has a generated password. It becomes their artcraftCloud password at their next sign-in or password change; until then other mail apps cannot sign in.")>{t("mail password at next sign-in")}</span> }.into_any()),
+                                            "failed" => Some(view! { <span class="mail-sync bad" title=t("Their last password change did not reach the mail server. artcraftCloud retries every few minutes and at their next sign-in.")>{t("mail password not updated")}</span> }.into_any()),
+                                            _ => None,
+                                        }}
                                     </span></span>
                                 </span></td>
                                 <td>{if user.super_admin { view! { <span class="badge primary">{icon(Icon::Shield)}{t("Super admin")}</span> }.into_any() } else if user.role == "admin" { view! { <span class="badge">{t("Admin")}</span> }.into_any() } else { view! { <span class="muted">{t("User")}</span> }.into_any() }}</td>

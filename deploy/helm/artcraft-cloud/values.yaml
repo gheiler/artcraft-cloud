@@ -17,8 +17,35 @@ admin:
 githubToken: ""
 maxUploadMB: 512
 # Optional Stalwart base URL offered on the Mail page (e.g. http://stalwart.mail.svc:8080). The
-# credential is entered there by the super admin and kept encrypted in the database.
+# credential is entered there by the super admin and kept encrypted in the database. With
+# stalwart.enabled and this empty, the chart's own Stalwart is offered.
 mailUrl: ""
+
+# Optional Stalwart mail server (AGPL-3.0, its own pod; read docs/mail.md first).
+stalwart:
+  enabled: false
+  image:
+    repository: docker.io/stalwartlabs/stalwart
+    # Pinned on purpose; see docs/mail.md, "Upgrading Stalwart", before changing it.
+    tag: v1.2.0
+    pullPolicy: IfNotPresent
+  # Optional Secret with the key "recovery-admin" holding "admin:<long password>"; without it the
+  # first start prints a one-time admin password in the pod log.
+  recoveryAdminSecret: ""
+  persistence:
+    config: 1Gi
+    data: 10Gi
+    storageClass: ""
+  # The mail ports (25, 465, 993) need to be reachable from outside; LoadBalancer or NodePort.
+  mailService:
+    type: LoadBalancer
+    annotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
 extraEnv: []
 
 persistence:

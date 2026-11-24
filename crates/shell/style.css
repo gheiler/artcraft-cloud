@@ -477,3 +477,16 @@ select.field { padding-right: var(--space-8); }
 .mailbox-box .badge { display: inline-flex; align-items: center; gap: 4px; }
 .danger-zone { display: grid; gap: var(--space-8); padding: var(--space-12); border: 1px solid var(--danger); border-radius: var(--radius-8); background: var(--danger-soft); }
 .danger-zone p { color: var(--danger); }
+
+/* Settings › Account: other mail apps; People and Mail page: mailbox password state. */
+.mail-client { margin-top: var(--space-16); padding-top: var(--space-16); border-top: 1px solid var(--line); }
+.client-table { margin-top: var(--space-12); border-collapse: collapse; font-size: var(--text-14); }
+.client-table th { text-align: left; font-weight: var(--weight-regular); color: var(--text-2); padding: var(--space-4) var(--space-20) var(--space-4) 0; white-space: nowrap; }
+.client-table td { padding: var(--space-4) 0; }
+.client-table code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--text-12); user-select: all; }
+.sync-note { margin-top: var(--space-12); padding: var(--space-8) var(--space-12); border-radius: var(--radius-8); background: var(--surface-2); font-size: var(--text-12); }
+.sync-note.bad { background: var(--danger-soft); color: var(--danger); }
+.mail-sync { margin-left: var(--space-8); font-size: var(--text-12); color: var(--text-2); border: 1px dashed var(--line); border-radius: 999px; padding: 0 var(--space-8); }
+.mail-sync.bad { color: var(--danger); border-color: var(--danger); }
+.key-check { padding: var(--space-4) 0 var(--space-8); }
+.fallback-note { font-size: var(--text-12); margin-bottom: var(--space-8); }

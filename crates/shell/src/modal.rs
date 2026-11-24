@@ -45,9 +45,28 @@ pub fn Modals() -> impl IntoView {
             Modal::Pick { id, accept, multiple } => view! { <PickDialog id=id accept=accept multiple=multiple /> }.into_any(),
             Modal::UserEmail { id, username } => view! { <crate::mail::UserEmailDialog id=id username=username /> }.into_any(),
             Modal::ResetPassword { id, username } => view! { <NameDialog title=tf("New password for {username}", &[("username", &username)]) label=t("Password (at least 10 characters)").into() initial=String::new() confirm=t("Set password").into() password=true
-                on_ok=Callback::new(move |password: String| run(api::req("POST", format!("/api/users/{id}/password"), Some(serde_json::json!({"password": password}))), Some(t("Password changed. Their sessions were signed out.")))) /> }.into_any(),
+                on_ok=Callback::new(move |password: String| reset_password(id, password)) /> }.into_any(),
         })
     }
+}
+
+/// An admin sets someone's password; their mailbox (if any) follows, and the answer says whether
+/// it did.
+fn reset_password(id: i64, password: String) {
+    let ui = ui();
+    wasm_bindgen_futures::spawn_local(async move {
+        let body = serde_json::json!({"password": password});
+        match api::json::<artcraft_cloud_types::PasswordChanged>("POST", &format!("/api/users/{id}/password"), &body).await {
+            Ok(done) if done.mail == "failed" => ui.say(tf(
+                "Password changed, but the mail server did not take it yet ({error}). Their mailbox keeps the old password until artcraftCloud's retry gets through.",
+                &[("error", &done.error.unwrap_or_default())],
+            )),
+            Ok(done) if done.mail == "synced" => ui.say(t("Password changed for artcraftCloud and the mailbox. Their sessions were signed out.")),
+            Ok(_) => ui.say(t("Password changed. Their sessions were signed out.")),
+            Err(err) => ui.say(err),
+        }
+        ui.refresh();
+    });
 }
 
 /// Run a request, then close the dialog and reload the page's data (or show the error).

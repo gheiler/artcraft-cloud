@@ -37,6 +37,7 @@ impl Account {
             super_admin: self.is_super,
             email: None,
             mailbox: false,
+            mail_sync: String::new(),
         }
     }
 }
@@ -48,18 +49,41 @@ pub struct MailConfigRow {
     pub auth: String,
     pub username: String,
     pub secret: Option<Vec<u8>>,
+    pub public_host: String,
 }
 
-/// Per user id: the email address and the linked mailbox's address.
-pub type UserMailMap = std::collections::HashMap<i64, (Option<String>, Option<String>)>;
+/// A user's email, linked mailbox address and mailbox password state (`MailboxRow::password_sync`).
+#[derive(Debug, Clone, Default)]
+pub struct UserMailInfo {
+    pub email: Option<String>,
+    pub mailbox: Option<String>,
+    pub sync: Option<String>,
+}
 
-/// A user's mailbox on the mail server; `secret` (its password) is sealed (`vault`).
+/// Per user id.
+pub type UserMailMap = std::collections::HashMap<i64, UserMailInfo>;
+
+/// A user's mailbox on the mail server.
 #[derive(Debug, Clone)]
 pub struct MailboxRow {
     pub user_id: i64,
     pub address: String,
     pub account_id: String,
+    /// The credential the JMAP proxy signs in with, sealed (`vault`): an app password of the
+    /// account (`proxy_kind` `app`), or, for mailboxes made before app passwords, the generated
+    /// account password (`password`) until it is replaced.
     pub secret: Vec<u8>,
+    pub proxy_kind: String,
+    /// The app password's credential id on the mail server, to revoke it.
+    pub proxy_id: Option<String>,
+    /// `synced`: the account password is the user's artcraftCloud password. `pending`: not yet
+    /// (no plaintext was at hand), set at the next sign-in or password change. `failed`: the
+    /// last update did not reach the server; `pending_secret` holds it for the retry.
+    pub password_sync: String,
+    pub sync_error: Option<String>,
+    /// The new password waiting for a retry, sealed; cleared once it is on the server.
+    pub pending_secret: Option<Vec<u8>>,
+    pub sync_attempts: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -232,16 +256,16 @@ impl Db {
     /// Every user's email and linked mailbox address, by user id.
     pub fn user_mail(&self) -> Result<UserMailMap, Error> {
         self.with(|c| {
-            let mut stmt = c.prepare("SELECT u.id, u.email, m.address FROM users u LEFT JOIN mailboxes m ON m.user_id = u.id")?;
-            let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, (row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?))))?;
+            let mut stmt = c.prepare("SELECT u.id, u.email, m.address, m.password_sync FROM users u LEFT JOIN mailboxes m ON m.user_id = u.id")?;
+            let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, UserMailInfo { email: row.get(1)?, mailbox: row.get(2)?, sync: row.get(3)? })))?;
             Ok(rows.collect::<Result<_, _>>()?)
         })
     }
 
     pub fn mail_config(&self) -> Result<Option<MailConfigRow>, Error> {
         self.with(|c| {
-            c.query_row("SELECT base_url, auth, username, secret FROM mail_config WHERE id = 1", [], |row| {
-                Ok(MailConfigRow { base_url: row.get(0)?, auth: row.get(1)?, username: row.get(2)?, secret: row.get(3)? })
+            c.query_row("SELECT base_url, auth, username, secret, public_host FROM mail_config WHERE id = 1", [], |row| {
+                Ok(MailConfigRow { base_url: row.get(0)?, auth: row.get(1)?, username: row.get(2)?, secret: row.get(3)?, public_host: row.get(4)? })
             })
             .optional()
             .map_err(Error::from)
@@ -251,9 +275,10 @@ impl Db {
     pub fn set_mail_config(&self, row: &MailConfigRow) -> Result<(), Error> {
         self.with(|c| {
             c.execute(
-                "INSERT INTO mail_config (id, base_url, auth, username, secret, updated_at) VALUES (1, ?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT(id) DO UPDATE SET base_url = excluded.base_url, auth = excluded.auth, username = excluded.username, secret = excluded.secret, updated_at = excluded.updated_at",
-                params![row.base_url, row.auth, row.username, row.secret, now_secs()],
+                "INSERT INTO mail_config (id, base_url, auth, username, secret, public_host, updated_at) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT(id) DO UPDATE SET base_url = excluded.base_url, auth = excluded.auth, username = excluded.username, secret = excluded.secret,
+                 public_host = excluded.public_host, updated_at = excluded.updated_at",
+                params![row.base_url, row.auth, row.username, row.secret, row.public_host, now_secs()],
             )?;
             Ok(())
         })
@@ -268,19 +293,54 @@ impl Db {
 
     pub fn mailbox(&self, user_id: i64) -> Result<Option<MailboxRow>, Error> {
         self.with(|c| {
-            c.query_row("SELECT user_id, address, account_id, secret FROM mailboxes WHERE user_id = ?1", params![user_id], |row| {
-                Ok(MailboxRow { user_id: row.get(0)?, address: row.get(1)?, account_id: row.get(2)?, secret: row.get(3)? })
-            })
-            .optional()
-            .map_err(Error::from)
+            c.query_row(&format!("SELECT {MAILBOX_COLUMNS} FROM mailboxes WHERE user_id = ?1"), params![user_id], mailbox_row).optional().map_err(Error::from)
+        })
+    }
+
+    /// Mailboxes with a password change waiting for the mail server.
+    pub fn mailboxes_to_retry(&self) -> Result<Vec<MailboxRow>, Error> {
+        self.with(|c| {
+            let mut stmt = c.prepare(&format!("SELECT {MAILBOX_COLUMNS} FROM mailboxes WHERE pending_secret IS NOT NULL"))?;
+            let rows = stmt.query_map([], mailbox_row)?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })
+    }
+
+    /// The proxy now signs in with an app password.
+    pub fn set_mailbox_proxy(&self, user_id: i64, secret: &[u8], proxy_id: &str) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute("UPDATE mailboxes SET secret = ?2, proxy_kind = 'app', proxy_id = ?3 WHERE user_id = ?1", params![user_id, secret, proxy_id])?;
+            Ok(())
+        })
+    }
+
+    /// The account password is the user's password now.
+    pub fn mailbox_synced(&self, user_id: i64) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute(
+                "UPDATE mailboxes SET password_sync = 'synced', sync_error = NULL, pending_secret = NULL, sync_attempts = 0, synced_at = ?2 WHERE user_id = ?1",
+                params![user_id, now_secs()],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The update did not reach the server; keep `pending` (sealed) for a retry, or `None` to stop.
+    pub fn mailbox_sync_failed(&self, user_id: i64, error: &str, pending: Option<&[u8]>, attempts: i64) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute(
+                "UPDATE mailboxes SET password_sync = 'failed', sync_error = ?2, pending_secret = ?3, sync_attempts = ?4 WHERE user_id = ?1",
+                params![user_id, error, pending, attempts],
+            )?;
+            Ok(())
         })
     }
 
     pub fn link_mailbox(&self, row: &MailboxRow) -> Result<(), Error> {
         self.with(|c| {
             match c.execute(
-                "INSERT INTO mailboxes (user_id, address, account_id, secret, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![row.user_id, row.address, row.account_id, row.secret, now_secs()],
+                "INSERT INTO mailboxes (user_id, address, account_id, secret, proxy_kind, proxy_id, password_sync, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![row.user_id, row.address, row.account_id, row.secret, row.proxy_kind, row.proxy_id, row.password_sync, now_secs()],
             ) {
                 Ok(_) => Ok(()),
                 Err(rusqlite::Error::SqliteFailure(err, _)) if err.code == rusqlite::ErrorCode::ConstraintViolation => Err(Error::Exists),
@@ -840,6 +900,23 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 "#;
 
+const MAILBOX_COLUMNS: &str = "user_id, address, account_id, secret, proxy_kind, proxy_id, password_sync, sync_error, pending_secret, sync_attempts";
+
+fn mailbox_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MailboxRow> {
+    Ok(MailboxRow {
+        user_id: row.get(0)?,
+        address: row.get(1)?,
+        account_id: row.get(2)?,
+        secret: row.get(3)?,
+        proxy_kind: row.get(4)?,
+        proxy_id: row.get(5)?,
+        password_sync: row.get(6)?,
+        sync_error: row.get(7)?,
+        pending_secret: row.get(8)?,
+        sync_attempts: row.get(9)?,
+    })
+}
+
 /// Columns added after the first release. `ALTER TABLE ... ADD COLUMN` is not idempotent in
 /// SQLite, so each one is added only when `table_info` does not list it yet.
 fn migrate(c: &Connection) -> Result<(), Error> {
@@ -849,6 +926,22 @@ fn migrate(c: &Connection) -> Result<(), Error> {
     c.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE) WHERE email IS NOT NULL")?;
     if !has_column(c, "users", "is_super")? {
         c.execute_batch("ALTER TABLE users ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0")?;
+    }
+    if !has_column(c, "mail_config", "public_host")? {
+        c.execute_batch("ALTER TABLE mail_config ADD COLUMN public_host TEXT NOT NULL DEFAULT ''")?;
+    }
+    for (column, kind) in [
+        ("proxy_kind", "TEXT NOT NULL DEFAULT 'password'"),
+        ("proxy_id", "TEXT"),
+        ("password_sync", "TEXT NOT NULL DEFAULT 'pending'"),
+        ("sync_error", "TEXT"),
+        ("pending_secret", "BLOB"),
+        ("sync_attempts", "INTEGER NOT NULL DEFAULT 0"),
+        ("synced_at", "INTEGER"),
+    ] {
+        if !has_column(c, "mailboxes", column)? {
+            c.execute_batch(&format!("ALTER TABLE mailboxes ADD COLUMN {column} {kind}"))?;
+        }
     }
     if !has_column(c, "shares", "group_id")? {
         c.execute_batch("ALTER TABLE shares ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE")?;
