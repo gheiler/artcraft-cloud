@@ -3,8 +3,11 @@
 #   docker compose up -d                      # the office suite only
 #   docker compose --profile mail up -d       # plus the optional Stalwart mail server
 #
-# First start downloads the ArtCraft apps into the volume (about 550 MB) and prints the
-# generated admin password in the logs unless ARTCRAFT_ADMIN_PASSWORD is set:
+# First start installs the ArtCraft apps into the data volume (about 550 MB) and prints the
+# generated admin password in the logs unless ARTCRAFT_ADMIN_PASSWORD is set. The downloaded
+# archives are kept in the shared `artcraft-app-cache` volume, so a new data volume (another
+# project name, `docker run`, a reinstall) installs them from there instead of downloading them
+# again; each is still checked against its release's signed checksums (docs/build.md):
 #   docker compose logs artcraft-cloud | grep -A2 "admin password"
 # Put a TLS reverse proxy in front for anything but localhost (the apps need a secure context).
 
@@ -28,8 +31,10 @@ services:
       # Offered on the Mail page as the server address (the `mail` profile's Stalwart). Only a
       # suggestion: the super admin saves it there with a credential (docs/mail.md).
       ARTCRAFT_MAIL_URL: ${ARTCRAFT_MAIL_URL:-http://stalwart:8080}
+      ARTCRAFT_APP_CACHE: /cache
     volumes:
       - artcraft-data:/data
+      - artcraft-app-cache:/cache
     mem_limit: 128m
     read_only: true
     tmpfs:
@@ -65,5 +70,9 @@ services:
 
 volumes:
   artcraft-data:
+  # A fixed name (no project prefix), so every install on this host shares it. Only verified
+  # app archives; safe to delete (`docker volume rm artcraft-app-cache`), and `down -v` does.
+  artcraft-app-cache:
+    name: artcraft-app-cache
   stalwart-config:
   stalwart-data:

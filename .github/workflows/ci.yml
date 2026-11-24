@@ -29,9 +29,17 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy -p artcraft-cloud-shell --target wasm32-unknown-unknown --locked -- -D warnings
+      # trunk keeps wasm-bindgen and wasm-opt (pinned in Trunk.toml) in ~/.cache/trunk; cache them
+      # so the shell build downloads nothing once they are there.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/trunk
+          key: trunk-tools-${{ hashFiles('crates/shell/Trunk.toml') }}
       - name: build the shell
         run: |
-          curl -fsSL https://github.com/trunk-rs/trunk/releases/download/v0.22.2/trunk-x86_64-unknown-linux-musl.tar.gz | tar -xz -C /usr/local/bin trunk
+          curl -fsSL -o /tmp/trunk.tar.gz https://github.com/trunk-rs/trunk/releases/download/v0.22.2/trunk-x86_64-unknown-linux-musl.tar.gz
+          echo "4a90216d93c553f3d8b7401fce0dee588e0fb1eb1c6a379ebac81fabe820f25b  /tmp/trunk.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/trunk.tar.gz -C /usr/local/bin trunk
           cd crates/shell && trunk build --release
 
   deploy-files:

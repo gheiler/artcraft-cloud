@@ -114,10 +114,20 @@ async fn update_one(data: &Path, token: Option<&str>, app_id: &str, pinned: Opti
     fs::create_dir_all(&scratch).map_err(|err| err.to_string())?;
     let zip_path = scratch.join(&zip_name);
     let sums_path = scratch.join("SHA256SUMS.txt");
-    download(&client, token, &zip_url, &zip_path).await?;
+    // The small, signed checksum list is always fetched and checked below; only the archive
+    // itself may come from the cache, and only when its hash matches that list.
     download(&client, token, &sums_url, &sums_path).await?;
     let sums = fs::read_to_string(&sums_path).map_err(|err| err.to_string())?;
     let expected = expected_sha256(&sums, &zip_name)?;
+    let cache = app_cache();
+    let cached = cache.as_ref().map(|dir| dir.join(&zip_name)).filter(|path| file_sha256(path).is_ok_and(|sha| sha.eq_ignore_ascii_case(&expected)));
+    match &cached {
+        Some(path) => {
+            fs::copy(path, &zip_path).map_err(|err| format!("copy {}: {err}", path.display()))?;
+            tracing::info!(app = app_id, %version, "web build from the app cache");
+        }
+        None => download(&client, token, &zip_url, &zip_path).await?,
+    }
     let actual = file_sha256(&zip_path)?;
     if !actual.eq_ignore_ascii_case(&expected) {
         return Err(format!("{zip_name} sha256 {actual} != {expected}"));
@@ -144,8 +154,13 @@ async fn update_one(data: &Path, token: Option<&str>, app_id: &str, pinned: Opti
         "unsigned"
     };
     install_zip(data, app_id, &version, &zip_path, &actual, signature)?;
+    if let (Some(dir), None) = (&cache, &cached) {
+        if let Err(err) = store_in_cache(dir, app_id, &zip_name, &zip_path) {
+            tracing::warn!(app = app_id, "app cache: {err}");
+        }
+    }
     let _ = fs::remove_dir_all(&scratch);
-    println!("installed {app_id} {version} ({signature})");
+    println!("installed {app_id} {version} ({signature}{})", if cached.is_some() { ", from the app cache" } else { "" });
     Ok(())
 }
 
@@ -202,6 +217,34 @@ pub fn install_zip(data: &Path, app_id: &str, version: &str, zip_path: &Path, sh
         );
         write_manifest(data, &manifest)
     })
+}
+
+/// `ARTCRAFT_APP_CACHE`: a directory of downloaded web build archives, shared by data volumes
+/// (a fresh volume, a second install on the same host, CI). Archives are used only when their
+/// SHA-256 matches the release's signed checksum list, so the cache needs no trust of its own.
+fn app_cache() -> Option<PathBuf> {
+    let dir = std::env::var_os("ARTCRAFT_APP_CACHE").filter(|v| !v.is_empty()).map(PathBuf::from)?;
+    fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+/// Keep the new archive and the newest older one of the same app (for a rollback on a new volume).
+fn store_in_cache(dir: &Path, app_id: &str, zip_name: &str, zip_path: &Path) -> Result<(), String> {
+    let partial = dir.join(format!(".{zip_name}.part"));
+    fs::copy(zip_path, &partial).map_err(|err| err.to_string())?;
+    fs::rename(&partial, dir.join(zip_name)).map_err(|err| err.to_string())?;
+    let prefix = format!("{app_id}-web-");
+    let mut older: Vec<(std::time::SystemTime, PathBuf)> = fs::read_dir(dir)
+        .map_err(|err| err.to_string())?
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix) && entry.file_name() != zip_name)
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .collect();
+    older.sort();
+    for (_, path) in older.iter().rev().skip(1) {
+        let _ = fs::remove_file(path);
+    }
+    Ok(())
 }
 
 pub fn expected_sha256(sums: &str, filename: &str) -> Result<String, String> {

@@ -24,17 +24,21 @@ save straight into it.
 ## Quick start
 
 ```sh
-docker run -d --name artcraft-cloud -p 8080:8080 -v artcraft-data:/data ghcr.io/gheiler/artcraft-cloud:latest
+docker run -d --name artcraft-cloud -p 8080:8080 -v artcraft-data:/data \
+  -v artcraft-app-cache:/cache -e ARTCRAFT_APP_CACHE=/cache ghcr.io/gheiler/artcraft-cloud:latest
 docker logs artcraft-cloud | grep -A2 "admin password"     # the generated admin password, shown once
 ```
 
 Open <http://localhost:8080>. The first start downloads the eight apps (about 550 MB) into the volume
-in the background; they show up in the launcher as each one finishes.
+in the background; they show up in the launcher as each one finishes. The archives stay in the
+`artcraft-app-cache` volume, so a new data volume installs them from there (checksums still
+checked) instead of downloading them again; see [docs/build.md](docs/build.md).
 
 > Anywhere but localhost, put it behind HTTPS (a reverse proxy or the Ingress below) and set
 > `ARTCRAFT_PUBLIC_URL=https://…`. The apps need a secure context for WebGPU and the clipboard.
 
 The image is published by CI from `main`. To build it yourself: `docker build -t artcraft-cloud .`
+(a rebuild after a code change takes about 40 s; [docs/build.md](docs/build.md)).
 
 ### Docker Compose
 
@@ -189,6 +193,7 @@ Set `ARTCRAFT_GITHUB_TOKEN` if you hit GitHub's anonymous limit of 60 API calls 
 | `ARTCRAFT_SESSION_HOURS` | `336` | |
 | `ARTCRAFT_MAX_UPLOAD_MB` | `512` | |
 | `ARTCRAFT_SKIP_APP_SYNC` | | `1` skips the first-start download |
+| `ARTCRAFT_APP_CACHE` | `/cache` (compose) | A directory of downloaded app archives shared by data volumes; one whose SHA-256 matches the release's signed checksums is installed from there instead of downloaded ([docs/build.md](docs/build.md)) |
 | `ARTCRAFT_GITHUB_TOKEN` | | For app updates |
 | `ARTCRAFT_MAIL_URL` | | Stalwart address offered on the Mail page (`http://stalwart:8080` in compose); see [docs/mail.md](docs/mail.md) |
 | `ARTCRAFT_SHELL_DIR` | `/opt/artcraft-cloud/shell` (image) | The built drive UI |
