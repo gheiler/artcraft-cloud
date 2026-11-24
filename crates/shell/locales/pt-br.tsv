@@ -97,7 +97,7 @@ Folder name	Nome da pasta
 For rulers, margins and sizes.	Para réguas, margens e tamanhos.
 From this device…	Deste dispositivo…
 Full name (optional)	Nome completo (opcional)
-Give someone an email address in People. When its domain is on this server, artcraftCloud creates the mailbox with the person's artcraftCloud password, so they can use other mail apps too, and changes it whenever they change theirs. MailCraft gets in with a separate app password that this server keeps sealed. Disabling a person locks MailCraft out (suspend the account in Stalwart to stop other apps too); removing a mailbox unlinks it unless you choose to delete it.	Dê a alguém um endereço de e-mail em Pessoas. Se o domínio estiver neste servidor, o artcraftCloud cria a caixa de correio com a senha do artcraftCloud da pessoa, para que ela também use outros apps de e-mail, e a altera sempre que ela mudar a sua. O MailCraft entra com uma senha de app separada que este servidor guarda selada. Desativar uma pessoa bloqueia o MailCraft (suspenda a conta no Stalwart para bloquear outros apps também); remover uma caixa a desvincula, a menos que você opte por excluí-la.
+Give someone an email address in People. When its domain is on this server, artcraftCloud creates the mailbox with the person's artcraftCloud password, so they can use other mail apps too, and changes it whenever they change theirs. MailCraft gets in with a separate app password that this server keeps sealed. Disabling a person suspends the mailbox, so no mail app can sign in or send until they are enabled again, while mail sent to them still arrives; removing a mailbox unlinks it unless you choose to delete it.	Dê a alguém um endereço de e-mail em Pessoas. Se o domínio estiver neste servidor, o artcraftCloud cria a caixa com a senha do artcraftCloud da pessoa, para que ela também possa usar outros apps de e-mail, e a altera sempre que a pessoa mudar a sua. O MailCraft entra com uma senha de app separada que este servidor guarda selada. Desativar uma pessoa suspende a caixa: nenhum app de e-mail consegue entrar ou enviar até que ela seja ativada de novo, enquanto o e-mail enviado a ela continua chegando. Remover uma caixa a desvincula, a menos que você escolha excluí-la.
 Group {group}	Grupo {group}
 Group · 1 member	Grupo · 1 membro
 Group · {count} members	Grupo · {count} membros
@@ -243,6 +243,10 @@ Testing…	Testando…
 That app	Esse aplicativo
 The account name, e.g. admin or admin@example.com.	O nome da conta, por ex. admin ou admin@example.com.
 The account was created, but the mail server did not create the mailbox. Try again from Email.	A conta foi criada, mas o servidor de e-mail não criou a caixa de correio. Tente novamente em E-mail.
+The account was disabled and its mailbox suspended.	A conta foi desativada e sua caixa de correio suspensa.
+The account was disabled, but the mail server did not suspend the mailbox yet ({error}). artcraftCloud retries every few minutes.	A conta foi desativada, mas o servidor de e-mail ainda não suspendeu a caixa ({error}). O artcraftCloud tenta de novo a cada poucos minutos.
+The account was enabled and its mailbox restored.	A conta foi ativada e sua caixa de correio restaurada.
+The account was enabled, but the mail server did not restore the mailbox yet ({error}). artcraftCloud retries every few minutes.	A conta foi ativada, mas o servidor de e-mail ainda não restaurou a caixa ({error}). O artcraftCloud tenta de novo a cada poucos minutos.
 The admin password is then kept on this server (encrypted). An API key can be revoked on its own without changing the admin password.	A senha de administrador fica então guardada neste servidor (criptografada). Uma chave de API pode ser revogada sozinha, sem mudar a senha de administrador.
 The app sent a save with no bytes.	O aplicativo enviou um salvamento sem dados.
 The current password is not right.	A senha atual não está correta.
@@ -250,6 +254,8 @@ The drive and the apps that have this language use it.	O drive e os aplicativos 
 The drive is not translated into this language yet and shows English; the apps that have it use it.	O drive ainda não foi traduzido para este idioma e aparece em inglês; os aplicativos que o têm o usam.
 The mail server does not serve this domain, so only the address is kept.	O servidor de e-mail não atende este domínio, então só o endereço é salvo.
 The mail server has no domains yet. Add the one your addresses end in.	O servidor de e-mail ainda não tem domínios. Adicione aquele em que seus endereços terminam.
+The mail server has not restored the mailbox yet: {error}. artcraftCloud retries every few minutes.	O servidor de e-mail ainda não restaurou a caixa: {error}. O artcraftCloud tenta de novo a cada poucos minutos.
+The mail server has not suspended the mailbox yet: {error}. artcraftCloud retries every few minutes.	O servidor de e-mail ainda não suspendeu a caixa: {error}. O artcraftCloud tenta de novo a cada poucos minutos.
 The mailbox still has a generated password. It becomes their artcraftCloud password at their next sign-in or password change; until then other mail apps cannot sign in.	A caixa de correio ainda tem uma senha gerada. Ela passa a ser a senha do artcraftCloud da pessoa no próximo login ou troca de senha; até lá, outros apps de e-mail não conseguem entrar.
 The new password is the same as the current one.	A nova senha é igual à atual.
 The new passwords do not match.	As novas senhas não coincidem.
@@ -257,6 +263,7 @@ The trash is empty.	A lixeira está vazia.
 Their last password change did not reach the mail server. artcraftCloud retries every few minutes and at their next sign-in.	A última troca de senha não chegou ao servidor de e-mail. O artcraftCloud tenta de novo a cada poucos minutos e no próximo login.
 Theme	Tema
 These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.	Estas configurações são suas em qualquer navegador. Uma alteração é gravada nas opções de cada aplicativo e vale na próxima vez que ele abrir.
+They cannot sign in to the mailbox from any app (IMAP, SMTP, MailCraft) and cannot send mail. Mail sent to them is still delivered. Enabling the person restores it.	Nenhum app (IMAP, SMTP, MailCraft) consegue entrar na caixa, e não é possível enviar e-mail. O e-mail enviado à pessoa continua sendo entregue. Ativar a pessoa restaura tudo.
 This cannot be undone.	Isso não pode ser desfeito.
 This deletes {address} and all of its mail on the mail server. It cannot be undone. Type the address to confirm.	Isso exclui {address} e todos os seus e-mails no servidor. Não pode ser desfeito. Digite o endereço para confirmar.
 This link has a password	Este link tem senha
@@ -291,6 +298,9 @@ Your mailbox works in any IMAP mail app (Thunderbird, Apple Mail, Outlook, phone
 Your name in documents	Seu nome nos documentos
 mail password at next sign-in	senha de e-mail no próximo login
 mail password not updated	senha de e-mail não atualizada
+mailbox not suspended yet	caixa ainda não suspensa
+mailbox still suspended	caixa ainda suspensa
+mailbox suspended	caixa suspensa
 password	senha
 port {port}, SSL/TLS	porta {port}, SSL/TLS
 port {port}, SSL/TLS (or {starttls} with STARTTLS)	porta {port}, SSL/TLS (ou {starttls} com STARTTLS)

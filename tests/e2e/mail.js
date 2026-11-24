@@ -84,6 +84,21 @@ async function signIn(browser, user, pass) {
   check(lena && lena.mailbox && lena.email === `${who}@${DOMAIN}`, 'the person is linked to the mailbox');
   check(lena && lena.mail_sync === 'synced', 'the mailbox has their password from the start');
   if (IMAP_URL) check(imap(`${who}@${DOMAIN}`, WHO_PASS), 'IMAP sign-in with the new person\'s artcraftCloud password');
+  // Disabling the person suspends the mailbox on the mail server; enabling restores it.
+  const rowButton = (name, label) => admin.evaluate((name, label) => { const row = [...document.querySelectorAll('tr.row')].find(r => r.textContent.includes(name)); [...row.querySelectorAll('button')].find(b => b.textContent.trim() === label).click(); }, name, label);
+  await quiet(admin); await rowButton(who, 'Disable'); await sleep(1500);
+  check((await toast(admin)).includes('mailbox suspended'), 'disabled, mailbox suspended: ' + await toast(admin));
+  const off = (await api(admin, 'GET', '/api/users')).json.find(u => u.username === who);
+  check(off.disabled && off.mail_suspended && !off.mail_access_error, 'People lists the mailbox as suspended');
+  check(await admin.evaluate(name => [...document.querySelectorAll('tr.row')].find(r => r.textContent.includes(name)).textContent.includes('mailbox suspended'), who), 'the row shows "mailbox suspended"');
+  await admin.screenshot({ path: OUT + '/people-mail-suspended.png' });
+  if (IMAP_URL) check(!imap(`${who}@${DOMAIN}`, WHO_PASS), 'IMAP refuses the disabled person');
+  await quiet(admin);
+  await rowButton(who, 'Enable'); await sleep(1500);
+  check((await toast(admin)).includes('mailbox restored'), 'enabled, mailbox restored: ' + await toast(admin));
+  const on = (await api(admin, 'GET', '/api/users')).json.find(u => u.username === who);
+  check(!on.disabled && !on.mail_suspended, 'People lists the mailbox as active again');
+  if (IMAP_URL) check(imap(`${who}@${DOMAIN}`, WHO_PASS), 'IMAP lets them in again');
   await quiet(admin);
   await admin.evaluate(name => { const row = [...document.querySelectorAll('tr.row')].find(r => r.textContent.includes(name)); [...row.querySelectorAll('button')].find(b => b.textContent.trim() === 'Email').click(); }, who);
   await admin.waitForSelector('.dialog .mailbox-box');
@@ -99,7 +114,7 @@ async function signIn(browser, user, pass) {
   if (IMAP_URL) check(!imap(`${who}@${DOMAIN}`, WHO_PASS), 'and the account is gone from IMAP');
   await admin.keyboard.press('Escape');
   // The test person cannot be deleted (artcraftCloud has no user deletion yet): disable them.
-  check((await api(admin, 'POST', `/api/users/${lena.id}/disable`)).status === 204, 'the test person is disabled');
+  check((await api(admin, 'POST', `/api/users/${lena.id}/disable`)).status === 200, 'the test person is disabled');
 
   // 3. A person changes their own password.
   const page = await signIn(browser, USER, PASS);

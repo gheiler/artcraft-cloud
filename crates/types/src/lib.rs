@@ -203,6 +203,13 @@ pub struct User {
     /// `pending` (set at their next sign-in or password change) or `failed`. Empty without a mailbox.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub mail_sync: String,
+    /// The mailbox is suspended on the mail server (the person is disabled): no sign-in from any
+    /// mail app, no sending; mail still arrives.
+    #[serde(default)]
+    pub mail_suspended: bool,
+    /// Why the last suspend or restore did not reach the mail server (it is retried).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mail_access_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -372,7 +379,8 @@ pub struct MailClient {
     pub smtp_starttls_port: u16,
 }
 
-/// `POST /api/me/password` and `POST /api/users/{id}/password`: what happened to the mailbox.
+/// `POST /api/me/password`, `POST /api/users/{id}/password`, `POST /api/users/{id}/disable` and
+/// `/enable`: what happened to the mailbox.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PasswordChanged {
     /// `none` (no mailbox), `synced` or `failed`.

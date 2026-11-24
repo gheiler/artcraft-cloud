@@ -105,7 +105,8 @@ existing issues and pull requests.
   with the DNS records each needs. Admins give people an email address in *People*; when its domain is
   on the server, artcraftCloud creates the mailbox and MailCraft opens it without a password. The
   mailbox password is the person's artcraftCloud password (kept in step on every change), so other
-  mail apps work too; *Settings › Account* shows the IMAP/SMTP settings. Stalwart is pinned
+  mail apps work too; *Settings › Account* shows the IMAP/SMTP settings. Disabling a person suspends
+  their mailbox (People shows it), and enabling them restores it. Stalwart is pinned
   (v1.2.0). Details, upgrades, and what disabling or deleting does, in [docs/mail.md](docs/mail.md).
 - **Groups** are managed under *People* by admins. Sharing with a group gives every member access; a
   member who leaves loses it.
@@ -263,7 +264,8 @@ to a same-origin parent.
   database (ChaCha20-Poly1305, key derived from `secret.key`) and never sent to a browser; a
   password change waiting for an unreachable mail server is sealed too and dropped once it lands.
   MailCraft reaches the mail server only through `/jmap/…` with 15-minute tokens; disabled people
-  are refused. Changing
+  are refused, and their mailbox is suspended on the mail server (no app signs in or sends; mail
+  still arrives). Changing
   your own password needs the current one, is rate limited (8 per 10 minutes) and ends your other
   sessions.
 

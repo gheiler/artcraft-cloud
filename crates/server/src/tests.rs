@@ -87,7 +87,7 @@ async fn auth_sessions_and_admin_users() {
     assert_eq!(status, StatusCode::OK);
     let ada = users.iter().find(|u| u.username == "ada").unwrap();
     let (status, _, _) = env.call(Request::builder().method("POST").uri(format!("/api/users/{}/disable", ada.id)).body(Body::empty()).unwrap()).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::OK);
     let (status, _, _) = env.call(Request::builder().method("POST").uri("/api/session").body(Body::from(r#"{"username":"ada","password":"ada-password"}"#)).unwrap()).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 
@@ -467,7 +467,7 @@ async fn the_first_admin_is_super_and_alone_manages_admins() {
     assert_eq!(status, StatusCode::FORBIDDEN);
     // ...but can still disable a regular user.
     let (status, _, _) = env.call(req("POST", &format!("/api/users/{dave}/disable"), "", Some(&bob_cookie))).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::OK);
 
     // A regular user can do none of it.
     let (status, _, _) = env.call(req("POST", "/api/users", r#"{"username":"gus","password":"gus-password"}"#, Some(&carol_cookie))).await;
@@ -657,6 +657,13 @@ mod fake_stalwart {
         pub password: String,
         /// (credential id, secret)
         pub apps: Vec<(String, String)>,
+        pub permissions: Value,
+    }
+
+    impl Acct {
+        pub fn suspended(&self) -> bool {
+            self.permissions["disabledPermissions"]["authenticate"] == true
+        }
     }
 
     #[derive(Default)]
@@ -697,7 +704,7 @@ mod fake_stalwart {
         let (u, p) = basic(headers)?;
         let (app, password) = fake.accounts.iter().find_map(|a| {
             let dname = &fake.domains.iter().find(|(id, _)| *id == a.domain)?.1;
-            (format!("{}@{dname}", a.name) == u).then(|| (a.apps.iter().any(|(_, s)| *s == p), a.password == p))
+            (format!("{}@{dname}", a.name) == u && !a.suspended()).then(|| (a.apps.iter().any(|(_, s)| *s == p), a.password == p))
         })?;
         if app {
             fake.app_logins += 1;
@@ -758,7 +765,7 @@ mod fake_stalwart {
                     json!({"ids": fake.accounts.iter().filter(|a| a.name == n && a.domain == d).map(|a| a.id.clone()).collect::<Vec<_>>()})
                 }
                 "x:Account/get" => json!({"list": fake.accounts.iter().filter(|a| args["ids"].as_array().is_none_or(|ids| ids.iter().any(|i| *i == a.id))).map(|a| json!({
-                    "id": a.id, "name": a.name, "domainId": a.domain,
+                    "id": a.id, "name": a.name, "domainId": a.domain, "permissions": a.permissions,
                     "credentials": {"0": {"@type": "Password", "credentialId": "a", "secret": "****"}, "1": {"@type": "AppPassword", "credentialId": "b", "secret": "****"}}
                 })).collect::<Vec<_>>()}),
                 "x:Account/set" if args.get("create").is_some() => {
@@ -768,7 +775,14 @@ mod fake_stalwart {
                     assert!(password.len() >= 8);
                     fake.next += 1;
                     let id = format!("a{}", fake.next);
-                    fake.accounts.push(Acct { id: id.clone(), name: a["name"].as_str().unwrap().into(), domain: a["domainId"].as_str().unwrap().into(), password, apps: Vec::new() });
+                    fake.accounts.push(Acct {
+                        id: id.clone(),
+                        name: a["name"].as_str().unwrap().into(),
+                        domain: a["domainId"].as_str().unwrap().into(),
+                        password,
+                        apps: Vec::new(),
+                        permissions: json!({"@type": "Inherit"}),
+                    });
                     json!({"created": {"u": {"id": id}}})
                 }
                 "x:Account/set" if args.get("update").is_some() => {
@@ -776,8 +790,23 @@ mod fake_stalwart {
                         return StatusCode::SERVICE_UNAVAILABLE.into_response();
                     }
                     let (id, patch) = args["update"].as_object().unwrap().iter().next().unwrap();
-                    let secret = patch["credentials/0/secret"].as_str().expect("patches the Password credential").to_string();
-                    fake.accounts.iter_mut().find(|a| a.id == *id).unwrap().password = secret;
+                    let acct = fake.accounts.iter_mut().find(|a| a.id == *id).unwrap();
+                    for (key, value) in patch.as_object().unwrap() {
+                        if key == "credentials/0/secret" {
+                            acct.password = value.as_str().unwrap().to_string();
+                        } else if key == "permissions" {
+                            acct.permissions = value.clone();
+                        } else if let Some(p) = key.strip_prefix("permissions/disabledPermissions/") {
+                            let list = acct.permissions["disabledPermissions"].as_object_mut().expect("patches a Merge list");
+                            if value.is_null() {
+                                list.remove(p);
+                            } else {
+                                list.insert(p.to_string(), value.clone());
+                            }
+                        } else {
+                            panic!("unexpected patch {key}");
+                        }
+                    }
                     json!({"updated": {id.clone(): null}})
                 }
                 "x:Account/set" => {
@@ -986,12 +1015,34 @@ async fn mail_server_domains_mailboxes_and_the_jmap_proxy() {
     let (status, _, _) = env.call(as_user(send("PUT", &format!("/api/users/{}/email", bob.id), r#"{"email":"x@y.org"}"#), &ada_cookie)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
-    // A disabled person keeps the mailbox, but the proxy turns them away until enabled again.
-    let (status, _, _) = env.call(send("POST", &format!("/api/users/{}/disable", ada.id), "")).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    // A disabled person keeps the mailbox, but it is suspended on the mail server (other mail apps
+    // stop too) and the proxy turns them away, until they are enabled again. An admin's own
+    // permission tweak in Stalwart survives both.
+    fake.lock().unwrap().accounts.iter_mut().find(|a| a.name == "ada").unwrap().permissions = serde_json::json!({"@type": "Merge", "enabledPermissions": {}, "disabledPermissions": {"emailSend": true}});
+    let (status, _, body) = env.call(send("POST", &format!("/api/users/{}/disable", ada.id), "")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json::<artcraft_cloud_types::PasswordChanged>(&body).mail, "synced");
+    assert!(fake.lock().unwrap().account("ada").suspended());
     assert_eq!(env.call(bearer(get("/jmap/session"), &token)).await.0, StatusCode::UNAUTHORIZED);
-    env.call(send("POST", &format!("/api/users/{}/enable", ada.id), "")).await;
+    let (_, _, body) = env.call(get("/api/users")).await;
+    assert!(json::<Vec<artcraft_cloud_types::User>>(&body).iter().any(|u| u.id == ada.id && u.mail_suspended));
+    let (status, _, body) = env.call(send("POST", &format!("/api/users/{}/enable", ada.id), "")).await;
+    assert_eq!((status, json::<artcraft_cloud_types::PasswordChanged>(&body).mail.as_str()), (StatusCode::OK, "synced"));
+    assert_eq!(fake.lock().unwrap().account("ada").permissions, serde_json::json!({"@type": "Merge", "enabledPermissions": {}, "disabledPermissions": {"emailSend": true}}), "only artcraftCloud's suspension is lifted");
+    fake.lock().unwrap().accounts.iter_mut().find(|a| a.name == "ada").unwrap().permissions = serde_json::json!({"@type": "Inherit"});
     assert_eq!(env.call(bearer(get("/jmap/session"), &token)).await.0, StatusCode::OK);
+    // With the mail server down the person is still disabled, and the suspension catches up.
+    fake.lock().unwrap().fail_updates = true;
+    let (_, _, body) = env.call(send("POST", &format!("/api/users/{}/disable", ada.id), "")).await;
+    assert_eq!(json::<artcraft_cloud_types::PasswordChanged>(&body).mail, "failed");
+    let (_, _, body) = env.call(get("/api/users")).await;
+    assert!(json::<Vec<artcraft_cloud_types::User>>(&body).iter().any(|u| u.id == ada.id && u.disabled && !u.mail_suspended && u.mail_access_error.is_some()));
+    fake.lock().unwrap().fail_updates = false;
+    crate::http::mail::reconcile_access(&env.state).await;
+    assert!(fake.lock().unwrap().account("ada").suspended());
+    env.call(send("POST", &format!("/api/users/{}/enable", ada.id), "")).await;
+    assert!(!fake.lock().unwrap().account("ada").suspended());
+    assert_eq!(fake.lock().unwrap().account("ada").permissions, serde_json::json!({"@type": "Inherit"}));
     assert_eq!(env.call(bearer(get("/jmap/../api/account"), &token)).await.0, StatusCode::BAD_REQUEST);
 
     // Unlink keeps the mailbox on the server; deleting needs the address typed again.

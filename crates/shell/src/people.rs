@@ -2,7 +2,7 @@
 //! the server enforces it, the page only hides what would be refused.
 
 use crate::i18n::{t, tf};
-use artcraft_cloud_types::{Group, User};
+use artcraft_cloud_types::{Group, PasswordChanged, User};
 use leptos::prelude::*;
 
 use crate::api;
@@ -111,7 +111,7 @@ pub fn People() -> impl IntoView {
                 <table class="file-table">
                     <thead><tr><th class="name-col">{t("Name")}</th><th>{t("Role")}</th><th>{t("Status")}</th><th class="actions-col"><span class="sr-only">{t("Actions")}</span></th></tr></thead>
                     <tbody>
-                        <For each=move || users.get() key=|u| (u.id, u.role.clone(), u.disabled, u.email.clone(), u.mailbox, u.mail_sync.clone()) let(user)>
+                        <For each=move || users.get() key=|u| (u.id, u.role.clone(), u.disabled, u.email.clone(), u.mailbox, u.mail_sync.clone(), u.mail_suspended, u.mail_access_error.clone()) let(user)>
                             <tr class="row">
                                 <td class="name-col"><span class="file-name static">
                                     <span class="avatar">{initials(&user.display_name)}</span>
@@ -125,7 +125,11 @@ pub fn People() -> impl IntoView {
                                     </span></span>
                                 </span></td>
                                 <td>{if user.super_admin { view! { <span class="badge primary">{icon(Icon::Shield)}{t("Super admin")}</span> }.into_any() } else if user.role == "admin" { view! { <span class="badge">{t("Admin")}</span> }.into_any() } else { view! { <span class="muted">{t("User")}</span> }.into_any() }}</td>
-                                <td>{if user.disabled { view! { <span class="badge danger">{t("Disabled")}</span> }.into_any() } else { view! { <span class="muted">{t("Active")}</span> }.into_any() }}</td>
+                                <td>{if user.disabled { view! { <span class="badge danger">{t("Disabled")}</span> }.into_any() } else { view! { <span class="muted">{t("Active")}</span> }.into_any() }}
+                                    {(user.mailbox && user.disabled && user.mail_suspended).then(|| view! { <span class="mail-sync mail-state" title=t("They cannot sign in to the mailbox from any app (IMAP, SMTP, MailCraft) and cannot send mail. Mail sent to them is still delivered. Enabling the person restores it.")>{icon(Icon::Mail)}{t("mailbox suspended")}</span> })}
+                                    {(user.mailbox && user.disabled && !user.mail_suspended).then(|| view! { <span class="mail-sync bad mail-state" title=tf("The mail server has not suspended the mailbox yet: {error}. artcraftCloud retries every few minutes.", &[("error", &user.mail_access_error.clone().unwrap_or_default())])>{t("mailbox not suspended yet")}</span> })}
+                                    {(user.mailbox && !user.disabled && user.mail_suspended).then(|| view! { <span class="mail-sync bad mail-state" title=tf("The mail server has not restored the mailbox yet: {error}. artcraftCloud retries every few minutes.", &[("error", &user.mail_access_error.clone().unwrap_or_default())])>{t("mailbox still suspended")}</span> })}
+                                </td>
                                 <td class="row-actions">
                                     {
                                         let me = me();
@@ -262,8 +266,22 @@ fn set_enabled(id: i64, enable: bool, reload: impl Fn() + 'static) {
         } else {
             format!("/api/users/{id}/disable")
         };
-        if let Err(err) = api::post_empty(&path).await {
-            ui.say(err);
+        match api::json::<PasswordChanged>("POST", &path, &serde_json::json!({})).await {
+            Ok(result) if result.mail == "failed" => {
+                let error = result.error.unwrap_or_default();
+                ui.say(if enable {
+                    tf("The account was enabled, but the mail server did not restore the mailbox yet ({error}). artcraftCloud retries every few minutes.", &[("error", &error)])
+                } else {
+                    tf("The account was disabled, but the mail server did not suspend the mailbox yet ({error}). artcraftCloud retries every few minutes.", &[("error", &error)])
+                });
+            }
+            Ok(result) if result.mail == "synced" => ui.say(if enable {
+                t("The account was enabled and its mailbox restored.")
+            } else {
+                t("The account was disabled and its mailbox suspended.")
+            }),
+            Ok(_) => {}
+            Err(err) => ui.say(err),
         }
         reload();
     });

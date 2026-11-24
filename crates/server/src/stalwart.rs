@@ -215,6 +215,57 @@ impl Stalwart {
         Ok(())
     }
 
+    /// Suspend the account (`suspend`) or lift artcraftCloud's suspension. Stalwart has no
+    /// enabled flag; a suspension disables permissions on the account, which beats every role.
+    /// `authenticate` stops every sign-in (password, app passwords, API keys) and `emailSend`
+    /// stops sending; mail keeps arriving. Returns the permissions this call disabled, so that
+    /// lifting removes only those and keeps anything an admin disabled in Stalwart.
+    pub async fn set_suspended(&self, account_id: &str, suspend: bool, added: &[String]) -> Result<Vec<String>, String> {
+        let responses = self.jmap(json!([["x:Account/get", {"ids": [account_id], "properties": ["permissions"]}, "g"]])).await?;
+        let permissions = responses
+            .iter()
+            .find(|(name, _)| name == "x:Account/get")
+            .and_then(|(_, args)| args.get("list"))
+            .and_then(Value::as_array)
+            .and_then(|list| list.first())
+            .map(|account| account.get("permissions").cloned().unwrap_or(Value::Null))
+            .ok_or("the mailbox is not on the mail server any more")?;
+        let mode = permissions.get("@type").and_then(Value::as_str).unwrap_or("Inherit").to_string();
+        let disabled: Vec<String> = permissions.get("disabledPermissions").and_then(Value::as_object).map(|m| m.keys().cloned().collect()).unwrap_or_default();
+        let enabled_empty = permissions.get("enabledPermissions").and_then(Value::as_object).is_none_or(|m| m.is_empty());
+        let (patch, result) = if suspend {
+            let add: Vec<String> = SUSPEND.iter().map(|p| p.to_string()).filter(|p| !disabled.contains(p)).collect();
+            if add.is_empty() {
+                return Ok(Vec::new());
+            }
+            let patch = if mode == "Inherit" {
+                let list: serde_json::Map<String, Value> = add.iter().map(|p| (p.clone(), Value::Bool(true))).collect();
+                json!({"permissions": {"@type": "Merge", "enabledPermissions": {}, "disabledPermissions": list}})
+            } else {
+                Value::Object(add.iter().map(|p| (format!("permissions/disabledPermissions/{p}"), Value::Bool(true))).collect())
+            };
+            (patch, add)
+        } else {
+            let remove: Vec<&String> = added.iter().filter(|p| disabled.contains(p)).collect();
+            if remove.is_empty() {
+                return Ok(Vec::new());
+            }
+            // Our own Merge with nothing else in it goes back to Inherit, as it was.
+            let patch = if mode == "Merge" && enabled_empty && disabled.iter().all(|p| added.contains(p)) {
+                json!({"permissions": {"@type": "Inherit"}})
+            } else {
+                Value::Object(remove.iter().map(|p| (format!("permissions/disabledPermissions/{p}"), Value::Null)).collect())
+            };
+            (patch, Vec::new())
+        };
+        let responses = self.jmap(json!([["x:Account/set", {"update": {account_id: patch}}, "s"]])).await?;
+        let args = responses.iter().find(|(name, _)| name == "x:Account/set").map(|(_, args)| args).ok_or("no answer from the mail server")?;
+        if let Some(err) = args.get("notUpdated").and_then(|m| m.get(account_id)) {
+            return Err(set_error(err));
+        }
+        Ok(result)
+    }
+
     /// A new app password of the account (needs `impersonate` and `sysAppPasswordCreate`):
     /// `(credential id, secret)`. The server shows the secret only now.
     pub async fn create_app_password(&self, account_id: &str, description: &str) -> Result<(String, String), String> {
@@ -254,6 +305,9 @@ impl Stalwart {
         Ok(())
     }
 }
+
+/// What a suspension disables on the mail server.
+pub const SUSPEND: [&str; 2] = ["authenticate", "emailSend"];
 
 /// What the credential artcraftCloud uses must be allowed to do.
 pub const NEEDED: [&str; 11] = [

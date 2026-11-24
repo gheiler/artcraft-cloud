@@ -270,7 +270,7 @@ pub fn MailPage() -> impl IntoView {
 
             <section class="card settings-card">
                 <h2>{t("Mailboxes")}</h2>
-                <p class="muted">{t("Give someone an email address in People. When its domain is on this server, artcraftCloud creates the mailbox with the person's artcraftCloud password, so they can use other mail apps too, and changes it whenever they change theirs. MailCraft gets in with a separate app password that this server keeps sealed. Disabling a person locks MailCraft out (suspend the account in Stalwart to stop other apps too); removing a mailbox unlinks it unless you choose to delete it.")}</p>
+                <p class="muted">{t("Give someone an email address in People. When its domain is on this server, artcraftCloud creates the mailbox with the person's artcraftCloud password, so they can use other mail apps too, and changes it whenever they change theirs. MailCraft gets in with a separate app password that this server keeps sealed. Disabling a person suspends the mailbox, so no mail app can sign in or send until they are enabled again, while mail sent to them still arrives; removing a mailbox unlinks it unless you choose to delete it.")}</p>
                 <button type="button" class="button" on:click=move |_| ui.go(Route::People)>{icon(Icon::People)}<span>{t("Open People")}</span></button>
             </section>
         </section>

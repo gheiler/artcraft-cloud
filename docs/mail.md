@@ -159,10 +159,24 @@ expires in minutes and is checked against the account on every request.
 
 ## Disabling, unlinking and deleting
 
-- **Disabling a person** keeps their mailbox and its mail; mail keeps arriving. The proxy refuses
-  them, so MailCraft in artcraftCloud stops working at once. Enabling them again restores it.
-  Other mail apps keep working with their password: to stop them (or delivery), suspend the
-  account in Stalwart too.
+- **Disabling a person** suspends their mailbox on the mail server and keeps it and its mail.
+  - The proxy refuses them, so MailCraft in artcraftCloud stops at once.
+  - On Stalwart, artcraftCloud disables the account's `authenticate` and `emailSend` permissions
+    (Stalwart v1.2.0 has no "enabled" flag on an account; this is how its admin UI suspends
+    one). `authenticate` refuses every credential, the password and app passwords alike, so IMAP,
+    SMTP submission, JMAP, CalDAV and the like all stop. `emailReceive` is left alone: mail sent
+    to them is still delivered and waits for them.
+  - artcraftCloud records which of the two permissions it added. A permission an admin had
+    already disabled in Stalwart is not recorded, and enabling the person removes only what
+    artcraftCloud added; when nothing else was set, the account goes back to inheriting its
+    permissions.
+  - `POST /api/users/{id}/disable` and `/enable` answer `{"mail": "none" | "synced" | "failed",
+    "error"?}`. The change in artcraftCloud is made either way. When the mail server can't be
+    reached, People shows "mailbox not suspended yet" (or "still suspended") with the error, and
+    artcraftCloud tries again at start-up and every five minutes until the mail server matches.
+    `artcraft-cloud user disable` on the command line is picked up the same way, by the running
+    server's next check.
+  - Enabling them again lifts the suspension, and every app signs in again with the same password.
 - **Email › Unlink mailbox** (the default) only removes the link in artcraftCloud and revokes
   artcraftCloud's app password. The mailbox stays on the mail server with all its mail, and the
   person's password keeps working there. Linking the same address again is refused, so an existing

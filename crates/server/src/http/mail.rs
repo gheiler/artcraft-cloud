@@ -369,6 +369,9 @@ async fn provision(state: &AppState, target: &Account, address: &str, local: &st
         sync_error: None,
         pending_secret: None,
         sync_attempts: 0,
+        suspended: false,
+        suspend_added: String::new(),
+        access_error: None,
     };
     if let Err(err) = state.db.link_mailbox(&row) {
         undo(String::new()).await;
@@ -379,6 +382,9 @@ async fn provision(state: &AppState, target: &Account, address: &str, local: &st
     }
     if password.is_some() {
         let _ = state.db.mailbox_synced(target.id);
+    }
+    if target.disabled {
+        sync_access(state, target.id, true).await;
     }
     tracing::info!(user = %target.username, %address, synced = password.is_some(), "mailbox created");
     Ok(())
@@ -407,6 +413,45 @@ pub async fn sync_password(state: &AppState, user_id: i64, password: &str) -> Pa
             PasswordChanged { mail: "failed".into(), error: Some(err) }
         }
     }
+}
+
+/// Disabling a person suspends their mailbox on the mail server (no IMAP/SMTP/JMAP sign-in, no
+/// sending; mail still arrives), and enabling them lifts it. A change that cannot reach the
+/// server is recorded and retried with the password retries.
+pub async fn sync_access(state: &AppState, user_id: i64, disabled: bool) -> PasswordChanged {
+    let _turn = SYNC.lock().await;
+    let mailbox = match state.db.mailbox(user_id) {
+        Ok(Some(mailbox)) => mailbox,
+        Ok(None) => return PasswordChanged { mail: "none".into(), error: None },
+        Err(err) => return PasswordChanged { mail: "failed".into(), error: Some(err.to_string()) },
+    };
+    match push_access(state, &mailbox, disabled).await {
+        Ok(()) => {
+            tracing::info!(user_id, address = %mailbox.address, suspended = disabled, "mailbox access updated");
+            PasswordChanged { mail: "synced".into(), error: None }
+        }
+        Err(err) => {
+            tracing::warn!(user_id, address = %mailbox.address, "mailbox access not updated: {err}");
+            let _ = state.db.mailbox_access_failed(user_id, &err);
+            PasswordChanged { mail: "failed".into(), error: Some(err) }
+        }
+    }
+}
+
+async fn push_access(state: &AppState, mailbox: &MailboxRow, disabled: bool) -> Result<(), String> {
+    if mailbox.suspended == disabled && mailbox.access_error.is_none() {
+        return Ok(());
+    }
+    let server = server(state).map_err(|err| err.message)?.ok_or("no mail server is configured")?;
+    let added: Vec<String> = mailbox.suspend_added.split(',').filter(|p| !p.is_empty()).map(str::to_string).collect();
+    let work = server.set_suspended(&mailbox.account_id, disabled, &added);
+    let now_added = match tokio::time::timeout(std::time::Duration::from_secs(20), work).await {
+        Ok(result) => result?,
+        Err(_) => return Err("the mail server did not answer in time".into()),
+    };
+    // Suspending again keeps what an earlier suspension added.
+    let keep = if disabled { added.into_iter().chain(now_added).collect::<Vec<_>>().join(",") } else { String::new() };
+    state.db.mailbox_access(mailbox.user_id, disabled, &keep).map_err(|err| err.to_string())
 }
 
 /// Mailboxes whose password is not the user's yet: after a sign-in, bring them in line in the
@@ -440,11 +485,22 @@ async fn push_password(state: &AppState, mailbox: &MailboxRow, password: &str) -
     }
 }
 
-/// Retry password changes that did not reach the mail server, every few minutes for a day.
+/// Retry password changes that did not reach the mail server (every few minutes for a day) and
+/// bring suspensions in line with who is disabled (also once shortly after start-up).
 pub async fn retry_loop(state: AppState) {
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    reconcile_access(&state).await;
     loop {
         tokio::time::sleep(RETRY_EVERY).await;
         retry_pending(&state).await;
+        reconcile_access(&state).await;
+    }
+}
+
+pub async fn reconcile_access(state: &AppState) {
+    let Ok(rows) = state.db.mailboxes_to_reconcile() else { return };
+    for (mailbox, disabled) in rows {
+        sync_access(state, mailbox.user_id, disabled).await;
     }
 }
 

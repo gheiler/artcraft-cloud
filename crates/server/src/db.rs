@@ -38,6 +38,8 @@ impl Account {
             email: None,
             mailbox: false,
             mail_sync: String::new(),
+            mail_suspended: false,
+            mail_access_error: None,
         }
     }
 }
@@ -58,6 +60,8 @@ pub struct UserMailInfo {
     pub email: Option<String>,
     pub mailbox: Option<String>,
     pub sync: Option<String>,
+    pub suspended: bool,
+    pub access_error: Option<String>,
 }
 
 /// Per user id.
@@ -84,6 +88,12 @@ pub struct MailboxRow {
     /// The new password waiting for a retry, sealed; cleared once it is on the server.
     pub pending_secret: Option<Vec<u8>>,
     pub sync_attempts: i64,
+    /// artcraftCloud has suspended the account on the mail server (its person is disabled).
+    pub suspended: bool,
+    /// The permissions the suspension disabled, comma-separated, to lift exactly those.
+    pub suspend_added: String,
+    /// Why the last suspend or restore did not reach the mail server.
+    pub access_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -256,8 +266,13 @@ impl Db {
     /// Every user's email and linked mailbox address, by user id.
     pub fn user_mail(&self) -> Result<UserMailMap, Error> {
         self.with(|c| {
-            let mut stmt = c.prepare("SELECT u.id, u.email, m.address, m.password_sync FROM users u LEFT JOIN mailboxes m ON m.user_id = u.id")?;
-            let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, UserMailInfo { email: row.get(1)?, mailbox: row.get(2)?, sync: row.get(3)? })))?;
+            let mut stmt = c.prepare("SELECT u.id, u.email, m.address, m.password_sync, m.suspended, m.access_error FROM users u LEFT JOIN mailboxes m ON m.user_id = u.id")?;
+            let rows = stmt.query_map([], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    UserMailInfo { email: row.get(1)?, mailbox: row.get(2)?, sync: row.get(3)?, suspended: row.get::<_, Option<bool>>(4)?.unwrap_or(false), access_error: row.get(5)? },
+                ))
+            })?;
             Ok(rows.collect::<Result<_, _>>()?)
         })
     }
@@ -303,6 +318,31 @@ impl Db {
             let mut stmt = c.prepare(&format!("SELECT {MAILBOX_COLUMNS} FROM mailboxes WHERE pending_secret IS NOT NULL"))?;
             let rows = stmt.query_map([], mailbox_row)?;
             Ok(rows.collect::<Result<_, _>>()?)
+        })
+    }
+
+    /// Mailboxes whose suspension on the mail server does not match their person.
+    pub fn mailboxes_to_reconcile(&self) -> Result<Vec<(MailboxRow, bool)>, Error> {
+        self.with(|c| {
+            let columns = MAILBOX_COLUMNS.split(", ").map(|col| format!("m.{col}")).collect::<Vec<_>>().join(", ");
+            let mut stmt = c.prepare(&format!("SELECT {columns}, u.disabled FROM mailboxes m JOIN users u ON u.id = m.user_id WHERE m.suspended != u.disabled"))?;
+            let rows = stmt.query_map([], |row| Ok((mailbox_row(row)?, row.get::<_, bool>(13)?)))?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })
+    }
+
+    /// The mail server now matches (`suspended`), with what the suspension disabled.
+    pub fn mailbox_access(&self, user_id: i64, suspended: bool, added: &str) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute("UPDATE mailboxes SET suspended = ?2, suspend_added = ?3, access_error = NULL WHERE user_id = ?1", params![user_id, suspended, added])?;
+            Ok(())
+        })
+    }
+
+    pub fn mailbox_access_failed(&self, user_id: i64, error: &str) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute("UPDATE mailboxes SET access_error = ?2 WHERE user_id = ?1", params![user_id, error])?;
+            Ok(())
         })
     }
 
@@ -900,7 +940,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 "#;
 
-const MAILBOX_COLUMNS: &str = "user_id, address, account_id, secret, proxy_kind, proxy_id, password_sync, sync_error, pending_secret, sync_attempts";
+const MAILBOX_COLUMNS: &str = "user_id, address, account_id, secret, proxy_kind, proxy_id, password_sync, sync_error, pending_secret, sync_attempts, suspended, suspend_added, access_error";
 
 fn mailbox_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MailboxRow> {
     Ok(MailboxRow {
@@ -914,6 +954,9 @@ fn mailbox_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MailboxRow> {
         sync_error: row.get(7)?,
         pending_secret: row.get(8)?,
         sync_attempts: row.get(9)?,
+        suspended: row.get(10)?,
+        suspend_added: row.get(11)?,
+        access_error: row.get(12)?,
     })
 }
 
@@ -938,6 +981,9 @@ fn migrate(c: &Connection) -> Result<(), Error> {
         ("pending_secret", "BLOB"),
         ("sync_attempts", "INTEGER NOT NULL DEFAULT 0"),
         ("synced_at", "INTEGER"),
+        ("suspended", "INTEGER NOT NULL DEFAULT 0"),
+        ("suspend_added", "TEXT NOT NULL DEFAULT ''"),
+        ("access_error", "TEXT"),
     ] {
         if !has_column(c, "mailboxes", column)? {
             c.execute_batch(&format!("ALTER TABLE mailboxes ADD COLUMN {column} {kind}"))?;

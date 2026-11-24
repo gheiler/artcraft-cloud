@@ -27,6 +27,8 @@ pub async fn list_users(State(state): State<AppState>, AuthUser(user): AuthUser)
                     user.email = info.email.clone();
                     user.mailbox = info.mailbox.is_some();
                     user.mail_sync = info.sync.clone().unwrap_or_default();
+                    user.mail_suspended = info.suspended;
+                    user.mail_access_error = info.access_error.clone();
                 }
                 user
             })
@@ -88,15 +90,15 @@ pub async fn create_user(State(state): State<AppState>, AuthUser(actor): AuthUse
     Ok((StatusCode::CREATED, Json(user)))
 }
 
-pub async fn disable_user(State(state): State<AppState>, AuthUser(actor): AuthUser, Path(id): Path<i64>) -> Result<StatusCode, ApiError> {
+pub async fn disable_user(State(state): State<AppState>, AuthUser(actor): AuthUser, Path(id): Path<i64>) -> Result<Json<PasswordChanged>, ApiError> {
     set_enabled(&state, &actor, id, true).await
 }
 
-pub async fn enable_user(State(state): State<AppState>, AuthUser(actor): AuthUser, Path(id): Path<i64>) -> Result<StatusCode, ApiError> {
+pub async fn enable_user(State(state): State<AppState>, AuthUser(actor): AuthUser, Path(id): Path<i64>) -> Result<Json<PasswordChanged>, ApiError> {
     set_enabled(&state, &actor, id, false).await
 }
 
-async fn set_enabled(state: &AppState, actor: &crate::db::Account, id: i64, disabled: bool) -> Result<StatusCode, ApiError> {
+async fn set_enabled(state: &AppState, actor: &crate::db::Account, id: i64, disabled: bool) -> Result<Json<PasswordChanged>, ApiError> {
     require_admin(actor)?;
     if actor.id == id && disabled {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "you cannot disable your own account"));
@@ -112,7 +114,8 @@ async fn set_enabled(state: &AppState, actor: &crate::db::Account, id: i64, disa
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "the last admin cannot be disabled"));
     }
     state.db.set_disabled(id, disabled).map_err(ApiError::from)?;
-    Ok(StatusCode::NO_CONTENT)
+    // The mailbox follows: suspended on the mail server while the person is disabled.
+    Ok(Json(super::mail::sync_access(state, id, disabled).await))
 }
 
 pub async fn reset_password(
