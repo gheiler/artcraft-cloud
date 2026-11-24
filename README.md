@@ -81,12 +81,17 @@ One replica with `Recreate` (SQLite has one writer), a 10 Gi PVC, startup/livene
 | FilmCraft | fcproj | 0.20.1 | new, Save As: tested |
 | FigCraft | figcraft, fig | 0.18.1 | handshake tested |
 | LightCraft | jpg, png, webp, gif, bmp, tif, dng | 0.21.1 | handshake and open tested |
+| CalendarCraft | ics, ical, ifb | 0.2.0 (local build) | the person's Stalwart calendar over CalDAV, `.ics` files, feeds: tested against Stalwart |
 | MailCraft | (mail) | 0.15.0 | opens the signed-in person's mailbox through the JMAP proxy: tested against Stalwart |
 
 MailCraft (from [UCS-Care-Group/mailcraft](https://github.com/UCS-Care-Group/mailcraft)) has no host
 bridge, so it opens no documents; it is installed like the others (its `SHA256SUMS.txt` is checked
 against MailCraft's ed25519 release key) and opens from its card or *Settings › Account*. See
 [docs/mail.md](docs/mail.md).
+
+CalendarCraft (from [gheiler/calendarcraft](https://github.com/gheiler/calendarcraft)) opens the
+signed-in person's calendar on the mail server through `/caldav/`, `.ics` files from the drive, and
+other calendar accounts and feeds through `/api/calendar/remote`. See [docs/calendar.md](docs/calendar.md).
 
 PhotoCraft, VectorCraft, DesignCraft and the other Crafting Apps are not included yet: their web
 builds do not speak the host bridge. `docs/upstream-gaps.md` lists what is missing upstream, with the
@@ -170,6 +175,7 @@ docker exec artcraft-cloud artcraft-cloud apps list
 docker exec artcraft-cloud artcraft-cloud apps update               # all apps, latest release
 docker exec artcraft-cloud artcraft-cloud apps update wordcraft     # one app
 docker exec artcraft-cloud artcraft-cloud apps update wordcraft --version 0.18.0
+docker exec artcraft-cloud artcraft-cloud apps install calendarcraft /data/calendarcraft-web-0.2.0.zip --version 0.2.0   # a local build
 docker exec artcraft-cloud artcraft-cloud apps rollback wordcraft   # back to the version before
 ```
 

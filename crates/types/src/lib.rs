@@ -131,6 +131,18 @@ pub static CATALOG: &[CraftApp] = &[
         release_keys: &[],
     },
     CraftApp {
+        id: "calendarcraft",
+        title: "CalendarCraft",
+        repo: "calendarcraft",
+        blurb: "Calendar",
+        extensions: &["ics", "ical", "ifb"],
+        author_query: false,
+        chrome_query: false,
+        owner: "gheiler",
+        bridge: true,
+        release_keys: &[],
+    },
+    CraftApp {
         id: "mailcraft",
         title: "MailCraft",
         repo: "mailcraft",
@@ -542,6 +554,7 @@ mod tests {
         assert_eq!(app_for_name("ui.figcraft").map(|a| a.id), Some("figcraft"));
         assert_eq!(app_for_name("photo.JPEG").map(|a| a.id), Some("lightcraft"));
         assert_eq!(app_for_name("cut.fcproj").map(|a| a.id), Some("filmcraft"));
+        assert_eq!(app_for_name("Holidays.ICS").map(|a| a.id), Some("calendarcraft"));
         assert!(app_for_name("archive.zip").is_none());
         assert!(app_for_name(".docx").is_none());
     }

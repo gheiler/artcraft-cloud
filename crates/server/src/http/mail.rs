@@ -42,7 +42,7 @@ const RETRY_LIMIT: i64 = 24 * 12;
 /// One password update at a time, so a retry never overtakes a newer change.
 static SYNC: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn mailbox_context(user_id: i64) -> String {
+pub(super) fn mailbox_context(user_id: i64) -> String {
     format!("mailbox:{user_id}")
 }
 
@@ -50,11 +50,11 @@ fn pending_context(user_id: i64) -> String {
     format!("mailbox-pending:{user_id}")
 }
 
-fn bad_gateway(message: impl Into<String>) -> ApiError {
+pub(super) fn bad_gateway(message: impl Into<String>) -> ApiError {
     ApiError::new(StatusCode::BAD_GATEWAY, message)
 }
 
-fn not_configured() -> ApiError {
+pub(super) fn not_configured() -> ApiError {
     ApiError::new(StatusCode::CONFLICT, "no mail server is configured (Mail in the sidebar)")
 }
 
@@ -611,11 +611,16 @@ pub async fn mailcraft_hook(State(state): State<AppState>, AuthUser(user): AuthU
 
 /// MailCraft's `index.html` with the hook script in front of the app's own scripts.
 pub fn inject_hook(html: &str) -> String {
-    const TAG: &str = "<script src=\"/api/mail/mailcraft.js\"></script>";
+    inject_script(html, "/api/mail/mailcraft.js")
+}
+
+/// `html` with `<script src="{src}">` as the first thing in its head.
+pub fn inject_script(html: &str, src: &str) -> String {
+    let tag = format!("<script src=\"{src}\"></script>");
     let lower = html.to_ascii_lowercase();
-    match lower.find("<head") .and_then(|at| lower[at..].find('>').map(|end| at + end + 1)) {
-        Some(at) => format!("{}{TAG}{}", &html[..at], &html[at..]),
-        None => format!("{TAG}{html}"),
+    match lower.find("<head").and_then(|at| lower[at..].find('>').map(|end| at + end + 1)) {
+        Some(at) => format!("{}{tag}{}", &html[..at], &html[at..]),
+        None => format!("{tag}{html}"),
     }
 }
 

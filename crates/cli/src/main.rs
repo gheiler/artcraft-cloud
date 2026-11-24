@@ -71,6 +71,16 @@ enum AppsCmd {
     },
     /// Switch one app back to the version kept from the previous update.
     Rollback { app: String },
+    /// Install a web build from a local archive (a build of your own, or one copied in by
+    /// hand). It must still carry the host bridge when the app has one.
+    Install {
+        app: String,
+        /// The `<app>-web-<version>.zip` archive.
+        zip: std::path::PathBuf,
+        /// The version to record (e.g. 0.2.0).
+        #[arg(long)]
+        version: String,
+    },
     /// Show the catalog and what is installed.
     List,
 }
@@ -131,6 +141,7 @@ async fn run(command: Command) -> Result<(), String> {
         Command::Apps { cmd } => match cmd {
             AppsCmd::Update { app, version } => apps::update(&config.data_dir, config.github_token.as_deref(), app.as_deref(), version.as_deref()).await,
             AppsCmd::Rollback { app } => apps::rollback(&config.data_dir, &app),
+            AppsCmd::Install { app, zip, version } => apps::install_local(&config.data_dir, &app, &version, &zip),
             AppsCmd::List => {
                 apps::print_list(&config.data_dir);
                 Ok(())

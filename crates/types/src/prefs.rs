@@ -214,6 +214,8 @@ const CADCRAFT: &[(&str, &str)] = &[
     ("zh-hans", "zh"), ("it", "it"), ("ko", "ko"), ("sv", "sv"), ("ar", "ar"), ("hu", "hu"), ("tr", "tr"), ("bs", "bs"),
     ("el", "el"), ("ka", "ka"), ("vi", "vi"),
 ];
+// CalendarCraft `src/i18n.rs` `LANGUAGES`.
+const CALENDARCRAFT: &[&str] = &["en", "de", "es", "fr", "it", "pt-br"];
 const LIGHTCRAFT: &[&str] =
     &["en", "zh-hans", "zh-hant", "ja", "pt-br", "es", "de", "ru", "fr", "uk", "pl", "cs", "it", "ka", "sv", "fi", "id", "vi"];
 
@@ -227,6 +229,7 @@ pub fn app_language(app: &str, code: &str) -> Option<&'static str> {
         "gridcraft" => mapped(GRIDCRAFT),
         "cadcraft" => mapped(CADCRAFT),
         "lightcraft" => same(LIGHTCRAFT),
+        "calendarcraft" => same(CALENDARCRAFT),
         _ => (code == "en").then_some("en"),
     }
 }
@@ -335,6 +338,12 @@ pub fn targets(app: &str, field: Field, prefs: &Preferences, account_name: &str)
         }
 
         ("figcraft", Field::Author) if !author.is_empty() => vec![w("figcraft.userName", &[], author.into())],
+
+        ("calendarcraft", Field::Theme) => vec![w("calendarcraft.ui", &["theme"], theme.into())],
+        ("calendarcraft", Field::Language) => {
+            lang().map(|l| Write { unset: &["auto"], ..w("calendarcraft.ui", &["language"], l.into()) }).into_iter().collect()
+        }
+        ("calendarcraft", Field::Animations) => vec![w("calendarcraft.ui", &["animations"], p.animations.clone().into())],
         _ => Vec::new(),
     }
 }
@@ -484,6 +493,12 @@ mod tests {
         let mut fig = Map::new();
         apply("figcraft", &prefs(), &Field::ALL, "", Mode::Override, &mut fig);
         assert_eq!(fig["figcraft.userName"], "Gabriel Heiler", "plain text, not JSON");
+
+        let mut cal = Map::new();
+        assert!(apply("calendarcraft", &prefs(), &Field::ALL, "", Mode::Override, &mut cal));
+        let c = inner(&cal, "calendarcraft.ui");
+        assert_eq!((c["theme"].as_str(), c["language"].as_str()), (Some("dark"), Some("de")));
+        assert!(c.get("author").is_none(), "CalendarCraft has no author option");
 
         let mut deck = Map::new();
         assert!(!apply("deckcraft", &prefs(), &Field::ALL, "", Mode::Override, &mut deck), "DeckCraft keeps nothing in storage");

@@ -164,6 +164,18 @@ async fn update_one(data: &Path, token: Option<&str>, app_id: &str, pinned: Opti
     Ok(())
 }
 
+/// `apps install`: a local archive, trusted because whoever runs the command put it there. The
+/// archive is checked like a download (safe names, the host bridge) but carries no signature.
+pub fn install_local(data: &Path, app_id: &str, version: &str, zip_path: &Path) -> Result<(), String> {
+    if version.is_empty() || !version.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+')) {
+        return Err(format!("bad version {version:?}"));
+    }
+    let sha256 = file_sha256(zip_path)?;
+    install_zip(data, app_id, version, zip_path, &sha256, "")?;
+    println!("{app_id} {version} installed from {}", zip_path.display());
+    Ok(())
+}
+
 pub fn install_zip(data: &Path, app_id: &str, version: &str, zip_path: &Path, sha256: &str, signature: &str) -> Result<(), String> {
     if app_by_id(app_id).is_none() {
         return Err(format!("unknown app {app_id}"));

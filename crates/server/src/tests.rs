@@ -842,9 +842,27 @@ mod fake_stalwart {
         Json(json!({"methodResponses": out})).into_response()
     }
 
+    /// CalDAV: answers as the mailbox signing in, naming the request and with the server's own
+    /// paths in the reply (`/dav/cal/…`, as Stalwart does).
+    async fn caldav(State(fake): State<Shared>, method: axum::http::Method, uri: axum::http::Uri, headers: HeaderMap) -> impl IntoResponse {
+        let mut fake = fake.lock().unwrap();
+        let Some(user) = user(&mut fake, &headers) else { return StatusCode::UNAUTHORIZED.into_response() };
+        let depth = headers.get("depth").and_then(|v| v.to_str().ok()).unwrap_or("-").to_string();
+        let path = uri.path().to_string();
+        let body = format!(
+            "<?xml version=\"1.0\"?><d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>{path}default/</d:href><d:propstat><d:prop><d:displayname>{method} {path} depth={depth} user={user}</d:displayname></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>"
+        );
+        (StatusCode::MULTI_STATUS, [("content-type", "application/xml; charset=utf-8"), ("etag", "\"7\"")], body).into_response()
+    }
+
     pub async fn start() -> (String, Shared) {
         let shared: Shared = Arc::default();
-        let app = Router::new().route("/api/account", get(account)).route("/jmap/session", get(session)).route("/jmap/", post(api)).with_state(shared.clone());
+        let app = Router::new()
+            .route("/api/account", get(account))
+            .route("/jmap/session", get(session))
+            .route("/jmap/", post(api))
+            .route("/dav/cal/{*rest}", axum::routing::any(caldav))
+            .with_state(shared.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -966,6 +984,47 @@ async fn mail_server_domains_mailboxes_and_the_jmap_proxy() {
     let (status, _, body) = env.call(bearer(send("POST", "/jmap/", r#"{"using":[],"methodCalls":[]}"#), &token)).await;
     assert_eq!(status, StatusCode::OK);
     assert!(String::from_utf8_lossy(&body).contains("user:ada@example.test"));
+
+    // CalendarCraft: the hook names the calendar home, `/caldav/…` goes on as the mailbox.
+    let (_, _, body) = env.call(as_user(get("/api/calendar/calendarcraft.js"), &ada_cookie)).await;
+    let hook = String::from_utf8_lossy(&body).to_string();
+    assert!(hook.contains("window.calendarcraftHost") && hook.contains("\"/caldav/ada%40example.test/\"") && hook.contains("/api/calendar/remote"), "{hook}");
+    let (_, _, body) = env.call(as_user(get("/api/calendar/calendarcraft.js"), &bob_cookie)).await;
+    assert!(String::from_utf8_lossy(&body).contains("\"accounts\":[]"), "no mailbox, no calendar account");
+    let dav = |method: &str, uri: &str, cookie: &str| {
+        let mut req = as_user(send(method, uri, "<d:propfind xmlns:d=\"DAV:\"/>"), cookie);
+        req.headers_mut().insert("x-requested-with", "artcraft".parse().unwrap());
+        req.headers_mut().insert("depth", "1".parse().unwrap());
+        req
+    };
+    let bare = env.app.clone().oneshot(as_user(send("PROPFIND", "/caldav/ada%40example.test/", ""), &ada_cookie)).await.unwrap();
+    assert_eq!(bare.status(), StatusCode::FORBIDDEN, "only the app's own requests");
+    let (status, _, _) = env.call(dav("PROPFIND", "/caldav/bob%40elsewhere.org/", &bob_cookie)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "no mailbox");
+    let (status, _, _) = env.call(dav("PROPFIND", "/caldav/ada%40example.test/", "artcraft_session=none")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let app_logins = fake.lock().unwrap().app_logins;
+    let (status, headers, body) = env.call(dav("PROPFIND", "/caldav/ada%40example.test/", &ada_cookie)).await;
+    let text = String::from_utf8_lossy(&body).to_string();
+    assert_eq!(status, StatusCode::MULTI_STATUS, "{text}");
+    assert!(text.contains("<d:href>/caldav/ada%40example.test/default/</d:href>"), "paths come back on this origin: {text}");
+    // The fake answers only under /dav/cal/ (its path in the reply is rewritten like the hrefs).
+    assert!(text.contains("PROPFIND /caldav/ada%40example.test/ depth=1 user=ada@example.test"), "{text}");
+    assert_eq!(headers.get("etag").and_then(|v| v.to_str().ok()), Some("\"7\""));
+    assert_eq!(fake.lock().unwrap().app_logins, app_logins + 1, "with the app password");
+    let (status, _, _) = env.call(dav("PROPPATCH", "/caldav/ada%40example.test/", &ada_cookie)).await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+    let (status, _, _) = env.call(dav("GET", "/caldav/ada%40example.test/%2e%2e/%2e%2e/jmap/session", &ada_cookie)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // Other calendar servers: never this machine or a private network.
+    let mut remote = dav("PROPFIND", "/api/calendar/remote", &ada_cookie);
+    remote.headers_mut().insert("x-calendar-url", format!("{url}/dav/cal/ada%40example.test/").parse().unwrap());
+    let (status, _, _) = env.call(remote).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "127.0.0.1 is refused");
+    let mut remote = dav("GET", "/api/calendar/remote", &ada_cookie);
+    remote.headers_mut().insert("x-calendar-url", "file:///etc/passwd".parse().unwrap());
+    let (status, _, _) = env.call(remote).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 
     // Settings › Account: how to set up another mail app.
     let (_, _, body) = env.call(as_user(get("/api/mail/me"), &ada_cookie)).await;

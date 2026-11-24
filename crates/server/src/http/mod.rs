@@ -1,3 +1,4 @@
+pub(crate) mod calendar;
 mod files;
 pub(crate) mod mail;
 mod session;
@@ -39,6 +40,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/mail/me", get(mail::me))
         .route("/api/mail/token", post(mail::token))
         .route("/api/mail/mailcraft.js", get(mail::mailcraft_hook))
+        .route("/api/calendar/calendarcraft.js", get(calendar::calendarcraft_hook))
+        .route("/api/calendar/remote", any(calendar::remote_proxy))
+        .route("/caldav", any(calendar::caldav_proxy))
+        .route("/caldav/", any(calendar::caldav_proxy))
+        .route("/caldav/{*rest}", any(calendar::caldav_proxy))
         .route("/jmap", any(mail::jmap_proxy))
         .route("/jmap/", any(mail::jmap_proxy))
         .route("/jmap/{*rest}", any(mail::jmap_proxy))
@@ -128,12 +134,18 @@ async fn serve_app_at(state: &AppState, path: &str, headers: &axum::http::Header
         return (StatusCode::SERVICE_UNAVAILABLE, format!("{id} is not installed yet")).into_response();
     };
     let rest = parts.next().unwrap_or("");
-    if id == "mailcraft" && (rest.is_empty() || rest == "index.html") {
-        // MailCraft learns the user's mailbox from a script that must run before the app.
+    let hook: Option<fn(&str) -> String> = match id {
+        "mailcraft" => Some(mail::inject_hook),
+        "calendarcraft" => Some(calendar::inject_hook),
+        _ => None,
+    };
+    if let Some(inject) = hook.filter(|_| rest.is_empty() || rest == "index.html") {
+        // MailCraft and CalendarCraft learn the user's mailbox and calendars from a script that
+        // must run before the app.
         let Ok(html) = tokio::fs::read_to_string(root.join("index.html")).await else {
             return StatusCode::NOT_FOUND.into_response();
         };
-        let mut response = ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], mail::inject_hook(&html)).into_response();
+        let mut response = ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], inject(&html)).into_response();
         response.headers_mut().insert("content-security-policy", csp());
         response.headers_mut().insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("SAMEORIGIN"));
         return response;
@@ -147,7 +159,7 @@ async fn serve_app_at(state: &AppState, path: &str, headers: &axum::http::Header
 
 async fn shell(State(state): State<AppState>, req: Request) -> Response {
     let path = req.uri().path();
-    if path.starts_with("/api/") || path.starts_with("/dav") || path.starts_with("/jmap") {
+    if path.starts_with("/api/") || path.starts_with("/dav") || path.starts_with("/jmap") || path.starts_with("/caldav") {
         return StatusCode::NOT_FOUND.into_response();
     }
     let root = &state.config.shell_dir;
