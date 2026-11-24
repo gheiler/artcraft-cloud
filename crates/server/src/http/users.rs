@@ -12,6 +12,7 @@ use artcraft_cloud_types::{
 };
 
 use super::session::AuthUser;
+use artcraft_cloud_types::prefs::{self, Preferences};
 
 pub async fn list_users(State(state): State<AppState>, AuthUser(user): AuthUser) -> Result<Json<Vec<User>>, ApiError> {
     require_admin(&user)?;
@@ -251,4 +252,48 @@ fn require_admin(user: &crate::db::Account) -> Result<(), ApiError> {
     } else {
         Err(ApiError::new(StatusCode::FORBIDDEN, "admin only"))
     }
+}
+
+/// Where the common settings are kept in `app_settings` (not reachable through `/api/settings`).
+const PREFERENCES_KEY: &str = "preferences";
+
+fn load_preferences(state: &AppState, user: i64) -> Result<Preferences, ApiError> {
+    let stored = state.db.setting(user, PREFERENCES_KEY).map_err(ApiError::from)?;
+    Ok(stored.and_then(|text| serde_json::from_str::<Preferences>(&text).ok()).unwrap_or_default().normalized())
+}
+
+/// `GET /api/preferences`: the user's common settings (defaults until they change one).
+pub async fn get_preferences(State(state): State<AppState>, AuthUser(user): AuthUser) -> Result<Json<Preferences>, ApiError> {
+    Ok(Json(load_preferences(&state, user.id)?))
+}
+
+/// `PUT /api/preferences`: store the common settings and write every changed one into each app's
+/// stored options ([`artcraft_cloud_types::prefs::apply`]), so the apps take it on their next start.
+/// Returns the stored settings.
+pub async fn put_preferences(State(state): State<AppState>, AuthUser(user): AuthUser, Json(body): Json<serde_json::Value>) -> Result<Json<Preferences>, ApiError> {
+    if !body.is_object() {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "preferences must be a JSON object"));
+    }
+    let next = serde_json::from_value::<Preferences>(body).map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "preferences do not fit"))?.normalized();
+    let before = load_preferences(&state, user.id)?;
+    let changed = before.changed(&next);
+    let text = serde_json::to_string(&next).map_err(|err| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    state.db.put_setting(user.id, PREFERENCES_KEY, &text).map_err(ApiError::from)?;
+    if !changed.is_empty() {
+        for app in artcraft_cloud_types::catalog() {
+            let stored = state.db.setting(user.id, app.id).map_err(ApiError::from)?;
+            let mut map = match stored.as_deref().map(serde_json::from_str::<serde_json::Value>) {
+                Some(Ok(serde_json::Value::Object(map))) => map,
+                Some(_) => continue,
+                None => serde_json::Map::new(),
+            };
+            if prefs::apply(app.id, &next, &changed, &user.display_name, prefs::Mode::Override, &mut map) {
+                let text = serde_json::Value::Object(map).to_string();
+                if text.len() <= SETTINGS_LIMIT {
+                    state.db.put_setting(user.id, app.id, &text).map_err(ApiError::from)?;
+                }
+            }
+        }
+    }
+    Ok(Json(next))
 }

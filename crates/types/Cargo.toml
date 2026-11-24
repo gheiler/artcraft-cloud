@@ -9,3 +9,4 @@ description = "Shared API types and the ArtCraft app catalog for artcraftCloud"
 
 [dependencies]
 serde = { workspace = true }
+serde_json = { workspace = true }

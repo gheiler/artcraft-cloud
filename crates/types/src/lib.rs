@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod prefs;
+
 /// Contract version of `craft-web-host`. Unknown versions are treated as this one.
 pub const HOST_CONTRACT_VERSION: &str = "1";
 

@@ -568,3 +568,68 @@ async fn app_settings_are_kept_per_user_and_app() {
     let (status, _, _) = env.call(req("PUT", "/api/settings/gridcraft", &big, None)).await;
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
 }
+
+#[tokio::test]
+async fn preferences_override_every_apps_options() {
+    let env = Env::boot().await;
+    make_user(&env, "ivy", "user").await;
+    let ivy = env.login("ivy", "ivy-password").await;
+
+    // Defaults until something is chosen.
+    let (status, _, body) = env.call(req("GET", "/api/preferences", "", None)).await;
+    assert_eq!(status, StatusCode::OK);
+    let prefs: artcraft_cloud_types::prefs::Preferences = json(&body);
+    assert_eq!(prefs, artcraft_cloud_types::prefs::Preferences::default());
+
+    // WordCraft already has options of its own; GridCraft has none yet.
+    let word = r#"{"wordcraft.ui":"{\"theme\":\"light\",\"language\":\"fr\",\"author\":\"Old\",\"tab\":\"Insert\"}"}"#;
+    env.call(req("PUT", "/api/settings/wordcraft", word, None)).await;
+
+    let next = r#"{"theme":"dark","language":"de","author":"Gabriel Heiler","initials":"","units":"centimeters","animations":"off","autosave":true,"junk":1}"#;
+    let (status, _, body) = env.call(req("PUT", "/api/preferences", next, None)).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let stored: artcraft_cloud_types::prefs::Preferences = json(&body);
+    assert_eq!((stored.theme.as_str(), stored.language.as_str()), ("dark", "de"));
+
+    let app = |body: &[u8], key: &str| -> serde_json::Value {
+        let map: serde_json::Value = json(body);
+        serde_json::from_str(map[key].as_str().unwrap()).unwrap()
+    };
+    let (_, _, body) = env.call(req("GET", "/api/settings/wordcraft", "", None)).await;
+    let ui = app(&body, "wordcraft.ui");
+    assert_eq!(ui["theme"], "dark");
+    assert_eq!(ui["language"], "de");
+    assert_eq!(ui["author"], "Gabriel Heiler");
+    assert_eq!(ui["initials"], "GH");
+    assert_eq!(ui["editing"]["measurementUnits"], "centimeters");
+    assert_eq!(ui["tab"], "Insert", "the app's other options are kept");
+    let (_, _, body) = env.call(req("GET", "/api/settings/gridcraft", "", None)).await;
+    assert_eq!(app(&body, "gridcraft.ui")["dark"], true);
+    assert_eq!(app(&body, "gridcraft.prefs")["userName"], "Gabriel Heiler");
+    let (_, _, body) = env.call(req("GET", "/api/settings/figcraft", "", None)).await;
+    assert_eq!(json::<serde_json::Value>(&body)["figcraft.userName"], "Gabriel Heiler");
+
+    // An option changed inside an app after that is not overwritten by an unrelated change.
+    let word = r#"{"wordcraft.ui":"{\"theme\":\"light\",\"language\":\"de\"}"}"#;
+    env.call(req("PUT", "/api/settings/wordcraft", word, None)).await;
+    let next = next.replace(r#""animations":"off""#, r#""animations":"on""#);
+    env.call(req("PUT", "/api/preferences", &next, None)).await;
+    let (_, _, body) = env.call(req("GET", "/api/settings/wordcraft", "", None)).await;
+    let ui = app(&body, "wordcraft.ui");
+    assert_eq!((ui["theme"].as_str(), ui["animations"].as_str()), (Some("light"), Some("on")), "only the changed setting is overridden");
+
+    // Per user, unknown values fall back, and the store is not reachable as an app.
+    let (_, _, body) = env.call(req("GET", "/api/preferences", "", Some(&ivy))).await;
+    assert_eq!(json::<artcraft_cloud_types::prefs::Preferences>(&body).theme, "system");
+    let (_, _, body) = env.call(req("GET", "/api/settings/wordcraft", "", Some(&ivy))).await;
+    assert_eq!(body, b"{}", "another user's apps are untouched");
+    let (_, _, body) = env.call(req("PUT", "/api/preferences", r#"{"theme":"neon","language":"xx"}"#, Some(&ivy))).await;
+    let odd: artcraft_cloud_types::prefs::Preferences = json(&body);
+    assert_eq!((odd.theme.as_str(), odd.language.as_str()), ("system", "auto"));
+    let (status, _, _) = env.call(req("GET", "/api/settings/preferences", "", None)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, _) = env.call(req("PUT", "/api/preferences", "[]", None)).await;
+    assert!(status.is_client_error());
+    let (status, _, _) = env.call(req("GET", "/api/preferences", "", Some("artcraft_session=nope"))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}

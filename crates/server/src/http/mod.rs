@@ -35,6 +35,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/groups/{id}/members", post(users::add_member))
         .route("/api/groups/{id}/members/{username}", axum::routing::delete(users::remove_member))
         .route("/api/settings/{app}", get(users::get_settings).put(users::put_settings))
+        .route("/api/preferences", get(users::get_preferences).put(users::put_preferences))
         .route("/api/files/kind", get(files::file_kind))
         .route("/api/files", get(files::list_files))
         .route("/api/files/content", get(files::read_file).put(files::write_file))
