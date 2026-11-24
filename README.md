@@ -77,6 +77,12 @@ One replica with `Recreate` (SQLite has one writer), a 10 Gi PVC, startup/livene
 | FilmCraft | fcproj | 0.20.1 | new, Save As: tested |
 | FigCraft | figcraft, fig | 0.18.1 | handshake tested |
 | LightCraft | jpg, png, webp, gif, bmp, tif, dng | 0.21.1 | handshake and open tested |
+| MailCraft | (mail) | 0.15.0 | opens the signed-in person's mailbox through the JMAP proxy: tested against Stalwart |
+
+MailCraft (from [UCS-Care-Group/mailcraft](https://github.com/UCS-Care-Group/mailcraft)) has no host
+bridge, so it opens no documents; it is installed like the others (its `SHA256SUMS.txt` is checked
+against MailCraft's ed25519 release key) and opens from its card or *Settings › Account*. See
+[docs/mail.md](docs/mail.md).
 
 PhotoCraft, VectorCraft, DesignCraft and the other Crafting Apps are not included yet: their web
 builds do not speak the host bridge. `docs/upstream-gaps.md` lists what is missing upstream, with the
@@ -88,10 +94,17 @@ existing issues and pull requests.
   Admins create users, reset passwords and disable or enable users. Only the super admin creates admins,
   turns users into admins and back, or touches another admin's account; the server enforces it
   (`403` otherwise), and the super admin cannot be disabled.
+- **Passwords.** Everyone changes their own under *Settings › Account* (current password, new one twice;
+  at least 10 characters). It signs out their other sessions. Admins can still reset someone's password
+  from *People*.
+- **Mail.** The super admin connects a Stalwart server under *Mail* (`/mail`) and adds domains there,
+  with the DNS records each needs. Admins give people an email address in *People*; when its domain is
+  on the server, artcraftCloud creates the mailbox and MailCraft opens it without a password. Details,
+  and what disabling or deleting does, in [docs/mail.md](docs/mail.md).
 - **Groups** are managed under *People* by admins. Sharing with a group gives every member access; a
   member who leaves loses it.
 - **Addresses.** `/files/<folder>` is a folder, `/open/<path>?app=<app>` a document, `/new/<app>` a new
-  one (it moves to `/open/…` after the first save), `/shared`, `/trash`, `/people`, `/settings`, `/s/<token>` a
+  one (it moves to `/open/…` after the first save), `/shared`, `/trash`, `/people`, `/mail`, `/settings`, `/s/<token>` a
   public link. Opened from the drive, a document has a bar with a back arrow; opened from a link, it
   gets a small home button you can drag and fold away.
 - **Autosave.** On by default (switch in *Settings* for every app, and in the document bar per app,
@@ -175,6 +188,7 @@ Set `ARTCRAFT_GITHUB_TOKEN` if you hit GitHub's anonymous limit of 60 API calls 
 | `ARTCRAFT_MAX_UPLOAD_MB` | `512` | |
 | `ARTCRAFT_SKIP_APP_SYNC` | | `1` skips the first-start download |
 | `ARTCRAFT_GITHUB_TOKEN` | | For app updates |
+| `ARTCRAFT_MAIL_URL` | | Stalwart address offered on the Mail page (`http://stalwart:8080` in compose); see [docs/mail.md](docs/mail.md) |
 | `ARTCRAFT_SHELL_DIR` | `/opt/artcraft-cloud/shell` (image) | The built drive UI |
 | `ARTCRAFT_OIDC_ISSUER` | | Reserved: the server refuses to start while OIDC is not implemented, rather than fall back to passwords silently |
 
@@ -238,6 +252,11 @@ to a same-origin parent.
   signed releases (the updater refuses anything else).
 - The content security policy allows `wasm-unsafe-eval` and `unsafe-eval`, which the apps' wasm
   loaders need.
+- Mail: the Stalwart credential and every mailbox password are sealed in the database
+  (ChaCha20-Poly1305, key derived from `secret.key`) and never sent to a browser. MailCraft reaches
+  the mail server only through `/jmap/…` with 15-minute tokens; disabled people are refused. Changing
+  your own password needs the current one, is rate limited (8 per 10 minutes) and ends your other
+  sessions.
 
 ## Roadmap
 

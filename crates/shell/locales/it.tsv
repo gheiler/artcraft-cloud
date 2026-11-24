@@ -1,13 +1,19 @@
 # artcraftCloud shell, it: English<TAB>translation. Keep {placeholders}.
+API key	Chiave API
+Account	Account
 Accounts	Account
 Actions	Azioni
 Active	Attivo
 Add	Aggiungi
 Add a member	Aggiungi un membro
 Add a person	Aggiungi una persona
+Add domain	Aggiungi dominio
 Add people or groups	Aggiungi persone o gruppi
+Address to confirm	Indirizzo da confermare
 Admin	Amministratore
+Admin account	Account amministratore
 All	Tutti
+An API key, or an administrator account of the mail server.	Una chiave API o un account amministratore del server di posta.
 Animations	Animazioni
 Anyone with the link	Chiunque abbia il link
 Anyone with the link can edit	Chiunque abbia il link può modificare
@@ -15,6 +21,7 @@ Anyone with the link can view	Chiunque abbia il link può visualizzare
 App	App
 Appearance	Aspetto
 Applies to	Si applica a
+At least 10 characters. Your other sessions are signed out.	Almeno 10 caratteri. Le altre sessioni verranno disconnesse.
 Autosave	Salvataggio automatico
 Autosaving…	Salvataggio automatico…
 Back to your files	Torna ai tuoi file
@@ -22,11 +29,16 @@ Can edit	Può modificare
 Can view	Può visualizzare
 Cancel	Annulla
 Centimeters	Centimetri
+Change password	Cambia password
 Choose a file	Scegli un file
 Close	Chiudi
 Collapse	Comprimi
 Collapse or expand	Comprimi o espandi
 Collapse sidebar	Comprimi la barra laterale
+Confirm new password	Conferma nuova password
+Connect a Stalwart mail server. People whose email address is on one of its domains can get a mailbox there, and MailCraft opens it for them without asking for a password.	Collega un server di posta Stalwart. Le persone il cui indirizzo email è su uno dei suoi domini possono avere lì una casella, e MailCraft la apre per loro senza chiedere la password.
+Connect a mail server first.	Collega prima un server di posta.
+Connected.	Connesso.
 Copied.	Copiato.
 Copy	Copia
 Copy here	Copia qui
@@ -34,24 +46,38 @@ Copy {name}	Copia {name}
 Could not find a free name.	Impossibile trovare un nome libero.
 Could not save the settings: {error}	Impossibile salvare le impostazioni: {error}
 Create	Crea
+Create a mailbox for this address on the mail server	Crea una casella per questo indirizzo sul server di posta
 Create group	Crea gruppo
 Create link	Crea link
+Create the mailbox {address} on the mail server	Crea la casella {address} sul server di posta
+Current password	Password attuale
 Dark	Scuro
 Delete forever	Elimina definitivamente
 Delete forever?	Eliminare definitivamente?
 Delete group	Elimina gruppo
 Delete link	Elimina link
+Delete mailbox and mail	Elimina casella e posta
+Delete mailbox…	Elimina casella…
 Disable	Disattiva
 Disabled	Disattivato
 Discard changes	Scarta modifiche
 Discard unsaved changes?	Scartare le modifiche non salvate?
+Disconnect	Disconnetti
+Disconnected. Mailboxes stay on the mail server; people keep their email addresses.	Disconnesso. Le caselle restano sul server di posta; le persone mantengono i loro indirizzi.
 Dismiss	Ignora
 Documents	Documenti
+Domains	Domini
 Download	Scarica
 Download {name}	Scarica {name}
 Downloading…	Download in corso…
 Drag to move	Trascina per spostare
 Each app's default	Predefinito di ogni app
+Email	Email
+Email (optional)	Email (facoltativa)
+Email address	Indirizzo email
+Email address only	Solo indirizzo email
+Email for {username}	Email di {username}
+Email saved.	Email salvata.
 Empty the trash?	Svuotare il cestino?
 Empty trash	Svuota cestino
 Enable	Attiva
@@ -67,11 +93,13 @@ Folder name	Nome della cartella
 For rulers, margins and sizes.	Per righelli, margini e dimensioni.
 From this device…	Da questo dispositivo…
 Full name (optional)	Nome completo (facoltativo)
+Give someone an email address in People. When its domain is on this server, artcraftCloud can create the mailbox with a long random password it keeps sealed; the person never needs it, because MailCraft is let in through this server. Disabling a person keeps the mailbox but locks MailCraft out; removing a mailbox unlinks it unless you choose to delete it.	Assegna un indirizzo email a qualcuno in Persone. Se il dominio è su questo server, artcraftCloud può creare la casella con una lunga password casuale che conserva cifrata; la persona non ne ha mai bisogno, perché MailCraft entra tramite questo server. Disattivare una persona mantiene la casella ma blocca MailCraft; rimuovere una casella la scollega, a meno che tu non scelga di eliminarla.
 Group {group}	Gruppo {group}
 Group · 1 member	Gruppo · 1 membro
 Group · {count} members	Gruppo · {count} membri
 Groups	Gruppi
 Handed off from the previous app.	Passato dall'app precedente.
+Has a mailbox on the mail server	Ha una casella sul server di posta
 Inches	Pollici
 Initials	Iniziali
 Interface language	Lingua dell'interfaccia
@@ -83,6 +111,15 @@ Link created and copied.	Link creato e copiato.
 Link permission	Permesso del link
 Links	Link
 Loading	Caricamento
+Mail	Posta
+Mail server	Server di posta
+Mail server saved.	Server di posta salvato.
+MailCraft opens this mailbox for them. To change the address, unlink the mailbox first.	MailCraft apre questa casella per la persona. Per cambiare indirizzo, scollega prima la casella.
+Mailbox	Casella
+Mailbox deleted from the mail server.	Casella eliminata dal server di posta.
+Mailbox unlinked. It is still on the mail server.	Casella scollegata. È ancora sul server di posta.
+Mailbox {address} created.	Casella {address} creata.
+Mailboxes	Caselle
 Make admin	Rendi amministratore
 Make user	Rendi utente
 Measurement units	Unità di misura
@@ -103,6 +140,7 @@ New document	Nuovo documento
 New folder	Nuova cartella
 New group name	Nome del nuovo gruppo
 New name	Nuovo nome
+New password	Nuova password
 New password for {username}	Nuova password per {username}
 New {app} document	Nuovo documento {app}
 No app opens this kind of file by its name. Pick one, or download it.	Nessuna app apre questo tipo di file in base al nome. Scegline una o scaricalo.
@@ -111,16 +149,22 @@ No files of that kind here.	Nessun file di questo tipo qui.
 No folders inside.	Nessuna cartella all'interno.
 No groups yet. Groups let you share with a team in one step.	Ancora nessun gruppo. I gruppi permettono di condividere con un team in un solo passaggio.
 No installed app opens {name}.	Nessuna app installata apre {name}.
+No mail server is connected, so only the address is kept.	Nessun server di posta collegato, quindi viene salvato solo l'indirizzo.
 No matching files in this folder.	Nessun file corrispondente in questa cartella.
+Not connected.	Non connesso.
 Not installed yet	Non ancora installata
 Nothing has been shared with you yet.	Nessuno ha ancora condiviso nulla con te.
 Nothing here yet. Drop files on this page or create a document above.	Ancora niente qui. Trascina dei file su questa pagina o crea un documento qui sopra.
 Off	Disattivate
 On	Attivate
 Only admins manage people.	Solo gli amministratori gestiscono le persone.
+Only the super admin sets up mail.	Solo il super amministratore configura la posta.
 Only you.	Solo tu.
+Open MailCraft	Apri MailCraft
+Open People	Apri Persone
 Open with	Apri con
 Open with…	Apri con…
+Open {app}	Apri {app}
 Open {name} with	Apri {name} con
 Opening…	Apertura…
 Password	Password
@@ -128,12 +172,15 @@ Password (10+ characters)	Password (10+ caratteri)
 Password (at least 10 characters)	Password (almeno 10 caratteri)
 Password (optional)	Password (facoltativa)
 Password changed. Their sessions were signed out.	Password modificata. Le sue sessioni sono state chiuse.
+Password changed. You were signed out everywhere else.	Password cambiata. Sei stato disconnesso ovunque altrove.
 People	Persone
 People with access	Persone con accesso
 People you add find it under Shared.	Le persone che aggiungi lo trovano in Condivisi.
 People you add see everything in this folder.	Le persone che aggiungi vedono tutto in questa cartella.
 Permission	Permesso
 Points	Punti
+Publish these at your DNS provider so mail reaches this server and is trusted by others.	Pubblicali presso il tuo provider DNS perché la posta arrivi a questo server e sia considerata affidabile.
+Purpose	Scopo
 Remove	Rimuovi
 Remove access	Rimuovi accesso
 Remove from group	Rimuovi dal gruppo
@@ -146,11 +193,13 @@ Same as the browser	Come il browser
 Same as the system	Come il sistema
 Save	Salva
 Save a copy	Salva una copia
+Save and create mailbox	Salva e crea la casella
 Save changes to the drive a few seconds after you stop typing	Salva le modifiche nel drive pochi secondi dopo che smetti di scrivere
 Save into {folder}	Salva in {folder}
 Saved {candidate}.	{candidate} salvato.
 Saved.	Salvato.
 Saved. Each app uses it the next time it opens.	Salvato. Ogni app lo userà alla prossima apertura.
+Server address	Indirizzo del server
 Set password	Imposta password
 Settings	Impostazioni
 Share	Condividi
@@ -163,33 +212,53 @@ Shared with me	Condivisi con me
 Shown next to your comments.	Mostrate accanto ai tuoi commenti.
 Shown on comments, tracked changes and document properties.	Mostrato su commenti, revisioni e proprietà del documento.
 Sign in	Accedi
+Sign in with	Accedi con
 Sign out	Esci
 Size	Dimensione
 Someone else changed this file.	Qualcun altro ha modificato questo file.
 Someone else changed this file. Save a copy to keep your version.	Qualcun altro ha modificato questo file. Salva una copia per mantenere la tua versione.
+Stalwart's web address as this server reaches it, e.g. http://stalwart:8080 with the compose mail profile.	L'indirizzo web di Stalwart come lo raggiunge questo server, ad es. http://stalwart:8080 con il profilo compose mail.
 Status	Stato
 Stop sharing	Interrompi condivisione
+Stored encrypted and never shown. Leave empty to keep it.	Salvato cifrato e mai mostrato. Lascia vuoto per mantenerlo.
+Stored encrypted on this server and never shown again.	Salvato cifrato su questo server e mai più mostrato.
 Suggested	Suggerita
 Super admin	Super amministratore
 System	Sistema
+Test connection	Prova la connessione
+Testing…	Verifica in corso…
 That app	Quell'app
+The account name, e.g. admin or admin@example.com.	Il nome dell'account, ad es. admin o admin@example.com.
+The account was created, but the mail server did not create the mailbox. Try again from Email.	L'account è stato creato, ma il server di posta non ha creato la casella. Riprova da Email.
 The app sent a save with no bytes.	L'app ha inviato un salvataggio vuoto.
+The current password is not right.	La password attuale non è corretta.
 The drive and the apps that have this language use it.	Il drive e le app che hanno questa lingua la usano.
 The drive is not translated into this language yet and shows English; the apps that have it use it.	Il drive non è ancora tradotto in questa lingua e viene mostrato in inglese; le app che la hanno la usano.
+The mail server does not serve this domain, so only the address is kept.	Il server di posta non gestisce questo dominio, quindi viene salvato solo l'indirizzo.
+The mail server has no domains yet. Add the one your addresses end in.	Il server di posta non ha ancora domini. Aggiungi quello dei tuoi indirizzi.
+The new password is the same as the current one.	La nuova password è uguale a quella attuale.
+The new passwords do not match.	Le nuove password non coincidono.
 The trash is empty.	Il cestino è vuoto.
 Theme	Tema
 These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.	Queste impostazioni ti seguono su ogni browser. Una modifica viene scritta nelle opzioni di ogni app e ha effetto alla prossima apertura.
 This cannot be undone.	L'operazione non può essere annullata.
+This deletes {address} and all of its mail on the mail server. It cannot be undone. Type the address to confirm.	Questo elimina {address} e tutta la sua posta sul server. Non si può annullare. Digita l'indirizzo per confermare.
 This link has a password	Questo link ha una password
 This link has expired.	Questo link è scaduto.
+This server was started with ARTCRAFT_MAIL_URL={url}.	Questo server è stato avviato con ARTCRAFT_MAIL_URL={url}.
 Toggle sidebar	Mostra o nascondi la barra laterale
+Too many tries. Wait a few minutes and try again.	Troppi tentativi. Attendi qualche minuto e riprova.
 Trash	Cestino
+Type	Tipo
+Unlink mailbox	Scollega casella
 Unlock	Sblocca
 Unsaved changes	Modifiche non salvate
 Up one folder	Cartella superiore
 Upload	Carica
+Use it	Usala
 User	Utente
 Username	Nome utente
+Value	Valore
 View only — the file was not stored.	Sola lettura: il file non è stato salvato.
 You can restore it from the trash later.	Potrai ripristinarlo dal cestino in seguito.
 You have not shared anything yet.	Non hai ancora condiviso nulla.
@@ -199,3 +268,7 @@ Your latest changes to this document have not been saved to the drive.	Le tue ul
 Your name in documents	Il tuo nome nei documenti
 password	password
 {app} is still downloading	{app} è ancora in download
+{count} DNS records	{count} record DNS
+{count} optional records (autoconfig, SRV, MTA-STS…)	{count} record facoltativi (autoconfig, SRV, MTA-STS…)
+{domain} added. Publish its DNS records below.	{domain} aggiunto. Pubblica i suoi record DNS qui sotto.
+{name} was added with the mailbox {address}.	{name} è stato aggiunto con la casella {address}.

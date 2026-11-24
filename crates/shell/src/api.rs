@@ -248,6 +248,17 @@ pub async fn call(method: &str, url: &str, body: Option<&serde_json::Value>) -> 
     }
 }
 
+/// A JSON request with a JSON answer (`PUT`, `DELETE` with a body…).
+pub async fn json<R: serde::de::DeserializeOwned>(
+    method: &str,
+    url: &str,
+    body: &serde_json::Value,
+) -> Result<R, String> {
+    let bytes = serde_json::to_vec(body).map_err(|err| err.to_string())?;
+    let reply = send(method, url, Some(&bytes), Some("application/json"), None).await?;
+    decode(reply)
+}
+
 pub async fn delete(url: &str) -> Result<(), String> {
     call("DELETE", url, None).await
 }
@@ -303,6 +314,13 @@ pub async fn put_preferences(
     prefs: &artcraft_cloud_types::prefs::Preferences,
 ) -> Result<artcraft_cloud_types::prefs::Preferences, String> {
     let bytes = serde_json::to_vec(prefs).map_err(|err| err.to_string())?;
-    let reply = send("PUT", "/api/preferences", Some(&bytes), Some("application/json"), None).await?;
+    let reply = send(
+        "PUT",
+        "/api/preferences",
+        Some(&bytes),
+        Some("application/json"),
+        None,
+    )
+    .await?;
     decode(reply)
 }

@@ -1,4 +1,5 @@
 mod files;
+pub(crate) mod mail;
 mod session;
 mod shares;
 pub(crate) mod users;
@@ -29,6 +30,18 @@ pub fn router(state: AppState) -> Router {
         .route("/api/users/{id}/enable", post(users::enable_user))
         .route("/api/users/{id}/password", post(users::reset_password))
         .route("/api/users/{id}/role", post(users::set_role))
+        .route("/api/users/{id}/mail", get(mail::get_user_mail))
+        .route("/api/users/{id}/email", axum::routing::put(mail::put_user_email))
+        .route("/api/users/{id}/mailbox", axum::routing::delete(mail::remove_mailbox))
+        .route("/api/mail/config", get(mail::get_config).put(mail::put_config).delete(mail::delete_config))
+        .route("/api/mail/test", post(mail::test))
+        .route("/api/mail/domains", get(mail::domains).post(mail::add_domain))
+        .route("/api/mail/me", get(mail::me))
+        .route("/api/mail/token", post(mail::token))
+        .route("/api/mail/mailcraft.js", get(mail::mailcraft_hook))
+        .route("/jmap", any(mail::jmap_proxy))
+        .route("/jmap/", any(mail::jmap_proxy))
+        .route("/jmap/{*rest}", any(mail::jmap_proxy))
         .route("/api/directory", get(users::directory))
         .route("/api/groups", get(users::list_groups).post(users::create_group))
         .route("/api/groups/{id}", axum::routing::delete(users::delete_group))
@@ -115,6 +128,16 @@ async fn serve_app_at(state: &AppState, path: &str, headers: &axum::http::Header
         return (StatusCode::SERVICE_UNAVAILABLE, format!("{id} is not installed yet")).into_response();
     };
     let rest = parts.next().unwrap_or("");
+    if id == "mailcraft" && (rest.is_empty() || rest == "index.html") {
+        // MailCraft learns the user's mailbox from a script that must run before the app.
+        let Ok(html) = tokio::fs::read_to_string(root.join("index.html")).await else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let mut response = ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], mail::inject_hook(&html)).into_response();
+        response.headers_mut().insert("content-security-policy", csp());
+        response.headers_mut().insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("SAMEORIGIN"));
+        return response;
+    }
     let mut response = static_files::serve_path(&root, rest, headers, CachePolicy::Immutable).await;
     let headers = response.headers_mut();
     headers.insert("content-security-policy", csp());
@@ -124,7 +147,7 @@ async fn serve_app_at(state: &AppState, path: &str, headers: &axum::http::Header
 
 async fn shell(State(state): State<AppState>, req: Request) -> Response {
     let path = req.uri().path();
-    if path.starts_with("/api/") || path.starts_with("/dav") {
+    if path.starts_with("/api/") || path.starts_with("/dav") || path.starts_with("/jmap") {
         return StatusCode::NOT_FOUND.into_response();
     }
     let root = &state.config.shell_dir;

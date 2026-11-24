@@ -31,10 +31,18 @@ pub enum Icon {
     Settings,
     Shield,
     Chevron,
+    Mail,
+    Key,
 }
 
 fn paths(icon: Icon) -> &'static str {
     match icon {
+        Icon::Mail => {
+            r#"<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/>"#
+        }
+        Icon::Key => {
+            r#"<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/><path d="m15 8 2 2"/>"#
+        }
         Icon::Download => r#"<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/>"#,
         Icon::Share => {
             r#"<circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.3 10.8 7.4-4.1M8.3 13.2l7.4 4.1"/>"#

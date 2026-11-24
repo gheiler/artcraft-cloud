@@ -27,6 +27,8 @@ pub struct Config {
     pub argon_time: u32,
     pub argon_parallelism: u32,
     pub oidc_issuer: Option<String>,
+    /// Mail server base URL to suggest in Settings › Mail (`ARTCRAFT_MAIL_URL`).
+    pub mail_url: Option<String>,
 }
 
 impl Config {
@@ -60,6 +62,7 @@ impl Config {
             .map(|mb| mb.saturating_mul(1024 * 1024))
             .unwrap_or(512 * 1024 * 1024);
         let oidc_issuer = std::env::var("ARTCRAFT_OIDC_ISSUER").ok().filter(|s| !s.is_empty());
+        let mail_url = std::env::var("ARTCRAFT_MAIL_URL").ok().filter(|s| !s.is_empty());
         Ok(Self {
             data_dir,
             listen,
@@ -76,6 +79,7 @@ impl Config {
             argon_time: 2,
             argon_parallelism: 1,
             oidc_issuer,
+            mail_url,
         })
     }
 
@@ -96,6 +100,7 @@ impl Config {
             argon_time: 1,
             argon_parallelism: 1,
             oidc_issuer: None,
+            mail_url: None,
         }
     }
 

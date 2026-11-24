@@ -17,7 +17,20 @@ use artcraft_cloud_types::prefs::{self, Preferences};
 pub async fn list_users(State(state): State<AppState>, AuthUser(user): AuthUser) -> Result<Json<Vec<User>>, ApiError> {
     require_admin(&user)?;
     let users = state.db.list_users().map_err(ApiError::from)?;
-    Ok(Json(users.into_iter().map(|account| account.public()).collect()))
+    let mail = state.db.user_mail().map_err(ApiError::from)?;
+    Ok(Json(
+        users
+            .into_iter()
+            .map(|account| {
+                let mut user = account.public();
+                if let Some((email, mailbox)) = mail.get(&account.id) {
+                    user.email = email.clone();
+                    user.mailbox = mailbox.is_some();
+                }
+                user
+            })
+            .collect(),
+    ))
 }
 
 pub async fn create_user(State(state): State<AppState>, AuthUser(actor): AuthUser, Json(body): Json<CreateUserRequest>) -> Result<(StatusCode, Json<User>), ApiError> {
@@ -33,6 +46,16 @@ pub async fn create_user(State(state): State<AppState>, AuthUser(actor): AuthUse
         require_super(&actor)?;
     }
     let display = display_name_of(body.display_name.as_deref(), &username).map_err(ApiError::from)?;
+    let email = match body.email.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+        Some(email) => {
+            let (email, _, _) = super::mail::normalize_email(email)?;
+            if state.db.user_mail().map_err(ApiError::from)?.values().any(|(other, _)| other.as_deref() == Some(email.as_str())) {
+                return Err(ApiError::new(StatusCode::CONFLICT, "another user has that email"));
+            }
+            Some(email)
+        }
+        None => None,
+    };
     let hash = hash_password(&body.password, state.config.argon_memory_kib, state.config.argon_time, state.config.argon_parallelism).map_err(ApiError::from)?;
     let account = match state.db.insert_user(&username, &hash, role, &display) {
         Ok(account) => account,
@@ -42,7 +65,24 @@ pub async fn create_user(State(state): State<AppState>, AuthUser(actor): AuthUse
         Err(err) => return Err(err.into()),
     };
     state.store.ensure_home(account.id).map_err(ApiError::from)?;
-    Ok((StatusCode::CREATED, Json(account.public())))
+    let mut user = account.public();
+    if let Some(email) = email {
+        // The account exists now; a mailbox that cannot be made is reported by the call the shell
+        // makes next (`PUT /api/users/{id}/email`), so the email alone is set here.
+        let request = artcraft_cloud_types::SetUserEmail { email: Some(email), create_mailbox: body.create_mailbox };
+        match super::mail::set_email(&state, &account, &request).await {
+            Ok(mail) => {
+                user.email = mail.email;
+                user.mailbox = mail.mailbox.is_some();
+            }
+            Err(err) => {
+                tracing::warn!(user = %account.username, error = %err.message, "mailbox not created");
+                let _ = state.db.set_user_email(account.id, request.email.as_deref());
+                user.email = request.email;
+            }
+        }
+    }
+    Ok((StatusCode::CREATED, Json(user)))
 }
 
 pub async fn disable_user(State(state): State<AppState>, AuthUser(actor): AuthUser, Path(id): Path<i64>) -> Result<StatusCode, ApiError> {
@@ -230,15 +270,21 @@ pub async fn put_settings(State(state): State<AppState>, AuthUser(user): AuthUse
     if body.len() > SETTINGS_LIMIT {
         return Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "settings are limited to 1 MiB per app"));
     }
-    let value: serde_json::Value = serde_json::from_slice(&body).map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "settings must be JSON"))?;
+    let mut value: serde_json::Value = serde_json::from_slice(&body).map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "settings must be JSON"))?;
     if !value.is_object() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "settings must be a JSON object"));
+    }
+    if key == "mailcraft" {
+        // MailCraft keeps the mail itself in `localStorage` too; only its options are stored here.
+        if let Some(map) = value.as_object_mut() {
+            map.remove("mailcraft.mailbox.v1");
+        }
     }
     state.db.put_setting(user.id, key, &value.to_string()).map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn require_super(user: &crate::db::Account) -> Result<(), ApiError> {
+pub(crate) fn require_super(user: &crate::db::Account) -> Result<(), ApiError> {
     if user.is_admin() && user.is_super {
         Ok(())
     } else {
@@ -246,7 +292,7 @@ fn require_super(user: &crate::db::Account) -> Result<(), ApiError> {
     }
 }
 
-fn require_admin(user: &crate::db::Account) -> Result<(), ApiError> {
+pub(crate) fn require_admin(user: &crate::db::Account) -> Result<(), ApiError> {
     if user.is_admin() {
         Ok(())
     } else {

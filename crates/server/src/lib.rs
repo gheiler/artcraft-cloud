@@ -13,7 +13,9 @@ mod state;
 mod sniff;
 mod static_files;
 mod store;
+mod stalwart;
 mod throttle;
+mod vault;
 mod webdav;
 
 pub use config::Config;

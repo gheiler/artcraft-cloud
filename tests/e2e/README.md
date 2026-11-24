@@ -17,3 +17,11 @@ node settings.js            # Settings: light/dark, shell language (German), Wor
 Screenshots go to `shots/` (`OUT=` to change). A run passes when every line looks right and
 `errors []` is printed: page errors, native `alert`/`confirm`/`prompt` dialogs and console errors
 are collected there.
+
+## mail.js
+
+Mail against a real Stalwart (see [docs/mail.md](../../docs/mail.md#testing-against-a-real-stalwart)):
+the Mail page and its DNS records, a person created with a mailbox, unlink and delete, a password
+change, and MailCraft opening the inbox through the JMAP proxy. Needs MailCraft installed
+(`artcraft-cloud apps update mailcraft`), `jonas` with a mailbox, and `MAIL_URL`, `MAIL_ADMIN`,
+`MAIL_PASS` unless the mail server is already connected. Screenshots go to `$OUT`.

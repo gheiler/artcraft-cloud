@@ -20,6 +20,14 @@ pub struct CraftApp {
     pub author_query: bool,
     /// The app understands `?chrome=nofiletab` (ignored by the others).
     pub chrome_query: bool,
+    /// GitHub owner of `repo`.
+    pub owner: &'static str,
+    /// The web build speaks the `craft-web-host` contract (opens and saves drive files). MailCraft
+    /// does not: it is launched on its own and reaches mail over JMAP.
+    pub bridge: bool,
+    /// ed25519 public keys (base64) that sign the release's `SHA256SUMS.txt` as
+    /// `SHA256SUMS.txt.sig`. Empty: the release is checked with its OpenPGP `.asc`, if any.
+    pub release_keys: &'static [&'static str],
 }
 
 /// Apps verified against the latest GitHub release tag (November 2026).
@@ -34,6 +42,9 @@ pub static CATALOG: &[CraftApp] = &[
         extensions: &["docx", "odt", "rtf", "txt", "md", "markdown"],
         author_query: true,
         chrome_query: false,
+        owner: "storytold",
+        bridge: true,
+        release_keys: &[],
     },
     CraftApp {
         id: "gridcraft",
@@ -43,6 +54,9 @@ pub static CATALOG: &[CraftApp] = &[
         extensions: &["xlsx"],
         author_query: true,
         chrome_query: true,
+        owner: "storytold",
+        bridge: true,
+        release_keys: &[],
     },
     CraftApp {
         id: "deckcraft",
@@ -52,6 +66,9 @@ pub static CATALOG: &[CraftApp] = &[
         extensions: &["pptx", "potx", "ppsx", "deckcraft"],
         author_query: true,
         chrome_query: false,
+        owner: "storytold",
+        bridge: true,
+        release_keys: &[],
     },
     CraftApp {
         id: "pdfcraft",
@@ -61,6 +78,9 @@ pub static CATALOG: &[CraftApp] = &[
         extensions: &["pdf"],
         author_query: true,
         chrome_query: false,
+        owner: "storytold",
+        bridge: true,
+        release_keys: &[],
     },
     CraftApp {
         id: "cadcraft",
@@ -70,6 +90,9 @@ pub static CATALOG: &[CraftApp] = &[
         extensions: &["dxf"],
         author_query: false,
         chrome_query: false,
+        owner: "storytold",
+        bridge: true,
+        release_keys: &[],
     },
     CraftApp {
         id: "figcraft",
@@ -79,6 +102,9 @@ pub static CATALOG: &[CraftApp] = &[
         extensions: &["figcraft", "fig"],
         author_query: true,
         chrome_query: false,
+        owner: "storytold",
+        bridge: true,
+        release_keys: &[],
     },
     CraftApp {
         id: "lightcraft",
@@ -88,6 +114,9 @@ pub static CATALOG: &[CraftApp] = &[
         extensions: &["jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "dng"],
         author_query: false,
         chrome_query: false,
+        owner: "storytold",
+        bridge: true,
+        release_keys: &[],
     },
     CraftApp {
         id: "filmcraft",
@@ -97,6 +126,22 @@ pub static CATALOG: &[CraftApp] = &[
         extensions: &["fcproj"],
         author_query: false,
         chrome_query: false,
+        owner: "storytold",
+        bridge: true,
+        release_keys: &[],
+    },
+    CraftApp {
+        id: "mailcraft",
+        title: "MailCraft",
+        repo: "mailcraft",
+        blurb: "Mail, calendar and contacts",
+        extensions: &[],
+        author_query: false,
+        chrome_query: false,
+        owner: "UCS-Care-Group",
+        bridge: false,
+        // `RELEASE_KEYS` in MailCraft's crates/net/src/update.rs: the key in use and the spare.
+        release_keys: &["Mu5RF5oJpFhDGfa5wpgznC39tDC8vbUbyNkiAMdluPQ=", "XV6WRgW06/mGhZCHhFVKMIEZDmLevQduZPLSj/UW5zI="],
     },
 ];
 
@@ -148,6 +193,12 @@ pub struct User {
     /// The main admin: the only account that can promote or demote admins.
     #[serde(default)]
     pub super_admin: bool,
+    /// The user's email address (admins see it in People; everyone sees their own).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// A mailbox on the configured mail server is linked to this user.
+    #[serde(default)]
+    pub mailbox: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,6 +224,116 @@ pub struct CreateUserRequest {
     pub password: String,
     pub role: Option<String>,
     pub display_name: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Create the mailbox on the mail server when the address's domain is served there.
+    #[serde(default)]
+    pub create_mailbox: bool,
+}
+
+/// `GET /api/mail/config` (super admin): the mail server connection, without its secret.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MailConfig {
+    /// Stalwart's base URL, e.g. `http://stalwart:8080`. Empty: not configured.
+    pub base_url: String,
+    /// `basic` (admin account name and password) or `bearer` (API key).
+    pub auth: String,
+    /// Admin account name for `basic`.
+    #[serde(default)]
+    pub username: String,
+    /// Whether a password or API key is stored (it is never sent back).
+    #[serde(default)]
+    pub has_secret: bool,
+    /// A base URL from the environment (`ARTCRAFT_MAIL_URL`) to offer when none is set.
+    #[serde(default)]
+    pub suggested_url: String,
+}
+
+/// `PUT /api/mail/config`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MailConfigUpdate {
+    pub base_url: String,
+    pub auth: String,
+    #[serde(default)]
+    pub username: String,
+    /// New password or API key; `None` or empty keeps the stored one.
+    #[serde(default)]
+    pub secret: Option<String>,
+}
+
+/// `POST /api/mail/test`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MailTest {
+    pub ok: bool,
+    pub message: String,
+    #[serde(default)]
+    pub edition: String,
+    /// The credential may list domains and create accounts.
+    #[serde(default)]
+    pub can_manage: bool,
+}
+
+/// A DNS record a mail domain needs, from the server's zone file.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DnsRecord {
+    pub name: String,
+    /// `MX`, `TXT`, `CNAME`, `SRV`…
+    pub kind: String,
+    pub value: String,
+    /// `MX`, `SPF`, `DKIM`, `DMARC` or empty for the others.
+    #[serde(default)]
+    pub purpose: String,
+}
+
+/// `GET /api/mail/domains`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MailDomain {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub records: Vec<DnsRecord>,
+}
+
+/// `POST /api/mail/domains`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NewMailDomain {
+    pub name: String,
+}
+
+/// `PUT /api/users/{id}/email`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SetUserEmail {
+    /// `None` or empty clears it (only while no mailbox is linked).
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub create_mailbox: bool,
+}
+
+/// `DELETE /api/users/{id}/mailbox`: unlink, or delete the mailbox on the server too.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RemoveMailbox {
+    #[serde(default)]
+    pub delete: bool,
+    /// The mailbox address typed again, required to delete.
+    #[serde(default)]
+    pub confirm: String,
+}
+
+/// `GET /api/users/{id}/mail` and `GET /api/mail/me`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UserMail {
+    #[serde(default)]
+    pub email: Option<String>,
+    /// The linked mailbox address.
+    #[serde(default)]
+    pub mailbox: Option<String>,
+    /// A mail server is configured.
+    #[serde(default)]
+    pub configured: bool,
+    /// The email's domain is one the mail server serves.
+    #[serde(default)]
+    pub domain_served: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -309,7 +470,8 @@ mod tests {
     fn extensions_belong_to_one_app() {
         let mut seen = std::collections::BTreeSet::new();
         for app in catalog() {
-            assert!(!app.extensions.is_empty(), "{}", app.id);
+            // An app opens documents exactly when it speaks the host bridge (MailCraft opens none).
+            assert_eq!(app.extensions.is_empty(), !app.bridge, "{}", app.id);
             for ext in app.extensions {
                 assert!(seen.insert(*ext), "{ext} is claimed twice");
                 assert_eq!(ext, &ext.to_ascii_lowercase());

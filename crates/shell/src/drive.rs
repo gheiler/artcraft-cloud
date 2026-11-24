@@ -157,7 +157,12 @@ fn Crumbs() -> impl IntoView {
             Route::People => (t("People"), Route::People, String::new(), None),
             Route::Settings => (t("Settings"), Route::Settings, String::new(), None),
             Route::Public(_) => (t("Shared link"), route.clone(), String::new(), None),
-            _ => (t("My files"), Route::Files(String::new()), String::new(), None),
+            _ => (
+                t("My files"),
+                Route::Files(String::new()),
+                String::new(),
+                None,
+            ),
         };
         let mut parts = Vec::new();
         let mut acc = String::new();
@@ -196,7 +201,7 @@ fn NewCards() -> impl IntoView {
         <section class="new-cards" aria-label=t("New document")>
             <For each=move || ui.apps.get() key=|app| (app.id.clone(), app.installed) let(app)>
                 <button type="button" class="new-card" disabled=!app.installed
-                    title=if app.installed { tf("New {app} document", &[("app", &app.title)]) } else { tf("{app} is still downloading", &[("app", &app.title)]) }
+                    title=if !app.installed { tf("{app} is still downloading", &[("app", &app.title)]) } else if app_by_id(&app.id).is_some_and(|a| !a.bridge) { tf("Open {app}", &[("app", &app.title)]) } else { tf("New {app} document", &[("app", &app.title)]) }
                     on:click={
                         let id = app.id.clone();
                         move |_| {
@@ -323,7 +328,7 @@ async fn load(
         Route::Trash => {
             let _ = trash.try_set(api::trash().await?);
         }
-        Route::People | Route::Settings | Route::Open { .. } | Route::New { .. } => {}
+        Route::People | Route::Mail | Route::Settings | Route::Open { .. } | Route::New { .. } => {}
     }
     Ok(())
 }
@@ -774,6 +779,7 @@ pub fn apps_for(name: &str, apps: &[AppStatus]) -> Vec<(String, String, bool, bo
     let best = app_of_name(name);
     let mut out: Vec<(String, String, bool, bool)> = catalog()
         .iter()
+        .filter(|app| app.bridge)
         .map(|app| {
             let installed = apps.iter().any(|a| a.id == app.id && a.installed);
             (

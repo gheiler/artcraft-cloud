@@ -1,7 +1,7 @@
 //! People: accounts and groups (admins only). Only the super admin promotes and demotes admins;
 //! the server enforces it, the page only hides what would be refused.
 
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 use artcraft_cloud_types::{Group, User};
 use leptos::prelude::*;
 
@@ -19,12 +19,19 @@ pub fn People() -> impl IntoView {
     let display = RwSignal::new(String::new());
     let password = RwSignal::new(String::new());
     let role = RwSignal::new(String::from("user"));
+    let email = RwSignal::new(String::new());
+    let mailbox = RwSignal::new(true);
+    let served = crate::mail::served_domains();
+    let served_here = move || {
+        crate::mail::domain_of(&email.get()).is_some_and(|d| served.with(|list| list.contains(&d)))
+    };
     let group_name = RwSignal::new(String::new());
     let tick = RwSignal::new(0u32);
     // Every write after an await uses try_set: the page may be gone by the time a reply comes back
     // (switching pages while a list loads used to abort the whole shell here).
     Effect::new(move |_| {
         tick.get();
+        ui.tick.get();
         wasm_bindgen_futures::spawn_local(async move {
             match api::get_json::<Vec<User>>("/api/users").await {
                 Ok(list) => {
@@ -57,10 +64,19 @@ pub fn People() -> impl IntoView {
                         "password": password.get_untracked(),
                         "display_name": Some(display.get_untracked()).filter(|d| !d.trim().is_empty()),
                         "role": role.get_untracked(),
+                        "email": Some(email.get_untracked().trim().to_string()).filter(|e| !e.is_empty()),
+                        "create_mailbox": mailbox.get_untracked() && served_here(),
                     });
+                    let wanted_mailbox = mailbox.get_untracked() && served_here();
                     wasm_bindgen_futures::spawn_local(async move {
                         match api::post_json::<_, User>("/api/users", &body).await {
-                            Ok(_) => {
+                            Ok(user) => {
+                                if wanted_mailbox && !user.mailbox {
+                                    ui.say(t("The account was created, but the mail server did not create the mailbox. Try again from Email."));
+                                } else if user.mailbox {
+                                    ui.say(tf("{name} was added with the mailbox {address}.", &[("name", &user.display_name), ("address", &user.email.clone().unwrap_or_default())]));
+                                }
+                                let _ = email.try_set(String::new());
                                 let _ = username.try_set(String::new());
                                 let _ = display.try_set(String::new());
                                 let _ = password.try_set(String::new());
@@ -73,6 +89,7 @@ pub fn People() -> impl IntoView {
                 }>
                     <input class="field" placeholder=t("Username") autocomplete="off" prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) />
                     <input class="field" placeholder=t("Full name (optional)") autocomplete="off" prop:value=move || display.get() on:input=move |ev| display.set(event_target_value(&ev)) />
+                    <input class="field" type="email" placeholder=t("Email (optional)") autocomplete="off" prop:value=move || email.get() on:input=move |ev| email.set(event_target_value(&ev)) />
                     <input class="field" placeholder=t("Password (10+ characters)") type="password" autocomplete="new-password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) />
                     <Show when=is_super>
                         <select class="field narrow" aria-label=t("Role") prop:value=move || role.get() on:change=move |ev| role.set(event_target_value(&ev))>
@@ -82,17 +99,25 @@ pub fn People() -> impl IntoView {
                     </Show>
                     <button type="submit" class="button primary" disabled=move || username.get().trim().is_empty() || password.get().len() < 10>{icon(Icon::Plus)}<span>{t("Add")}</span></button>
                 </form>
+                <Show when=served_here>
+                    <label class="check mailbox-check">
+                        <input type="checkbox" prop:checked=move || mailbox.get() on:change=move |ev| mailbox.set(event_target_checked(&ev)) />
+                        <span>{move || tf("Create the mailbox {address} on the mail server", &[("address", &email.get().trim().to_ascii_lowercase())])}</span>
+                    </label>
+                </Show>
             </section>
             <section class="card">
                 <h2>{t("Accounts")}</h2>
                 <table class="file-table">
                     <thead><tr><th class="name-col">{t("Name")}</th><th>{t("Role")}</th><th>{t("Status")}</th><th class="actions-col"><span class="sr-only">{t("Actions")}</span></th></tr></thead>
                     <tbody>
-                        <For each=move || users.get() key=|u| (u.id, u.role.clone(), u.disabled) let(user)>
+                        <For each=move || users.get() key=|u| (u.id, u.role.clone(), u.disabled, u.email.clone(), u.mailbox) let(user)>
                             <tr class="row">
                                 <td class="name-col"><span class="file-name static">
                                     <span class="avatar">{initials(&user.display_name)}</span>
-                                    <span class="who"><strong>{user.display_name.clone()}</strong><span class="muted">{user.username.clone()}</span></span>
+                                    <span class="who"><strong>{user.display_name.clone()}</strong><span class="muted">{user.username.clone()}
+                                        {user.email.clone().map(|email| view! { " · "<span class="user-email" class:has-mailbox=user.mailbox title=if user.mailbox { t("Has a mailbox on the mail server") } else { t("Email address only") }>{user.mailbox.then(|| icon(Icon::Mail))}{email}</span> })}
+                                    </span></span>
                                 </span></td>
                                 <td>{if user.super_admin { view! { <span class="badge primary">{icon(Icon::Shield)}{t("Super admin")}</span> }.into_any() } else if user.role == "admin" { view! { <span class="badge">{t("Admin")}</span> }.into_any() } else { view! { <span class="muted">{t("User")}</span> }.into_any() }}</td>
                                 <td>{if user.disabled { view! { <span class="badge danger">{t("Disabled")}</span> }.into_any() } else { view! { <span class="muted">{t("Active")}</span> }.into_any() }}</td>
@@ -115,6 +140,10 @@ pub fn People() -> impl IntoView {
                                             {(can_touch || mine).then(|| {
                                                 let name = name.clone();
                                                 view! { <button type="button" class="button" on:click=move |_| ui.open_modal(Modal::ResetPassword { id, username: name.clone() })>{t("Reset password")}</button> }
+                                            })}
+                                            {(can_touch || mine).then(|| {
+                                                let name = name.clone();
+                                                view! { <button type="button" class="button" on:click=move |_| ui.open_modal(Modal::UserEmail { id, username: name.clone() })>{t("Email")}</button> }
                                             })}
                                             {(can_touch && !mine).then(|| view! {
                                                 <button type="button" class="button" class:danger=!disabled on:click=move |_| set_enabled(id, disabled, reload)>

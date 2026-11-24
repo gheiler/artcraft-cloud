@@ -89,16 +89,29 @@ fn load_secret(data: &Path) -> Result<Vec<u8>, Error> {
     let path = data.join("secret.key");
     if let Ok(bytes) = fs::read(&path) {
         if bytes.len() >= 32 {
+            restrict(&path);
             return Ok(bytes);
         }
     }
     let mut bytes = vec![0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     fs::write(&path, &bytes)?;
+    restrict(&path);
     Ok(bytes)
 }
 
-fn generate_password() -> String {
+/// Owner-only: it also unlocks the secrets sealed in the database (`vault`).
+fn restrict(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
+pub(crate) fn generate_password() -> String {
     const ALPHABET: &[u8] = b"abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let mut raw = [0u8; 20];
     rand::rngs::OsRng.fill_bytes(&mut raw);

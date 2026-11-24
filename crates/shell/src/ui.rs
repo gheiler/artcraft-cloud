@@ -52,6 +52,11 @@ pub enum Modal {
         id: i64,
         username: String,
     },
+    /// People › Email: the person's address and mailbox.
+    UserEmail {
+        id: i64,
+        username: String,
+    },
 }
 
 #[derive(Clone, Copy)]

@@ -14,8 +14,10 @@ path = "src/main.rs"
 [dependencies]
 artcraft-cloud-server = { path = "../server" }
 artcraft-cloud-types = { path = "../types" }
+base64 = "0.22"
 brotli = "8"
 clap = { version = "4", features = ["derive"] }
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 flate2 = "1"
 fs2 = "0.4"
 hex = "0.4"

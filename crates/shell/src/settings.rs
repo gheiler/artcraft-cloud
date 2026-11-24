@@ -16,9 +16,9 @@
 
 use std::cell::{Cell, RefCell};
 
+use leptos::prelude::*;
 use serde_json::{Map, Value};
 use wasm_bindgen::{closure::Closure, JsCast};
-use leptos::prelude::*;
 
 use artcraft_cloud_types::prefs::{self, Field, Mode};
 
@@ -26,6 +26,10 @@ use crate::api;
 
 /// Shared egui state that no single app owns.
 const SHARED_KEYS: &[&str] = &["egui_memory_ron"];
+/// Keys an app keeps that are not options and never go to the server: MailCraft's copy of the
+/// mail itself. They stay in this browser for the person who made them, and go when another
+/// person opens the app here or the person signs out.
+const LOCAL_ONLY: &[&str] = &["mailcraft.mailbox.v1"];
 /// Wait this long after the last write before saving.
 const DEBOUNCE_MS: i32 = 1500;
 /// Largest settings object the server takes.
@@ -62,7 +66,7 @@ pub fn snapshot(app: &str) -> Map<String, Value> {
         let Some(key) = storage.key(index).ok().flatten() else {
             continue;
         };
-        if owned_by(app, &key) {
+        if owned_by(app, &key) && !LOCAL_ONLY.contains(&key.as_str()) {
             if let Some(value) = storage.get_item(&key).ok().flatten() {
                 out.insert(key, Value::String(value));
             }
@@ -96,6 +100,11 @@ pub async fn restore(app: &str, user: i64) -> bool {
         let stale: Vec<String> = snapshot(app).keys().cloned().collect();
         for key in stale {
             let _ = storage.remove_item(&key);
+        }
+    }
+    if local_owner.as_deref() != Some(user.to_string().as_str()) {
+        for key in LOCAL_ONLY.iter().filter(|key| owned_by(app, key)) {
+            let _ = storage.remove_item(key);
         }
     }
     let _ = storage.set_item(&owner_key, &user.to_string());
@@ -164,6 +173,15 @@ pub fn flush() {
             );
         }
     });
+}
+
+/// Signing out: what an app keeps of the person's data in this browser goes with them.
+pub fn forget_local() {
+    if let Some(storage) = storage() {
+        for key in LOCAL_ONLY {
+            let _ = storage.remove_item(key);
+        }
+    }
 }
 
 /// Stop following an app (its document closed), after one last save.

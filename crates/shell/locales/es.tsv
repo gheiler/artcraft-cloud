@@ -1,13 +1,19 @@
 # artcraftCloud shell, es: English<TAB>translation. Keep {placeholders}.
+API key	Clave de API
+Account	Cuenta
 Accounts	Cuentas
 Actions	Acciones
 Active	Activo
 Add	Añadir
 Add a member	Añadir un miembro
 Add a person	Añadir una persona
+Add domain	Añadir dominio
 Add people or groups	Añadir personas o grupos
+Address to confirm	Dirección para confirmar
 Admin	Administrador
+Admin account	Cuenta de administrador
 All	Todos
+An API key, or an administrator account of the mail server.	Una clave de API o una cuenta de administrador del servidor de correo.
 Animations	Animaciones
 Anyone with the link	Cualquiera con el enlace
 Anyone with the link can edit	Cualquiera con el enlace puede editar
@@ -15,6 +21,7 @@ Anyone with the link can view	Cualquiera con el enlace puede ver
 App	Aplicación
 Appearance	Apariencia
 Applies to	Se aplica a
+At least 10 characters. Your other sessions are signed out.	Al menos 10 caracteres. Se cerrarán tus otras sesiones.
 Autosave	Guardado automático
 Autosaving…	Guardando automáticamente…
 Back to your files	Volver a tus archivos
@@ -22,11 +29,16 @@ Can edit	Puede editar
 Can view	Puede ver
 Cancel	Cancelar
 Centimeters	Centímetros
+Change password	Cambiar contraseña
 Choose a file	Elige un archivo
 Close	Cerrar
 Collapse	Contraer
 Collapse or expand	Contraer o expandir
 Collapse sidebar	Contraer la barra lateral
+Confirm new password	Confirmar nueva contraseña
+Connect a Stalwart mail server. People whose email address is on one of its domains can get a mailbox there, and MailCraft opens it for them without asking for a password.	Conecta un servidor de correo Stalwart. Las personas cuya dirección de correo esté en uno de sus dominios pueden tener allí un buzón, y MailCraft se lo abre sin pedir contraseña.
+Connect a mail server first.	Conecta primero un servidor de correo.
+Connected.	Conectado.
 Copied.	Copiado.
 Copy	Copiar
 Copy here	Copiar aquí
@@ -34,24 +46,38 @@ Copy {name}	Copiar {name}
 Could not find a free name.	No se encontró un nombre libre.
 Could not save the settings: {error}	No se pudo guardar la configuración: {error}
 Create	Crear
+Create a mailbox for this address on the mail server	Crear un buzón para esta dirección en el servidor de correo
 Create group	Crear grupo
 Create link	Crear enlace
+Create the mailbox {address} on the mail server	Crear el buzón {address} en el servidor de correo
+Current password	Contraseña actual
 Dark	Oscuro
 Delete forever	Eliminar para siempre
 Delete forever?	¿Eliminar para siempre?
 Delete group	Eliminar grupo
 Delete link	Eliminar enlace
+Delete mailbox and mail	Eliminar el buzón y el correo
+Delete mailbox…	Eliminar buzón…
 Disable	Desactivar
 Disabled	Desactivado
 Discard changes	Descartar cambios
 Discard unsaved changes?	¿Descartar los cambios sin guardar?
+Disconnect	Desconectar
+Disconnected. Mailboxes stay on the mail server; people keep their email addresses.	Desconectado. Los buzones siguen en el servidor de correo; las personas conservan sus direcciones.
 Dismiss	Descartar
 Documents	Documentos
+Domains	Dominios
 Download	Descargar
 Download {name}	Descargar {name}
 Downloading…	Descargando…
 Drag to move	Arrastra para mover
 Each app's default	El predeterminado de cada aplicación
+Email	Correo
+Email (optional)	Correo (opcional)
+Email address	Dirección de correo
+Email address only	Solo dirección de correo
+Email for {username}	Correo de {username}
+Email saved.	Correo guardado.
 Empty the trash?	¿Vaciar la papelera?
 Empty trash	Vaciar papelera
 Enable	Activar
@@ -67,11 +93,13 @@ Folder name	Nombre de la carpeta
 For rulers, margins and sizes.	Para reglas, márgenes y tamaños.
 From this device…	Desde este dispositivo…
 Full name (optional)	Nombre completo (opcional)
+Give someone an email address in People. When its domain is on this server, artcraftCloud can create the mailbox with a long random password it keeps sealed; the person never needs it, because MailCraft is let in through this server. Disabling a person keeps the mailbox but locks MailCraft out; removing a mailbox unlinks it unless you choose to delete it.	Da a alguien una dirección de correo en Personas. Si su dominio está en este servidor, artcraftCloud puede crear el buzón con una contraseña aleatoria larga que guarda cifrada; la persona nunca la necesita, porque MailCraft entra a través de este servidor. Desactivar a una persona conserva el buzón pero bloquea MailCraft; quitar un buzón lo desvincula, salvo que elijas eliminarlo.
 Group {group}	Grupo {group}
 Group · 1 member	Grupo · 1 miembro
 Group · {count} members	Grupo · {count} miembros
 Groups	Grupos
 Handed off from the previous app.	Recibido de la aplicación anterior.
+Has a mailbox on the mail server	Tiene un buzón en el servidor de correo
 Inches	Pulgadas
 Initials	Iniciales
 Interface language	Idioma de la interfaz
@@ -83,6 +111,15 @@ Link created and copied.	Enlace creado y copiado.
 Link permission	Permiso del enlace
 Links	Enlaces
 Loading	Cargando
+Mail	Correo
+Mail server	Servidor de correo
+Mail server saved.	Servidor de correo guardado.
+MailCraft opens this mailbox for them. To change the address, unlink the mailbox first.	MailCraft abre este buzón para esa persona. Para cambiar la dirección, desvincula primero el buzón.
+Mailbox	Buzón
+Mailbox deleted from the mail server.	Buzón eliminado del servidor de correo.
+Mailbox unlinked. It is still on the mail server.	Buzón desvinculado. Sigue en el servidor de correo.
+Mailbox {address} created.	Buzón {address} creado.
+Mailboxes	Buzones
 Make admin	Hacer administrador
 Make user	Hacer usuario
 Measurement units	Unidades de medida
@@ -103,6 +140,7 @@ New document	Nuevo documento
 New folder	Nueva carpeta
 New group name	Nombre del nuevo grupo
 New name	Nuevo nombre
+New password	Nueva contraseña
 New password for {username}	Nueva contraseña para {username}
 New {app} document	Nuevo documento de {app}
 No app opens this kind of file by its name. Pick one, or download it.	Ninguna aplicación abre este tipo de archivo por su nombre. Elige una o descárgalo.
@@ -111,16 +149,22 @@ No files of that kind here.	No hay archivos de ese tipo aquí.
 No folders inside.	No hay carpetas dentro.
 No groups yet. Groups let you share with a team in one step.	Aún no hay grupos. Los grupos permiten compartir con un equipo en un solo paso.
 No installed app opens {name}.	Ninguna aplicación instalada abre {name}.
+No mail server is connected, so only the address is kept.	No hay ningún servidor de correo conectado, así que solo se guarda la dirección.
 No matching files in this folder.	No hay archivos coincidentes en esta carpeta.
+Not connected.	No conectado.
 Not installed yet	Aún no instalada
 Nothing has been shared with you yet.	Todavía no se ha compartido nada contigo.
 Nothing here yet. Drop files on this page or create a document above.	Aún no hay nada. Suelta archivos en esta página o crea un documento arriba.
 Off	Desactivadas
 On	Activadas
 Only admins manage people.	Solo los administradores gestionan a las personas.
+Only the super admin sets up mail.	Solo el superadministrador configura el correo.
 Only you.	Solo tú.
+Open MailCraft	Abrir MailCraft
+Open People	Abrir Personas
 Open with	Abrir con
 Open with…	Abrir con…
+Open {app}	Abrir {app}
 Open {name} with	Abrir {name} con
 Opening…	Abriendo…
 Password	Contraseña
@@ -128,12 +172,15 @@ Password (10+ characters)	Contraseña (10+ caracteres)
 Password (at least 10 characters)	Contraseña (al menos 10 caracteres)
 Password (optional)	Contraseña (opcional)
 Password changed. Their sessions were signed out.	Contraseña cambiada. Se cerraron sus sesiones.
+Password changed. You were signed out everywhere else.	Contraseña cambiada. Se cerró tu sesión en todos los demás sitios.
 People	Personas
 People with access	Personas con acceso
 People you add find it under Shared.	Las personas que añadas lo encontrarán en Compartido.
 People you add see everything in this folder.	Las personas que añadas verán todo lo que hay en esta carpeta.
 Permission	Permiso
 Points	Puntos
+Publish these at your DNS provider so mail reaches this server and is trusted by others.	Publícalos en tu proveedor de DNS para que el correo llegue a este servidor y otros confíen en él.
+Purpose	Propósito
 Remove	Quitar
 Remove access	Quitar acceso
 Remove from group	Quitar del grupo
@@ -146,11 +193,13 @@ Same as the browser	Igual que el navegador
 Same as the system	Igual que el sistema
 Save	Guardar
 Save a copy	Guardar una copia
+Save and create mailbox	Guardar y crear el buzón
 Save changes to the drive a few seconds after you stop typing	Guardar los cambios en el drive unos segundos después de dejar de escribir
 Save into {folder}	Guardar en {folder}
 Saved {candidate}.	Se guardó {candidate}.
 Saved.	Guardado.
 Saved. Each app uses it the next time it opens.	Guardado. Cada aplicación lo usará la próxima vez que se abra.
+Server address	Dirección del servidor
 Set password	Establecer contraseña
 Settings	Configuración
 Share	Compartir
@@ -163,33 +212,53 @@ Shared with me	Compartido conmigo
 Shown next to your comments.	Se muestran junto a tus comentarios.
 Shown on comments, tracked changes and document properties.	Aparece en comentarios, cambios registrados y propiedades del documento.
 Sign in	Iniciar sesión
+Sign in with	Iniciar sesión con
 Sign out	Cerrar sesión
 Size	Tamaño
 Someone else changed this file.	Otra persona cambió este archivo.
 Someone else changed this file. Save a copy to keep your version.	Otra persona cambió este archivo. Guarda una copia para conservar tu versión.
+Stalwart's web address as this server reaches it, e.g. http://stalwart:8080 with the compose mail profile.	La dirección web de Stalwart tal como la alcanza este servidor, p. ej. http://stalwart:8080 con el perfil mail de compose.
 Status	Estado
 Stop sharing	Dejar de compartir
+Stored encrypted and never shown. Leave empty to keep it.	Guardado cifrado y nunca se muestra. Déjalo vacío para conservarlo.
+Stored encrypted on this server and never shown again.	Se guarda cifrado en este servidor y no se vuelve a mostrar.
 Suggested	Sugerida
 Super admin	Superadministrador
 System	Sistema
+Test connection	Probar la conexión
+Testing…	Probando…
 That app	Esa aplicación
+The account name, e.g. admin or admin@example.com.	El nombre de la cuenta, p. ej. admin o admin@example.com.
+The account was created, but the mail server did not create the mailbox. Try again from Email.	Se creó la cuenta, pero el servidor de correo no creó el buzón. Inténtalo de nuevo desde Correo.
 The app sent a save with no bytes.	La aplicación envió un guardado sin datos.
+The current password is not right.	La contraseña actual no es correcta.
 The drive and the apps that have this language use it.	El drive y las aplicaciones que tienen este idioma lo usan.
 The drive is not translated into this language yet and shows English; the apps that have it use it.	El drive aún no está traducido a este idioma y se muestra en inglés; las aplicaciones que lo tienen lo usan.
+The mail server does not serve this domain, so only the address is kept.	El servidor de correo no atiende este dominio, así que solo se guarda la dirección.
+The mail server has no domains yet. Add the one your addresses end in.	El servidor de correo aún no tiene dominios. Añade aquel en el que terminan tus direcciones.
+The new password is the same as the current one.	La nueva contraseña es igual a la actual.
+The new passwords do not match.	Las nuevas contraseñas no coinciden.
 The trash is empty.	La papelera está vacía.
 Theme	Tema
 These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.	Esta configuración es tuya en cualquier navegador. Cada cambio se escribe en las opciones de cada aplicación y se aplica la próxima vez que se abra.
 This cannot be undone.	No se puede deshacer.
+This deletes {address} and all of its mail on the mail server. It cannot be undone. Type the address to confirm.	Esto elimina {address} y todo su correo en el servidor. No se puede deshacer. Escribe la dirección para confirmar.
 This link has a password	Este enlace tiene contraseña
 This link has expired.	Este enlace ha caducado.
+This server was started with ARTCRAFT_MAIL_URL={url}.	Este servidor se inició con ARTCRAFT_MAIL_URL={url}.
 Toggle sidebar	Mostrar u ocultar la barra lateral
+Too many tries. Wait a few minutes and try again.	Demasiados intentos. Espera unos minutos y vuelve a intentarlo.
 Trash	Papelera
+Type	Tipo
+Unlink mailbox	Desvincular buzón
 Unlock	Desbloquear
 Unsaved changes	Cambios sin guardar
 Up one folder	Subir una carpeta
 Upload	Subir
+Use it	Usarla
 User	Usuario
 Username	Nombre de usuario
+Value	Valor
 View only — the file was not stored.	Solo lectura: el archivo no se guardó.
 You can restore it from the trash later.	Podrás restaurarlo desde la papelera más tarde.
 You have not shared anything yet.	Todavía no has compartido nada.
@@ -199,3 +268,7 @@ Your latest changes to this document have not been saved to the drive.	Tus últi
 Your name in documents	Tu nombre en los documentos
 password	contraseña
 {app} is still downloading	{app} todavía se está descargando
+{count} DNS records	{count} registros DNS
+{count} optional records (autoconfig, SRV, MTA-STS…)	{count} registros opcionales (autoconfig, SRV, MTA-STS…)
+{domain} added. Publish its DNS records below.	{domain} añadido. Publica sus registros DNS de abajo.
+{name} was added with the mailbox {address}.	Se añadió a {name} con el buzón {address}.

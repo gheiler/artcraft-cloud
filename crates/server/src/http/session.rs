@@ -71,8 +71,14 @@ pub async fn change_password(
     Json(body): Json<PasswordChange>,
 ) -> Result<Response, ApiError> {
     check_password_policy(&body.next).map_err(ApiError::from)?;
+    if body.current.len() > 1024 || !state.throttle.allow(&format!("password:{}", user.id), 8, 600) {
+        return Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS, "too many attempts"));
+    }
     if !verify_password(&body.current, &user.password_hash) {
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "invalid username or password"));
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "the current password is wrong"));
+    }
+    if body.current == body.next {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "the new password is the same as the current one"));
     }
     let hash = hash_password(&body.next, state.config.argon_memory_kib, state.config.argon_time, state.config.argon_parallelism).map_err(ApiError::from)?;
     let db = state.db.clone();

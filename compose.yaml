@@ -25,6 +25,9 @@ services:
       ARTCRAFT_MAX_UPLOAD_MB: ${ARTCRAFT_MAX_UPLOAD_MB:-512}
       # Optional: a GitHub token lifts the 60 requests/hour limit for app updates.
       ARTCRAFT_GITHUB_TOKEN: ${ARTCRAFT_GITHUB_TOKEN:-}
+      # Offered on the Mail page as the server address (the `mail` profile's Stalwart). Only a
+      # suggestion: the super admin saves it there with a credential (docs/mail.md).
+      ARTCRAFT_MAIL_URL: ${ARTCRAFT_MAIL_URL:-http://stalwart:8080}
     volumes:
       - artcraft-data:/data
     mem_limit: 128m
@@ -48,6 +51,10 @@ services:
       - "587:587"
       - "993:993"
       - "127.0.0.1:8081:8080"   # Stalwart admin UI, keep it private
+    # First start prints a one-time admin password (`docker compose logs stalwart`). To pin one
+    # instead, uncomment and set STALWART_RECOVERY_ADMIN=admin:<long password> in .env:
+    # environment:
+    #   STALWART_RECOVERY_ADMIN: ${STALWART_RECOVERY_ADMIN}
     volumes:
       - stalwart-data:/opt/stalwart
     mem_limit: 256m

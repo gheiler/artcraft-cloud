@@ -97,7 +97,10 @@ pub fn save(next: Preferences) {
                 ui.say(t("Saved. Each app uses it the next time it opens."));
                 adopt(stored);
             }
-            Err(err) => ui.say(tf("Could not save the settings: {error}", &[("error", &err)])),
+            Err(err) => ui.say(tf(
+                "Could not save the settings: {error}",
+                &[("error", &err)],
+            )),
         }
     });
 }
@@ -106,7 +109,11 @@ pub fn save(next: Preferences) {
 fn reaches(field: Option<Field>) -> impl IntoView {
     let apps: Vec<(&'static str, &'static str)> = catalog()
         .iter()
-        .filter(|app| field.is_none_or(|f| prefs::app_takes(app.id, f) || (f == Field::Author && app.author_query)))
+        .filter(|app| match field {
+            Some(f) => prefs::app_takes(app.id, f) || (f == Field::Author && app.author_query),
+            // Autosave: the apps that save to the drive through the host bridge.
+            None => app.bridge,
+        })
         .map(|app| (app.id, app.title))
         .collect();
     let none = apps.is_empty();
@@ -122,7 +129,11 @@ fn reaches(field: Option<Field>) -> impl IntoView {
 fn language_apps(code: String) -> impl IntoView {
     let apps: Vec<(&'static str, &'static str)> = catalog()
         .iter()
-        .filter(|app| code == "auto" || (prefs::app_has_language(app.id, &code) && prefs::app_takes(app.id, Field::Language)))
+        .filter(|app| {
+            code == "auto"
+                || (prefs::app_has_language(app.id, &code)
+                    && prefs::app_takes(app.id, Field::Language))
+        })
         .map(|app| (app.id, app.title))
         .collect();
     view! {
@@ -133,7 +144,12 @@ fn language_apps(code: String) -> impl IntoView {
     }
 }
 
-fn choice(value: &'static str, label: &'static str, current: Signal<String>, pick: impl Fn(String) + Copy + 'static) -> impl IntoView {
+fn choice(
+    value: &'static str,
+    label: &'static str,
+    current: Signal<String>,
+    pick: impl Fn(String) + Copy + 'static,
+) -> impl IntoView {
     view! {
         <label class="segment" class:on=move || current.get() == value>
             <input type="radio" name="theme" value=value prop:checked=move || current.get() == value on:change=move |_| pick(value.to_string()) />
@@ -163,7 +179,13 @@ pub fn Settings() -> impl IntoView {
     let animations = Signal::derive(move || prefs.with(|p| p.animations.clone()));
     let language = Signal::derive(move || prefs.with(|p| p.language.clone()));
     let units = Signal::derive(move || prefs.with(|p| p.units.clone()));
-    let account = move || ui.user.with(|u| u.as_ref().map(|u| u.display_name.clone()).unwrap_or_default());
+    let account = move || {
+        ui.user.with(|u| {
+            u.as_ref()
+                .map(|u| u.display_name.clone())
+                .unwrap_or_default()
+        })
+    };
     let shell_note = move || {
         let code = prefs.with(|p| p.language.clone());
         let shown = i18n::resolve(&code, &i18n::browser_languages());
@@ -177,6 +199,8 @@ pub fn Settings() -> impl IntoView {
         <section class="drive settings-page">
             <header class="toolbar"><nav class="crumbs"><span class="crumb">{t("Settings")}</span></nav></header>
             <p class="muted intro">{t("These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.")}</p>
+
+            <crate::mail::AccountCard />
 
             <div class="card settings-card">
                 <h2>{t("Appearance")}</h2>

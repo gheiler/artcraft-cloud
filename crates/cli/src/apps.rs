@@ -96,7 +96,7 @@ pub fn print_list(data: &Path) {
 async fn update_one(data: &Path, token: Option<&str>, app_id: &str, pinned: Option<&str>) -> Result<(), String> {
     let app = app_by_id(app_id).ok_or_else(|| format!("unknown app {app_id}"))?;
     let client = reqwest::Client::builder().user_agent(USER_AGENT).build().map_err(|err| err.to_string())?;
-    let release = github_release(&client, app.repo, token, pinned).await?;
+    let release = github_release(&client, app.owner, app.repo, token, pinned).await?;
     let version = release.tag_name.trim_start_matches('v').to_string();
     let installed = read_manifest(data).apps.get(app_id).map(|row| row.version.clone());
     if pinned.is_none() && installed.as_deref() == Some(version.as_str()) && version_dir(data, app_id, &version).join("index.html").is_file() {
@@ -122,7 +122,16 @@ async fn update_one(data: &Path, token: Option<&str>, app_id: &str, pinned: Opti
     if !actual.eq_ignore_ascii_case(&expected) {
         return Err(format!("{zip_name} sha256 {actual} != {expected}"));
     }
-    let signature = if let (Some(sig_url), Some(key)) = (sums_sig.as_deref(), key_url.as_deref()) {
+    let ed_sig = release.assets.iter().find(|asset| asset.name == "SHA256SUMS.txt.sig").map(|asset| asset.browser_download_url.clone());
+    let signature = if !app.release_keys.is_empty() {
+        // The app names its own release keys, so an unsigned release is refused rather than trusted.
+        let sig_url = ed_sig.ok_or_else(|| format!("{app_id} {version} has no SHA256SUMS.txt.sig; refusing to install"))?;
+        let sig_path = scratch.join("SHA256SUMS.txt.sig");
+        download(&client, token, &sig_url, &sig_path).await?;
+        let sig = fs::read_to_string(&sig_path).map_err(|err| err.to_string())?;
+        verify_ed25519(app.release_keys, sums.as_bytes(), &sig)?;
+        "verified"
+    } else if let (Some(sig_url), Some(key)) = (sums_sig.as_deref(), key_url.as_deref()) {
         let sig_path = scratch.join("SHA256SUMS.txt.asc");
         let key_path = scratch.join("release-signing-key.asc");
         download(&client, token, sig_url, &sig_path).await?;
@@ -148,7 +157,11 @@ pub fn install_zip(data: &Path, app_id: &str, version: &str, zip_path: &Path, sh
     if !actual.eq_ignore_ascii_case(sha256) {
         return Err(format!("sha256 mismatch for {app_id}"));
     }
-    archive_has_bridge(zip_path, app_id)?;
+    if app_by_id(app_id).is_some_and(|app| app.bridge) {
+        archive_has_bridge(zip_path, app_id)?;
+    } else {
+        archive_names_are_safe(zip_path)?;
+    }
     with_lock(data, || {
         let staging = data.join("apps").join(format!(".incoming-{app_id}-{version}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&staging);
@@ -223,6 +236,33 @@ fn archive_has_bridge(zip_path: &Path, app_id: &str) -> Result<(), String> {
         }
     }
     Err(format!("{app_id} web build does not contain the host bridge"))
+}
+
+fn archive_names_are_safe(zip_path: &Path) -> Result<(), String> {
+    let archive = ZipArchive::new(File::open(zip_path).map_err(|err| err.to_string())?).map_err(|err| err.to_string())?;
+    for name in archive.file_names() {
+        check_zip_name(name)?;
+    }
+    Ok(())
+}
+
+/// Check `SHA256SUMS.txt` against an ed25519 signature in base64 (MailCraft's `cargo xtask
+/// release-key sign`) by any of the app's published keys.
+pub fn verify_ed25519(keys: &[&str], message: &[u8], signature_b64: &str) -> Result<(), String> {
+    use base64::Engine;
+    use ed25519_dalek::{Signature, VerifyingKey};
+    let engine = base64::engine::general_purpose::STANDARD;
+    let raw = engine.decode(signature_b64.trim()).map_err(|_| "SHA256SUMS.txt.sig is not base64".to_string())?;
+    let signature = Signature::from_slice(&raw).map_err(|_| "SHA256SUMS.txt.sig is not an ed25519 signature".to_string())?;
+    for key in keys {
+        let Ok(bytes) = engine.decode(key) else { continue };
+        let Ok(bytes) = <[u8; 32]>::try_from(bytes.as_slice()) else { continue };
+        let Ok(key) = VerifyingKey::from_bytes(&bytes) else { continue };
+        if key.verify_strict(message, &signature).is_ok() {
+            return Ok(());
+        }
+    }
+    Err("SHA256SUMS.txt.sig matches none of the app's release keys".into())
 }
 
 fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
@@ -430,10 +470,10 @@ struct Asset {
     browser_download_url: String,
 }
 
-async fn github_release(client: &reqwest::Client, repo: &str, token: Option<&str>, version: Option<&str>) -> Result<Release, String> {
+async fn github_release(client: &reqwest::Client, owner: &str, repo: &str, token: Option<&str>, version: Option<&str>) -> Result<Release, String> {
     let url = match version {
-        Some(version) => format!("https://api.github.com/repos/storytold/{repo}/releases/tags/v{}", version.trim_start_matches('v')),
-        None => format!("https://api.github.com/repos/storytold/{repo}/releases/latest"),
+        Some(version) => format!("https://api.github.com/repos/{owner}/{repo}/releases/tags/v{}", version.trim_start_matches('v')),
+        None => format!("https://api.github.com/repos/{owner}/{repo}/releases/latest"),
     };
     let mut request = client.get(url).header("accept", "application/vnd.github+json");
     if let Some(token) = token {
@@ -474,6 +514,20 @@ mod tests {
     use super::*;
     use zip::write::SimpleFileOptions;
     use zip::ZipWriter;
+
+    #[test]
+    fn mailcraft_release_signature() {
+        // SHA256SUMS.txt and its signature from MailCraft v0.15.0, checked by hand on 2026-11-24.
+        let sums = include_bytes!("../tests/fixtures/mailcraft-0.15.0-SHA256SUMS.txt");
+        let sig = include_str!("../tests/fixtures/mailcraft-0.15.0-SHA256SUMS.txt.sig");
+        let keys = artcraft_cloud_types::app_by_id("mailcraft").unwrap().release_keys;
+        verify_ed25519(keys, sums, sig).unwrap();
+        let mut tampered = sums.to_vec();
+        tampered[0] ^= 1;
+        assert!(verify_ed25519(keys, &tampered, sig).is_err());
+        assert!(verify_ed25519(&keys[1..], sums, sig).is_err(), "the spare key did not sign it");
+        assert!(verify_ed25519(keys, sums, "not base64!").is_err());
+    }
 
     #[test]
     fn sums_parser_accepts_binary_marker() {

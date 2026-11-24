@@ -66,7 +66,8 @@ pub fn resolve(preference: &str, browser: &[String]) -> &'static str {
 pub fn set_language(code: &str) {
     let found = SHELL_LANGUAGES.iter().find(|(c, _)| *c == code);
     CODE.with(|c| c.set(found.map_or("en", |(c, _)| c)));
-    TABLE.with(|table| *table.borrow_mut() = found.map(|(_, text)| parse(text)).unwrap_or_default());
+    TABLE
+        .with(|table| *table.borrow_mut() = found.map(|(_, text)| parse(text)).unwrap_or_default());
 }
 
 /// The language the interface is shown in.
@@ -93,7 +94,11 @@ pub fn browser_languages() -> Vec<String> {
     let Some(navigator) = web_sys::window().map(|w| w.navigator()) else {
         return Vec::new();
     };
-    let mut out: Vec<String> = navigator.languages().iter().filter_map(|v| v.as_string()).collect();
+    let mut out: Vec<String> = navigator
+        .languages()
+        .iter()
+        .filter_map(|v| v.as_string())
+        .collect();
     if let Some(one) = navigator.language() {
         out.push(one);
     }
@@ -112,13 +117,16 @@ mod tests {
             let path = entry.unwrap().path();
             let text = std::fs::read_to_string(&path).unwrap();
             let code = text.split("#[cfg(test)]").next().unwrap_or_default();
-            for start in ["t(\"", "tf(\""] {
+            // `t("…")` and `tf("…", …)`, also when rustfmt put the string on the next line.
+            for start in ["t(", "tf("] {
                 for (at, _) in code.match_indices(start) {
                     let before = code[..at].chars().last().unwrap_or(' ');
                     if before.is_alphanumeric() || before == '_' {
                         continue;
                     }
-                    let rest = &code[at + start.len()..];
+                    let Some(rest) = code[at + start.len()..].trim_start().strip_prefix('"') else {
+                        continue;
+                    };
                     if let Some(end) = rest.find('"') {
                         out.push(rest[..end].replace("\\\"", "\""));
                     }
@@ -136,19 +144,37 @@ mod tests {
         assert!(keys.len() > 150, "found {} keys", keys.len());
         for (code, catalog) in SHELL_LANGUAGES {
             let table = parse(catalog);
-            let missing: Vec<&String> = keys.iter().filter(|k| !table.contains_key(k.as_str())).collect();
+            let missing: Vec<&String> = keys
+                .iter()
+                .filter(|k| !table.contains_key(k.as_str()))
+                .collect();
             assert!(missing.is_empty(), "{code} lacks {missing:?}");
-            let unused: Vec<&&str> = table.keys().filter(|k| !keys.iter().any(|key| key == **k)).collect();
-            assert!(unused.is_empty(), "{code} has rows no code uses: {unused:?}");
+            let unused: Vec<&&str> = table
+                .keys()
+                .filter(|k| !keys.iter().any(|key| key == **k))
+                .collect();
+            assert!(
+                unused.is_empty(),
+                "{code} has rows no code uses: {unused:?}"
+            );
             for (from, to) in &table {
                 let holes = |s: &str| {
-                    let mut v: Vec<String> = s.split('{').skip(1).filter_map(|p| p.split_once('}')).map(|(n, _)| n.to_string()).collect();
+                    let mut v: Vec<String> = s
+                        .split('{')
+                        .skip(1)
+                        .filter_map(|p| p.split_once('}'))
+                        .map(|(n, _)| n.to_string())
+                        .collect();
                     v.sort();
                     v
                 };
                 assert_eq!(holes(from), holes(to), "{code}: placeholders of {from:?}");
             }
-            let mut rows: Vec<&str> = catalog.lines().filter_map(|l| l.split_once('\t')).map(|(k, _)| k).collect();
+            let mut rows: Vec<&str> = catalog
+                .lines()
+                .filter_map(|l| l.split_once('\t'))
+                .map(|(k, _)| k)
+                .collect();
             let n = rows.len();
             rows.sort();
             rows.dedup();
@@ -164,7 +190,11 @@ mod tests {
         assert_eq!(resolve("auto", &browser(&["ja"])), "en");
         assert_eq!(resolve("pt-br", &[]), "pt-br");
         assert_eq!(resolve("pt-br", &browser(&["de"])), "pt-br");
-        assert_eq!(resolve("ja", &browser(&["de"])), "en", "a chosen language the shell lacks shows English");
+        assert_eq!(
+            resolve("ja", &browser(&["de"])),
+            "en",
+            "a chosen language the shell lacks shows English"
+        );
         assert_eq!(resolve("es", &[]), "es");
         set_language("de");
         assert_eq!(language(), "de");

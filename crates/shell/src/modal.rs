@@ -43,6 +43,7 @@ pub fn Modals() -> impl IntoView {
             Modal::Share { path, is_dir } => view! { <ShareDialog path=path is_dir=is_dir /> }.into_any(),
             Modal::OpenWith { path, share } => view! { <OpenWithDialog path=path share=share /> }.into_any(),
             Modal::Pick { id, accept, multiple } => view! { <PickDialog id=id accept=accept multiple=multiple /> }.into_any(),
+            Modal::UserEmail { id, username } => view! { <crate::mail::UserEmailDialog id=id username=username /> }.into_any(),
             Modal::ResetPassword { id, username } => view! { <NameDialog title=tf("New password for {username}", &[("username", &username)]) label=t("Password (at least 10 characters)").into() initial=String::new() confirm=t("Set password").into() password=true
                 on_ok=Callback::new(move |password: String| run(api::req("POST", format!("/api/users/{id}/password"), Some(serde_json::json!({"password": password}))), Some(t("Password changed. Their sessions were signed out.")))) /> }.into_any(),
         })
@@ -70,7 +71,7 @@ fn run(
 
 /// The frame every dialog shares: a dimmed page, a titled card, Escape or the × to close.
 #[component]
-fn Dialog(
+pub fn Dialog(
     title: String,
     #[prop(optional)] wide: bool,
     #[prop(optional)] on_close: Option<Callback<()>>,
@@ -206,7 +207,11 @@ fn FolderDialog(path: String, copy: bool) -> impl IntoView {
     });
     let name = file_name(&path);
     let moving = path.clone();
-    let title = if copy { tf("Copy {name}", &[("name", &name)]) } else { tf("Move {name}", &[("name", &name)]) };
+    let title = if copy {
+        tf("Copy {name}", &[("name", &name)])
+    } else {
+        tf("Move {name}", &[("name", &name)])
+    };
     let blocked = move || {
         let at = folder.get();
         (!copy && at == start) || at == moving || at.starts_with(&format!("{moving}/"))

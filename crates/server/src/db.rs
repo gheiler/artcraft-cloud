@@ -35,8 +35,31 @@ impl Account {
             role: self.role.clone(),
             disabled: self.disabled,
             super_admin: self.is_super,
+            email: None,
+            mailbox: false,
         }
     }
+}
+
+/// The mail server connection; `secret` is sealed (`vault`).
+#[derive(Debug, Clone)]
+pub struct MailConfigRow {
+    pub base_url: String,
+    pub auth: String,
+    pub username: String,
+    pub secret: Option<Vec<u8>>,
+}
+
+/// Per user id: the email address and the linked mailbox's address.
+pub type UserMailMap = std::collections::HashMap<i64, (Option<String>, Option<String>)>;
+
+/// A user's mailbox on the mail server; `secret` (its password) is sealed (`vault`).
+#[derive(Debug, Clone)]
+pub struct MailboxRow {
+    pub user_id: i64,
+    pub address: String,
+    pub account_id: String,
+    pub secret: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +211,86 @@ impl Db {
             c.execute("DELETE FROM sessions WHERE user_id = ?1", params![id])?;
             Ok(())
         })
+    }
+
+    pub fn user_email(&self, id: i64) -> Result<Option<String>, Error> {
+        self.with(|c| Ok(c.query_row("SELECT email FROM users WHERE id = ?1", params![id], |row| row.get::<_, Option<String>>(0)).optional()?.flatten()))
+    }
+
+    /// Set or clear a user's email. `Exists` when another user has it.
+    pub fn set_user_email(&self, id: i64, email: Option<&str>) -> Result<(), Error> {
+        self.with(|c| {
+            match c.execute("UPDATE users SET email = ?1 WHERE id = ?2", params![email, id]) {
+                Ok(0) => Err(Error::NotFound),
+                Ok(_) => Ok(()),
+                Err(rusqlite::Error::SqliteFailure(err, _)) if err.code == rusqlite::ErrorCode::ConstraintViolation => Err(Error::Exists),
+                Err(err) => Err(err.into()),
+            }
+        })
+    }
+
+    /// Every user's email and linked mailbox address, by user id.
+    pub fn user_mail(&self) -> Result<UserMailMap, Error> {
+        self.with(|c| {
+            let mut stmt = c.prepare("SELECT u.id, u.email, m.address FROM users u LEFT JOIN mailboxes m ON m.user_id = u.id")?;
+            let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, (row.get::<_, Option<String>>(1)?, row.get::<_, Option<String>>(2)?))))?;
+            Ok(rows.collect::<Result<_, _>>()?)
+        })
+    }
+
+    pub fn mail_config(&self) -> Result<Option<MailConfigRow>, Error> {
+        self.with(|c| {
+            c.query_row("SELECT base_url, auth, username, secret FROM mail_config WHERE id = 1", [], |row| {
+                Ok(MailConfigRow { base_url: row.get(0)?, auth: row.get(1)?, username: row.get(2)?, secret: row.get(3)? })
+            })
+            .optional()
+            .map_err(Error::from)
+        })
+    }
+
+    pub fn set_mail_config(&self, row: &MailConfigRow) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute(
+                "INSERT INTO mail_config (id, base_url, auth, username, secret, updated_at) VALUES (1, ?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(id) DO UPDATE SET base_url = excluded.base_url, auth = excluded.auth, username = excluded.username, secret = excluded.secret, updated_at = excluded.updated_at",
+                params![row.base_url, row.auth, row.username, row.secret, now_secs()],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn clear_mail_config(&self) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute("DELETE FROM mail_config", [])?;
+            Ok(())
+        })
+    }
+
+    pub fn mailbox(&self, user_id: i64) -> Result<Option<MailboxRow>, Error> {
+        self.with(|c| {
+            c.query_row("SELECT user_id, address, account_id, secret FROM mailboxes WHERE user_id = ?1", params![user_id], |row| {
+                Ok(MailboxRow { user_id: row.get(0)?, address: row.get(1)?, account_id: row.get(2)?, secret: row.get(3)? })
+            })
+            .optional()
+            .map_err(Error::from)
+        })
+    }
+
+    pub fn link_mailbox(&self, row: &MailboxRow) -> Result<(), Error> {
+        self.with(|c| {
+            match c.execute(
+                "INSERT INTO mailboxes (user_id, address, account_id, secret, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![row.user_id, row.address, row.account_id, row.secret, now_secs()],
+            ) {
+                Ok(_) => Ok(()),
+                Err(rusqlite::Error::SqliteFailure(err, _)) if err.code == rusqlite::ErrorCode::ConstraintViolation => Err(Error::Exists),
+                Err(err) => Err(err.into()),
+            }
+        })
+    }
+
+    pub fn unlink_mailbox(&self, user_id: i64) -> Result<bool, Error> {
+        self.with(|c| Ok(c.execute("DELETE FROM mailboxes WHERE user_id = ?1", params![user_id])? > 0))
     }
 
     pub fn enabled_admin_count(&self) -> Result<i64, Error> {
@@ -664,6 +767,21 @@ CREATE TABLE IF NOT EXISTS users (
     display_name TEXT NOT NULL,
     created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mail_config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    base_url TEXT NOT NULL,
+    auth TEXT NOT NULL CHECK (auth IN ('basic', 'bearer')),
+    username TEXT NOT NULL,
+    secret BLOB,
+    updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mailboxes (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    address TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    account_id TEXT NOT NULL,
+    secret BLOB NOT NULL,
+    created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -725,6 +843,10 @@ CREATE TABLE IF NOT EXISTS app_settings (
 /// Columns added after the first release. `ALTER TABLE ... ADD COLUMN` is not idempotent in
 /// SQLite, so each one is added only when `table_info` does not list it yet.
 fn migrate(c: &Connection) -> Result<(), Error> {
+    if !has_column(c, "users", "email")? {
+        c.execute_batch("ALTER TABLE users ADD COLUMN email TEXT")?;
+    }
+    c.execute_batch("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email COLLATE NOCASE) WHERE email IS NOT NULL")?;
     if !has_column(c, "users", "is_super")? {
         c.execute_batch("ALTER TABLE users ADD COLUMN is_super INTEGER NOT NULL DEFAULT 0")?;
     }

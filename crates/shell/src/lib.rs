@@ -2,11 +2,12 @@ mod api;
 mod drive;
 mod editor;
 mod i18n;
-mod preferences;
 mod icons;
+mod mail;
 mod modal;
 mod people;
 mod picker;
+mod preferences;
 mod route;
 mod settings;
 mod ui;
@@ -90,12 +91,18 @@ pub fn App() -> impl IntoView {
                     && editor.path.get_untracked().is_none()
                     && editor.app.get_untracked() == app;
                 if !fresh {
-                    let ext = app_by_id(&app)
+                    let item = app_by_id(&app);
+                    let ext = item
                         .and_then(|a| a.extensions.first().copied())
                         .unwrap_or("txt");
+                    // An app without the host bridge opens no document: its title is the name.
+                    let name = match item {
+                        Some(item) if !item.bridge => item.title.to_string(),
+                        _ => format!("Untitled.{ext}"),
+                    };
                     editor.launch(Launch {
                         app: app.clone(),
-                        name: format!("Untitled.{ext}"),
+                        name,
                         folder,
                         kind: Some(SaveKind::Home),
                         ..Launch::default()
@@ -271,6 +278,9 @@ fn Workspace() -> impl IntoView {
                     <Show when=move || ui.is_admin()>
                         {nav(t("People"), Icon::People, Route::People)}
                     </Show>
+                    <Show when=move || ui.user.with(|u| u.as_ref().is_some_and(|u| u.super_admin))>
+                        {nav(t("Mail"), Icon::Mail, Route::Mail)}
+                    </Show>
                 </nav>
                 <div class="sidebar-who">
                     <span class="avatar">{move || modal::initials(&ui.user.get().map(|u| u.display_name).unwrap_or_default())}</span>
@@ -282,6 +292,7 @@ fn Workspace() -> impl IntoView {
                         wasm_bindgen_futures::spawn_local(async move {
                             let _ = api::logout().await;
                             ui.editor.close_now();
+                            settings::forget_local();
                             ui.user.set(None);
                             ui.replace(Route::Files(String::new()));
                         });
@@ -292,7 +303,13 @@ fn Workspace() -> impl IntoView {
         <main class="content">
             <Show when=move || !ui.route.get().is_doc()>
                 <Show when=move || matches!(ui.route.get(), Route::Settings) fallback=move || view! {
-                    <Show when=move || matches!(ui.route.get(), Route::People) fallback=|| view! { <Drive /> }>
+                    <Show when=move || matches!(ui.route.get(), Route::People) fallback=move || view! {
+                        <Show when=move || matches!(ui.route.get(), Route::Mail) fallback=|| view! { <Drive /> }>
+                            <Show when=move || ui.user.with(|u| u.as_ref().is_some_and(|u| u.super_admin)) fallback=|| view! { <p class="empty">{t("Only the super admin sets up mail.")}</p> }>
+                                <mail::MailPage />
+                            </Show>
+                        </Show>
+                    }>
                         <Show when=move || ui.is_admin() fallback=|| view! { <p class="empty">{t("Only admins manage people.")}</p> }>
                             <People />
                         </Show>

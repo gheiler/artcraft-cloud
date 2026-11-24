@@ -41,7 +41,7 @@ impl Env {
         if !self.cookie.is_empty() && !headers.contains_key(header::COOKIE) {
             headers.insert(header::COOKIE, self.cookie.parse().unwrap());
         }
-        if !headers.contains_key(header::CONTENT_TYPE) && matches!(method.as_str(), "POST" | "PUT" | "PATCH") && !path.contains("/content") && !path.ends_with("/upload") && path != "/dav" && !path.starts_with("/dav/") {
+        if !headers.contains_key(header::CONTENT_TYPE) && matches!(method.as_str(), "POST" | "PUT" | "PATCH" | "DELETE") && !path.contains("/content") && !path.ends_with("/upload") && path != "/dav" && !path.starts_with("/dav/") {
             headers.insert(header::CONTENT_TYPE, "application/json".parse().unwrap());
         }
         let response = self.app.clone().oneshot(req).await.expect("response");
@@ -632,4 +632,299 @@ async fn preferences_override_every_apps_options() {
     assert!(status.is_client_error());
     let (status, _, _) = env.call(req("GET", "/api/preferences", "", Some("artcraft_session=nope"))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+/// A stand-in for Stalwart's management API and JMAP endpoints, on a real port.
+mod fake_stalwart {
+    use std::sync::{Arc, Mutex};
+
+    use axum::extract::State;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    use axum::routing::{get, post};
+    use axum::{Json, Router};
+    use base64::Engine;
+    use serde_json::{json, Value};
+
+    pub const ADMIN: (&str, &str) = ("admin@example.test", "stalwart-admin-pw");
+
+    #[derive(Default)]
+    pub struct Fake {
+        pub domains: Vec<(String, String)>,
+        /// id, local name, domain id, password
+        pub accounts: Vec<(String, String, String, String)>,
+        next: u32,
+    }
+
+    pub type Shared = Arc<Mutex<Fake>>;
+
+    fn basic(headers: &HeaderMap) -> Option<(String, String)> {
+        let value = headers.get("authorization")?.to_str().ok()?.strip_prefix("Basic ")?;
+        let decoded = String::from_utf8(base64::engine::general_purpose::STANDARD.decode(value).ok()?).ok()?;
+        let (user, pass) = decoded.split_once(':')?;
+        Some((user.to_string(), pass.to_string()))
+    }
+
+    fn is_admin(headers: &HeaderMap) -> bool {
+        basic(headers).is_some_and(|(u, p)| u == ADMIN.0 && p == ADMIN.1)
+    }
+
+    /// The mailbox signing in, as `local@domain`.
+    fn user(fake: &Fake, headers: &HeaderMap) -> Option<String> {
+        let (u, p) = basic(headers)?;
+        fake.accounts.iter().find_map(|(_, name, domain, pass)| {
+            let dname = &fake.domains.iter().find(|(id, _)| id == domain)?.1;
+            (format!("{name}@{dname}") == u && *pass == p).then(|| u.clone())
+        })
+    }
+
+    async fn account(headers: HeaderMap) -> impl IntoResponse {
+        if !is_admin(&headers) {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        let perms = ["sysDomainGet", "sysDomainQuery", "sysDomainCreate", "sysAccountGet", "sysAccountQuery", "sysAccountCreate", "sysAccountDestroy"];
+        Json(json!({"permissions": perms, "edition": "community", "locale": "en-US"})).into_response()
+    }
+
+    async fn session(State(fake): State<Shared>, headers: HeaderMap) -> impl IntoResponse {
+        let fake = fake.lock().unwrap();
+        let Some(user) = user(&fake, &headers) else { return StatusCode::UNAUTHORIZED.into_response() };
+        Json(json!({
+            "username": user,
+            "apiUrl": "http://mail.internal:8080/jmap/",
+            "downloadUrl": "/jmap/download/{accountId}/{blobId}/{name}?accept={type}",
+            "uploadUrl": "/jmap/upload/{accountId}/",
+            "eventSourceUrl": "/jmap/eventsource/",
+            "capabilities": {"urn:ietf:params:jmap:core": {}, "urn:ietf:params:jmap:websocket": {"url": "ws/jmap/ws"}},
+            "accounts": {}, "primaryAccounts": {}, "state": "s1"
+        }))
+        .into_response()
+    }
+
+    async fn api(State(fake): State<Shared>, headers: HeaderMap, Json(body): Json<Value>) -> impl IntoResponse {
+        let mut fake = fake.lock().unwrap();
+        if !is_admin(&headers) {
+            return match user(&fake, &headers) {
+                Some(user) => Json(json!({"methodResponses": [["Mailbox/get", {"list": [], "who": format!("user:{user}")}, "0"]]})).into_response(),
+                None => StatusCode::UNAUTHORIZED.into_response(),
+            };
+        }
+        let mut out = Vec::new();
+        for call in body["methodCalls"].as_array().unwrap() {
+            let (name, args, tag) = (call[0].as_str().unwrap(), &call[1], call[2].clone());
+            let reply = match name {
+                "x:Domain/query" => json!({"ids": fake.domains.iter().map(|d| d.0.clone()).collect::<Vec<_>>()}),
+                "x:Domain/get" => json!({"list": fake.domains.iter().map(|(id, name)| json!({
+                    "id": id, "name": name,
+                    "dnsZoneFile": format!("{name}. IN MX 10 mail.{name}.\n{name}. IN TXT \"v=spf1 mx -all\"\nv1._domainkey.{name}. IN TXT (\n \"v=DKIM1; p=AB\"\n \"CD\"\n)\n_dmarc.{name}. IN TXT \"v=DMARC1; p=reject\"\n")
+                })).collect::<Vec<_>>()}),
+                "x:Domain/set" => {
+                    let name = args["create"]["d"]["name"].as_str().unwrap().to_string();
+                    fake.next += 1;
+                    let id = format!("d{}", fake.next);
+                    fake.domains.push((id.clone(), name));
+                    json!({"created": {"d": {"id": id}}})
+                }
+                "x:Account/query" => {
+                    let (n, d) = (args["filter"]["name"].as_str().unwrap_or(""), args["filter"]["domainId"].as_str().unwrap_or(""));
+                    json!({"ids": fake.accounts.iter().filter(|a| a.1 == n && a.2 == d).map(|a| a.0.clone()).collect::<Vec<_>>()})
+                }
+                "x:Account/get" => json!({"list": fake.accounts.iter().map(|a| json!({"id": a.0, "name": a.1, "domainId": a.2})).collect::<Vec<_>>()}),
+                "x:Account/set" if args.get("create").is_some() => {
+                    let a = &args["create"]["u"];
+                    assert_eq!(a["@type"], "User");
+                    let pass = a["credentials"]["0"]["secret"].as_str().unwrap().to_string();
+                    assert!(pass.len() >= 32, "a strong generated password");
+                    fake.next += 1;
+                    let id = format!("a{}", fake.next);
+                    fake.accounts.push((id.clone(), a["name"].as_str().unwrap().into(), a["domainId"].as_str().unwrap().into(), pass));
+                    json!({"created": {"u": {"id": id}}})
+                }
+                "x:Account/set" => {
+                    let id = args["destroy"][0].as_str().unwrap().to_string();
+                    fake.accounts.retain(|a| a.0 != id);
+                    json!({"destroyed": [id]})
+                }
+                other => panic!("unexpected {other}"),
+            };
+            out.push(json!([name, reply, tag]));
+        }
+        Json(json!({"methodResponses": out})).into_response()
+    }
+
+    pub async fn start() -> (String, Shared) {
+        let shared: Shared = Arc::default();
+        let app = Router::new().route("/api/account", get(account)).route("/jmap/session", get(session)).route("/jmap/", post(api)).with_state(shared.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (url, shared)
+    }
+}
+
+#[tokio::test]
+async fn mail_server_domains_mailboxes_and_the_jmap_proxy() {
+    let env = Env::boot().await;
+    let (url, fake) = fake_stalwart::start().await;
+    let get = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+    let send = |method: &str, uri: &str, body: &str| Request::builder().method(method).uri(uri).body(Body::from(body.to_string())).unwrap();
+    let as_user = |mut req: Request<Body>, cookie: &str| {
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+        req
+    };
+
+    let (status, _, body) = env.call(get("/api/mail/config")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json::<artcraft_cloud_types::MailConfig>(&body).base_url, "");
+    let (status, _, _) = env.call(send("POST", "/api/mail/test", "")).await;
+    assert_eq!(status, StatusCode::CONFLICT, "nothing configured yet");
+
+    let config = format!(r#"{{"base_url":"{url}/","auth":"basic","username":"{}","secret":"{}"}}"#, fake_stalwart::ADMIN.0, fake_stalwart::ADMIN.1);
+    let (status, _, body) = env.call(send("PUT", "/api/mail/config", &config)).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let saved: artcraft_cloud_types::MailConfig = json(&body);
+    assert_eq!((saved.base_url.as_str(), saved.has_secret), (url.as_str(), true));
+    let (_, _, body) = env.call(get("/api/mail/config")).await;
+    assert!(!String::from_utf8_lossy(&body).contains(fake_stalwart::ADMIN.1), "the secret never goes back");
+    for file in ["db.sqlite", "db.sqlite-wal"] {
+        let bytes = std::fs::read(env._dir.path().join(file)).unwrap_or_default();
+        assert!(!bytes.windows(fake_stalwart::ADMIN.1.len()).any(|w| w == fake_stalwart::ADMIN.1.as_bytes()), "sealed at rest ({file})");
+    }
+    // A new address without a secret keeps the stored one.
+    let (status, _, _) = env.call(send("PUT", "/api/mail/config", &format!(r#"{{"base_url":"{url}","auth":"basic","username":"{}"}}"#, fake_stalwart::ADMIN.0))).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, body) = env.call(send("POST", "/api/mail/test", "")).await;
+    let test: artcraft_cloud_types::MailTest = json(&body);
+    assert!(status == StatusCode::OK && test.ok && test.can_manage, "{test:?}");
+
+    let (status, _, body) = env.call(send("POST", "/api/mail/domains", r#"{"name":"Example.TEST"}"#)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let domain: artcraft_cloud_types::MailDomain = json(&body);
+    assert_eq!(domain.name, "example.test");
+    let purposes: Vec<&str> = domain.records.iter().map(|r| r.purpose.as_str()).collect();
+    assert_eq!(purposes, ["MX", "SPF", "DKIM", "DMARC"]);
+    assert_eq!(domain.records[2].value, "v=DKIM1; p=ABCD");
+    let (status, _, _) = env.call(send("POST", "/api/mail/domains", r#"{"name":"example.test"}"#)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+
+    // A user whose address is on a served domain gets a mailbox; another domain gets the email only.
+    let (status, _, body) = env.call(send("POST", "/api/users", r#"{"username":"ada","password":"ada-password","email":"Ada@Example.test","create_mailbox":true}"#)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let ada: artcraft_cloud_types::User = json(&body);
+    assert_eq!((ada.email.as_deref(), ada.mailbox), (Some("ada@example.test"), true));
+    assert_eq!(fake.lock().unwrap().accounts.iter().filter(|a| a.1 == "ada").count(), 1);
+    let (status, _, body) = env.call(send("POST", "/api/users", r#"{"username":"bob","password":"bob-password","email":"bob@elsewhere.org","create_mailbox":true}"#)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let bob: artcraft_cloud_types::User = json(&body);
+    assert_eq!((bob.email.as_deref(), bob.mailbox), (Some("bob@elsewhere.org"), false));
+    let (status, _, body) = env.call(send("PUT", &format!("/api/users/{}/email", bob.id), r#"{"email":"bob@elsewhere.org","create_mailbox":true}"#)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(String::from_utf8_lossy(&body).contains("does not serve elsewhere.org"));
+    let (status, _, _) = env.call(send("PUT", &format!("/api/users/{}/email", bob.id), r#"{"email":"ADA@example.test"}"#)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "emails are unique");
+    let (status, _, _) = env.call(send("PUT", &format!("/api/users/{}/email", ada.id), r#"{"email":"ada2@example.test"}"#)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "a linked mailbox keeps its address");
+    let (_, _, body) = env.call(get("/api/users")).await;
+    let users: Vec<artcraft_cloud_types::User> = json(&body);
+    assert!(users.iter().any(|u| u.username == "ada" && u.mailbox && u.email.as_deref() == Some("ada@example.test")));
+
+    // MailCraft: the hook names the mailbox, the token opens the proxy as that mailbox.
+    let ada_cookie = env.login("ada", "ada-password").await;
+    let bob_cookie = env.login("bob", "bob-password").await;
+    let (_, _, body) = env.call(as_user(get("/api/mail/mailcraft.js"), &ada_cookie)).await;
+    let hook = String::from_utf8_lossy(&body).to_string();
+    assert!(hook.contains("window.mailcraftJmap") && hook.contains("\"ada@example.test\"") && hook.contains("/jmap/session"), "{hook}");
+    let (_, _, body) = env.call(as_user(get("/api/mail/mailcraft.js"), &bob_cookie)).await;
+    assert!(String::from_utf8_lossy(&body).contains("no mailbox"));
+    let (status, _, _) = env.call(as_user(send("POST", "/api/mail/token", ""), &bob_cookie)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _, body) = env.call(as_user(send("POST", "/api/mail/token", ""), &ada_cookie)).await;
+    assert_eq!(status, StatusCode::OK);
+    let token = json::<serde_json::Value>(&body)["token"].as_str().unwrap().to_string();
+    let bearer = |mut req: Request<Body>, token: &str| {
+        req.headers_mut().insert(header::AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
+        req.headers_mut().insert(header::COOKIE, "artcraft_session=none".parse().unwrap());
+        req
+    };
+    let (status, headers, _) = env.call(bearer(get("/jmap/session"), "mc1.1.2.3")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(headers.contains_key(header::WWW_AUTHENTICATE));
+    let (status, _, body) = env.call(bearer(get("/jmap/session"), &token)).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let session: serde_json::Value = json(&body);
+    assert_eq!((session["username"].as_str(), session["apiUrl"].as_str()), (Some("ada@example.test"), Some("/jmap/")));
+    assert!(session["capabilities"].get("urn:ietf:params:jmap:websocket").is_none());
+    let (status, _, body) = env.call(bearer(send("POST", "/jmap/", r#"{"using":[],"methodCalls":[]}"#), &token)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(String::from_utf8_lossy(&body).contains("user:ada@example.test"));
+
+    // Only options go to the server, never MailCraft's mail.
+    let (status, _, _) = env.call(as_user(send("PUT", "/api/settings/mailcraft", r#"{"mailcraft.ui.v1":"{}","mailcraft.mailbox.v1":"{\"mail\":1}"}"#), &ada_cookie)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, _, body) = env.call(as_user(get("/api/settings/mailcraft"), &ada_cookie)).await;
+    assert_eq!(String::from_utf8_lossy(&body), r#"{"mailcraft.ui.v1":"{}"}"#);
+
+    // Who may do what.
+    let (status, _, _) = env.call(as_user(get("/api/mail/config"), &ada_cookie)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = env.call(as_user(send("PUT", &format!("/api/users/{}/email", bob.id), r#"{"email":"x@y.org"}"#), &ada_cookie)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // A disabled person keeps the mailbox, but the proxy turns them away until enabled again.
+    let (status, _, _) = env.call(send("POST", &format!("/api/users/{}/disable", ada.id), "")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(env.call(bearer(get("/jmap/session"), &token)).await.0, StatusCode::UNAUTHORIZED);
+    env.call(send("POST", &format!("/api/users/{}/enable", ada.id), "")).await;
+    assert_eq!(env.call(bearer(get("/jmap/session"), &token)).await.0, StatusCode::OK);
+    assert_eq!(env.call(bearer(get("/jmap/../api/account"), &token)).await.0, StatusCode::BAD_REQUEST);
+
+    // Unlink keeps the mailbox on the server; deleting needs the address typed again.
+    let (status, _, _) = env.call(send("DELETE", &format!("/api/users/{}/mailbox", ada.id), r#"{"delete":true,"confirm":"nope@example.test"}"#)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, body) = env.call(send("DELETE", &format!("/api/users/{}/mailbox", ada.id), r#"{"delete":false}"#)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json::<artcraft_cloud_types::UserMail>(&body).mailbox, None);
+    assert_eq!(fake.lock().unwrap().accounts.len(), 1, "unlinked, not deleted");
+    let (status, _, _) = env.call(bearer(get("/jmap/session"), &token)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "the token no longer opens anything");
+    let (status, _, body) = env.call(send("PUT", &format!("/api/users/{}/email", ada.id), r#"{"email":"ada@example.test","create_mailbox":true}"#)).await;
+    assert_eq!(status, StatusCode::CONFLICT, "an existing account is not taken over");
+    assert!(String::from_utf8_lossy(&body).contains("already exists"));
+    let (status, _, body) = env.call(send("PUT", &format!("/api/users/{}/email", bob.id), r#"{"email":"bob@example.test","create_mailbox":true}"#)).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(fake.lock().unwrap().accounts.len(), 2);
+    let (status, _, _) = env.call(send("DELETE", &format!("/api/users/{}/mailbox", bob.id), r#"{"delete":true,"confirm":"BOB@example.test"}"#)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(fake.lock().unwrap().accounts.len(), 1, "deleted on the server");
+}
+
+#[tokio::test]
+async fn users_change_their_own_password() {
+    let env = Env::boot().await;
+    env.call(Request::builder().method("POST").uri("/api/users").body(Body::from(r#"{"username":"ada","password":"ada-password"}"#)).unwrap()).await;
+    let first = env.login("ada", "ada-password").await;
+    let second = env.login("ada", "ada-password").await;
+    let change = |cookie: &str, body: &str| {
+        let mut req = Request::builder().method("POST").uri("/api/me/password").body(Body::from(body.to_string())).unwrap();
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+        req
+    };
+    let (status, _, _) = env.call(change(&first, r#"{"current":"wrong-password","next":"ada-new-password"}"#)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = env.call(change(&first, r#"{"current":"ada-password","next":"short"}"#)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = env.call(change(&first, r#"{"current":"ada-password","next":"ada-password"}"#)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, headers, _) = env.call(change(&first, r#"{"current":"ada-password","next":"ada-new-password"}"#)).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let fresh = headers.get(header::SET_COOKIE).and_then(|v| v.to_str().ok()).unwrap().split(';').next().unwrap().to_string();
+    let me = |cookie: &str| {
+        let mut req = Request::builder().uri("/api/me").body(Body::empty()).unwrap();
+        req.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+        req
+    };
+    assert_eq!(env.call(me(&fresh)).await.0, StatusCode::OK, "this browser stays signed in");
+    assert_eq!(env.call(me(&second)).await.0, StatusCode::UNAUTHORIZED, "other sessions end");
+    assert_eq!(env.call(me(&first)).await.0, StatusCode::UNAUTHORIZED);
+    env.login("ada", "ada-new-password").await;
 }

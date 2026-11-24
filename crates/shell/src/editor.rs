@@ -359,7 +359,9 @@ fn autosave_tick(editor: Editor) {
         return;
     }
     let app = editor.app.get_untracked();
-    if !ui().prefs.with_untracked(|p| p.autosave) || editor.autosave_off.with_untracked(|off| off.contains(&app)) {
+    if !ui().prefs.with_untracked(|p| p.autosave)
+        || editor.autosave_off.with_untracked(|off| off.contains(&app))
+    {
         return;
     }
     let now = now_ms();
@@ -573,7 +575,9 @@ async fn write_new(editor: Editor, name: &str, bytes: Rc<Vec<u8>>, rebind: bool)
         let url = content_url(editor, &relative_of(editor, &full));
         match api::put_bytes(&url, &bytes, None).await {
             Ok(written) => {
-                let _ = editor.status.try_set(tf("Saved {candidate}.", &[("candidate", &candidate)]));
+                let _ = editor
+                    .status
+                    .try_set(tf("Saved {candidate}.", &[("candidate", &candidate)]));
                 if rebind || editor.path.get_untracked().is_none() {
                     let _ = editor.path.try_set(Some(full.clone()));
                     let _ = editor.name.try_set(candidate);
@@ -603,7 +607,9 @@ async fn write_new(editor: Editor, name: &str, bytes: Rc<Vec<u8>>, rebind: bool)
             }
         }
     }
-    let _ = editor.status.try_set(t("Could not find a free name.").into());
+    let _ = editor
+        .status
+        .try_set(t("Could not find a free name.").into());
     None
 }
 
@@ -642,6 +648,10 @@ pub fn parent_folder(path: &str) -> String {
 }
 
 pub fn iframe_src(app: &str, author: &str, own_author: bool) -> String {
+    if app_by_id(app).is_some_and(|item| !item.bridge) {
+        // No host bridge (MailCraft): the app runs on its own, with nothing handed over.
+        return format!("/apps/{app}/index.html");
+    }
     let mut url = format!("/apps/{app}/index.html?host=parent");
     if !own_author
         && !author.trim().is_empty()

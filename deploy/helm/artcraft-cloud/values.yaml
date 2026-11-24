@@ -16,6 +16,9 @@ admin:
 # Optional GitHub token for app updates (lifts the anonymous 60 requests/hour limit).
 githubToken: ""
 maxUploadMB: 512
+# Optional Stalwart base URL offered on the Mail page (e.g. http://stalwart.mail.svc:8080). The
+# credential is entered there by the super admin and kept encrypted in the database.
+mailUrl: ""
 extraEnv: []
 
 persistence:

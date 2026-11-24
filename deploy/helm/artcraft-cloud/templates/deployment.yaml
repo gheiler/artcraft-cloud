@@ -49,6 +49,10 @@ spec:
                   name: {{ include "artcraft-cloud.fullname" . }}
                   key: githubToken
             {{- end }}
+            {{- if .Values.mailUrl }}
+            - name: ARTCRAFT_MAIL_URL
+              value: {{ .Values.mailUrl | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

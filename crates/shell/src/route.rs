@@ -19,6 +19,7 @@ pub enum Route {
     Share(i64, String),
     Trash,
     People,
+    Mail,
     Settings,
     Public(String),
     Open {
@@ -61,6 +62,7 @@ impl Route {
             Some("files") => Route::Files(rest(1)),
             Some("trash") => Route::Trash,
             Some("people") => Route::People,
+            Some("mail") => Route::Mail,
             Some("settings") => Route::Settings,
             Some("s") => Route::Public(segments.get(1).cloned().unwrap_or_default()),
             Some("open") if segments.len() > 1 => Route::Open {
@@ -94,6 +96,7 @@ impl Route {
             Route::Share(id, folder) => format!("/shared/{id}/{}", encode_path(folder)),
             Route::Trash => "/trash".into(),
             Route::People => "/people".into(),
+            Route::Mail => "/mail".into(),
             Route::Settings => "/settings".into(),
             Route::Public(token) => format!("/s/{token}"),
             Route::Open { share, path, app } => {
