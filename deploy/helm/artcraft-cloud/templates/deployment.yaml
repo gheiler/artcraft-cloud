@@ -42,12 +42,17 @@ spec:
                   name: {{ include "artcraft-cloud.secretName" . }}
                   key: password
             {{- end }}
-            {{- if .Values.githubToken }}
-            - name: ARTCRAFT_GITHUB_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "artcraft-cloud.fullname" . }}
-                  key: githubToken
+            {{- with .Values.appRegistry.url }}
+            - name: ARTCRAFT_REGISTRY_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.appRegistry.keys }}
+            - name: ARTCRAFT_REGISTRY_KEYS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.appRegistry.blockedApps }}
+            - name: ARTCRAFT_BLOCKED_APPS
+              value: {{ . | quote }}
             {{- end }}
             {{- if .Values.mailUrl }}
             - name: ARTCRAFT_MAIL_URL

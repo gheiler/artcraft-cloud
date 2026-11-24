@@ -26,8 +26,9 @@ services:
       # auto: Secure cookies when ARTCRAFT_PUBLIC_URL is https. Force with 1/0.
       ARTCRAFT_COOKIE_SECURE: ${ARTCRAFT_COOKIE_SECURE:-auto}
       ARTCRAFT_MAX_UPLOAD_MB: ${ARTCRAFT_MAX_UPLOAD_MB:-512}
-      # Optional: a GitHub token lifts the 60 requests/hour limit for app updates.
-      ARTCRAFT_GITHUB_TOKEN: ${ARTCRAFT_GITHUB_TOKEN:-}
+      # Optional: a mirror of the app registry and its keys (docs/registry.md).
+      ARTCRAFT_REGISTRY_URL: ${ARTCRAFT_REGISTRY_URL:-}
+      ARTCRAFT_REGISTRY_KEYS: ${ARTCRAFT_REGISTRY_KEYS:-}
       # Offered on the Mail page as the server address (the `mail` profile's Stalwart). Only a
       # suggestion: the super admin saves it there with a credential (docs/mail.md).
       ARTCRAFT_MAIL_URL: ${ARTCRAFT_MAIL_URL:-http://stalwart:8080}

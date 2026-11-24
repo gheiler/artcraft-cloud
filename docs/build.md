@@ -56,9 +56,10 @@ changes most:
 
 - **Size.** The image is about 106 MB. With the apps in it, it would be about 700 MB, and every
   update of any one app would mean a new image to build, push and pull.
-- **Update cycles.** The apps release on their own schedule. Today `artcraft-cloud apps update`
-  (or `update-apps`) installs a new version into the volume without restarting, verifies its
-  SHA-256 and its GPG signature, and keeps the previous version for a one-step rollback. Baking the
+- **Update cycles.** The apps release on their own schedule. The super admin's Apps page (or
+  `artcraft-cloud apps update`) installs a new version into the volume without restarting, once the
+  signed [app registry](registry.md) allows it; it verifies the pinned SHA-256 and the publisher's
+  signature, and keeps the previous version for a one-step rollback. Baking the
   apps in would tie each app update to an artcraftCloud release, and that rollback would be lost.
 - **CI.** CI doesn't need the apps at all, and it would have to download 200 MB on each change to
   the catalog.

@@ -55,7 +55,9 @@ Accounts and local calendars (`calendarcraft.store`) are options and follow the 
 
 ## Installing
 
-CalendarCraft is in the catalog (owner `gheiler`). Until it has a GitHub release, install a build:
+CalendarCraft is in the [app registry](registry.md) (owner `gheiler`) with release 0.2.0, which has
+no release signature yet, so it is pinned by its SHA-256 alone. It installs like the other apps
+(Apps page or `artcraft-cloud apps update calendarcraft`). To try a build of your own:
 
 ```sh
 # in the CalendarCraft repo

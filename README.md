@@ -168,25 +168,41 @@ fills them from Settings first, so a first start is already in your language and
 The mapping lives in `crates/types/src/prefs.rs` (`targets`); what cannot be mapped is listed in
 [docs/upstream-gaps.md](docs/upstream-gaps.md) (gaps 11, 16–20).
 
-## Updating the apps
+## Adding and updating apps
+
+Which apps exist, and which of their versions may run, comes from the **app registry**: a public,
+signed list in this repository ([`registry/apps.json`](registry/apps.json), signature
+`registry/apps.json.sig`). The server fetches it every 6 hours and on demand, checks its ed25519
+signature against the keys built into the binary, refuses an older or expired copy, and keeps the
+last good one in the data volume. New apps and new versions therefore reach a running server
+without a new image. How the trust works, and how to add an app, a version or block one:
+[docs/registry.md](docs/registry.md).
+
+The super admin manages apps on **Apps** (`/admin/apps`): add an app from the registry, update to
+the recommended version or pick another allowed one, roll back, disable or remove, and turn on
+auto-update per app. A version the registry blocks is never installed; if one is installed already,
+the super admin sees a warning on every page, and a security block rolls the app back to its
+previous version (or disables it when there is none) on its own. The same from the command line:
 
 ```sh
 docker exec artcraft-cloud artcraft-cloud apps list
-docker exec artcraft-cloud artcraft-cloud apps update               # all apps, latest release
-docker exec artcraft-cloud artcraft-cloud apps update wordcraft     # one app
+docker exec artcraft-cloud artcraft-cloud apps update               # every installed app (and missing default ones)
 docker exec artcraft-cloud artcraft-cloud apps update wordcraft --version 0.18.0
-docker exec artcraft-cloud artcraft-cloud apps install calendarcraft /data/calendarcraft-web-0.2.0.zip --version 0.2.0   # a local build
 docker exec artcraft-cloud artcraft-cloud apps rollback wordcraft   # back to the version before
+docker exec artcraft-cloud artcraft-cloud apps disable wordcraft    # enable, remove, auto-update on|off
+docker exec artcraft-cloud artcraft-cloud apps registry refresh     # fetch the registry now
+docker exec artcraft-cloud artcraft-cloud apps registry show        # what is in use: source, serial, expiry
+docker exec artcraft-cloud artcraft-cloud apps install calendarcraft /data/calendarcraft-web-0.2.0.zip --version 0.2.0   # a local build
 ```
 
 `scripts/update-apps.sh` wraps the same commands for the host (`ARTCRAFT_CONTAINER=artcraft-cloud` or
-`ARTCRAFT_K8S=deploy/artcraft-cloud`), for example from cron. Each update downloads the release's
-`<app>-web-<version>.zip` and `SHA256SUMS.txt`, checks the hash, verifies `SHA256SUMS.txt.asc` against
-the release's signing key with gpg (a release with half a signature is refused), checks the build
-contains the host bridge, unpacks into a staging folder, precompresses it (brotli + gzip), renames it
-into place and only then switches `apps/manifest.json`. The previous version stays on disk for
-`rollback`. The running server picks up the switch on the next request; no restart.
-Set `ARTCRAFT_GITHUB_TOKEN` if you hit GitHub's anonymous limit of 60 API calls an hour.
+`ARTCRAFT_K8S=deploy/artcraft-cloud`), for example from cron. Every install downloads the version's
+`<app>-web-<version>.zip`, checks its SHA-256 against the one the signed registry pins, verifies the
+publisher's own signature over `SHA256SUMS.txt` with the release key the registry pins (OpenPGP via
+gpg, or ed25519), checks the build contains the host bridge, unpacks into a staging folder,
+precompresses it (brotli + gzip), renames it into place and only then switches
+`apps/manifest.json`. The previous version stays on disk for rollback. Running servers pick up the
+switch on the next request; no restart. No GitHub API calls are made, so no token is needed.
 
 ## Configuration
 
@@ -199,9 +215,11 @@ Set `ARTCRAFT_GITHUB_TOKEN` if you hit GitHub's anonymous limit of 60 API calls 
 | `ARTCRAFT_COOKIE_SECURE` | `auto` | `1` / `0` to force |
 | `ARTCRAFT_SESSION_HOURS` | `336` | |
 | `ARTCRAFT_MAX_UPLOAD_MB` | `512` | |
-| `ARTCRAFT_SKIP_APP_SYNC` | | `1` skips the first-start download |
-| `ARTCRAFT_APP_CACHE` | `/cache` (compose) | A directory of downloaded app archives shared by data volumes; one whose SHA-256 matches the release's signed checksums is installed from there instead of downloaded ([docs/build.md](docs/build.md)) |
-| `ARTCRAFT_GITHUB_TOKEN` | | For app updates |
+| `ARTCRAFT_SKIP_APP_SYNC` | | `1` skips the first-start download of the default apps |
+| `ARTCRAFT_REGISTRY_URL` | this repository's `registry/apps.json` on `main` | A mirror of the app registry; `<url>.sig` is fetched beside it ([docs/registry.md](docs/registry.md)) |
+| `ARTCRAFT_REGISTRY_KEYS` | the built-in keys | Comma-separated ed25519 public keys (base64) for a registry you sign yourself; replaces the built-in keys |
+| `ARTCRAFT_BLOCKED_APPS` | `security` | What to do with an installed version the registry blocks: `security` rolls back or disables it when the block is for security, `all` for every block, `warn` only warns |
+| `ARTCRAFT_APP_CACHE` | `/cache` (compose) | A directory of downloaded app archives shared by data volumes; one whose SHA-256 matches the registry's checksum is installed from there instead of downloaded ([docs/build.md](docs/build.md)) |
 | `ARTCRAFT_MAIL_URL` | | Stalwart address offered on the Mail page (`http://stalwart:8080` in compose); see [docs/mail.md](docs/mail.md) |
 | `ARTCRAFT_SHELL_DIR` | `/opt/artcraft-cloud/shell` (image) | The built drive UI |
 | `ARTCRAFT_OIDC_ISSUER` | | Reserved: the server refuses to start while OIDC is not implemented, rather than fall back to passwords silently |

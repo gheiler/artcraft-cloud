@@ -27,6 +27,14 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y gpg
       - run: cargo build --release --locked
       - run: cargo test --workspace --locked
+        env:
+          # Pull requests and main may carry an edited registry the registry workflow has not
+          # signed yet; a release tag must embed a signed one.
+          ARTCRAFT_REGISTRY_UNSIGNED_OK: ${{ startsWith(github.ref, 'refs/tags/') && '0' || '1' }}
+      - name: check the app registry
+        run: |
+          git fetch -q --depth=1 origin main && git show origin/main:registry/apps.json > /tmp/main-apps.json || rm -f /tmp/main-apps.json
+          target/release/artcraft-cloud registry verify --unsigned-ok --against /tmp/main-apps.json
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy -p artcraft-cloud-shell --target wasm32-unknown-unknown --locked -- -D warnings
       # trunk keeps wasm-bindgen and wasm-opt (pinned in Trunk.toml) in ~/.cache/trunk; cache them

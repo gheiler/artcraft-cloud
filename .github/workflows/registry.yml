@@ -1,0 +1,59 @@
+name: App registry
+
+# Signs registry/apps.json with the registry key after a change lands on main, and renews the
+# signature every month (a signed registry expires after 120 days, so a stolen old copy cannot be
+# replayed forever). Needs the ARTCRAFT_REGISTRY_SIGNING_KEY secret (see docs/registry.md).
+
+on:
+  push:
+    branches: [main]
+    paths: ["registry/**"]
+  schedule:
+    - cron: "17 4 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: app-registry
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p artcraft-cloud
+      - name: sign or renew
+        env:
+          ARTCRAFT_REGISTRY_SIGNING_KEY: ${{ secrets.ARTCRAFT_REGISTRY_SIGNING_KEY }}
+        run: |
+          if [ -z "$ARTCRAFT_REGISTRY_SIGNING_KEY" ]; then
+            echo "::error::Add the ARTCRAFT_REGISTRY_SIGNING_KEY secret (Settings › Secrets and variables › Actions)."
+            exit 1
+          fi
+          bin=target/release/artcraft-cloud
+          git show HEAD^1:registry/apps.json > /tmp/before.json 2>/dev/null || rm -f /tmp/before.json
+          if [ "${{ github.event_name }}" != push ]; then
+            # Monthly: a new serial and a new expiry date, signed.
+            $bin registry renew
+          elif ! $bin registry verify > /dev/null 2>&1; then
+            $bin registry sign
+          fi
+          $bin registry verify --against /tmp/before.json
+      - name: commit the signature
+        run: |
+          git add registry/apps.json registry/apps.json.sig
+          if git diff --cached --quiet; then
+            echo "already signed"
+            exit 0
+          fi
+          serial=$(sed -n 's/^  "serial": \([0-9]*\),$/\1/p' registry/apps.json)
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "registry: sign serial ${serial}"
+          git push origin HEAD:main
