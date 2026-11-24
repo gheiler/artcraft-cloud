@@ -1,0 +1,201 @@
+# artcraftCloud shell, it: English<TAB>translation. Keep {placeholders}.
+Accounts	Account
+Actions	Azioni
+Active	Attivo
+Add	Aggiungi
+Add a member	Aggiungi un membro
+Add a person	Aggiungi una persona
+Add people or groups	Aggiungi persone o gruppi
+Admin	Amministratore
+All	Tutti
+Animations	Animazioni
+Anyone with the link	Chiunque abbia il link
+Anyone with the link can edit	Chiunque abbia il link può modificare
+Anyone with the link can view	Chiunque abbia il link può visualizzare
+App	App
+Appearance	Aspetto
+Applies to	Si applica a
+Autosave	Salvataggio automatico
+Autosaving…	Salvataggio automatico…
+Back to your files	Torna ai tuoi file
+Can edit	Può modificare
+Can view	Può visualizzare
+Cancel	Annulla
+Centimeters	Centimetri
+Choose a file	Scegli un file
+Close	Chiudi
+Collapse	Comprimi
+Collapse or expand	Comprimi o espandi
+Collapse sidebar	Comprimi la barra laterale
+Copied.	Copiato.
+Copy	Copia
+Copy here	Copia qui
+Copy {name}	Copia {name}
+Could not find a free name.	Impossibile trovare un nome libero.
+Could not save the settings: {error}	Impossibile salvare le impostazioni: {error}
+Create	Crea
+Create group	Crea gruppo
+Create link	Crea link
+Dark	Scuro
+Delete forever	Elimina definitivamente
+Delete forever?	Eliminare definitivamente?
+Delete group	Elimina gruppo
+Delete link	Elimina link
+Disable	Disattiva
+Disabled	Disattivato
+Discard changes	Scarta modifiche
+Discard unsaved changes?	Scartare le modifiche non salvate?
+Dismiss	Ignora
+Documents	Documenti
+Download	Scarica
+Download {name}	Scarica {name}
+Downloading…	Download in corso…
+Drag to move	Trascina per spostare
+Each app's default	Predefinito di ogni app
+Empty the trash?	Svuotare il cestino?
+Empty trash	Svuota cestino
+Enable	Attiva
+Everything in the trash is deleted for good. This cannot be undone.	Tutto ciò che è nel cestino verrà eliminato definitivamente. L'operazione non può essere annullata.
+Expand	Espandi
+Expand sidebar	Espandi la barra laterale
+Expires	Scade
+Fades and smooth scrolling in the apps.	Dissolvenze e scorrimento fluido nelle app.
+Files	File
+Filter by app	Filtra per app
+Folder	Cartella
+Folder name	Nome della cartella
+For rulers, margins and sizes.	Per righelli, margini e dimensioni.
+From this device…	Da questo dispositivo…
+Full name (optional)	Nome completo (facoltativo)
+Group {group}	Gruppo {group}
+Group · 1 member	Gruppo · 1 membro
+Group · {count} members	Gruppo · {count} membri
+Groups	Gruppi
+Handed off from the previous app.	Passato dall'app precedente.
+Inches	Pollici
+Initials	Iniziali
+Interface language	Lingua dell'interfaccia
+Language	Lingua
+Light	Chiaro
+Light, dark, or the same as your system.	Chiaro, scuro o come il tuo sistema.
+Link copied.	Link copiato.
+Link created and copied.	Link creato e copiato.
+Link permission	Permesso del link
+Links	Link
+Loading	Caricamento
+Make admin	Rendi amministratore
+Make user	Rendi utente
+Measurement units	Unità di misura
+Member	Membro
+Millimeters	Millimetri
+Modified	Modificato
+Move	Sposta
+Move here	Sposta qui
+Move to trash	Sposta nel cestino
+Move {name}	Sposta {name}
+Move {name} to the trash?	Spostare {name} nel cestino?
+Moved to the trash.	Spostato nel cestino.
+Moved.	Spostato.
+My files	I miei file
+Name	Nome
+Navigation	Navigazione
+New document	Nuovo documento
+New folder	Nuova cartella
+New group name	Nome del nuovo gruppo
+New name	Nuovo nome
+New password for {username}	Nuova password per {username}
+New {app} document	Nuovo documento {app}
+No app opens this kind of file by its name. Pick one, or download it.	Nessuna app apre questo tipo di file in base al nome. Scegline una o scaricalo.
+No app takes this from the drive yet.	Nessuna app lo prende ancora dal drive.
+No files of that kind here.	Nessun file di questo tipo qui.
+No folders inside.	Nessuna cartella all'interno.
+No groups yet. Groups let you share with a team in one step.	Ancora nessun gruppo. I gruppi permettono di condividere con un team in un solo passaggio.
+No installed app opens {name}.	Nessuna app installata apre {name}.
+No matching files in this folder.	Nessun file corrispondente in questa cartella.
+Not installed yet	Non ancora installata
+Nothing has been shared with you yet.	Nessuno ha ancora condiviso nulla con te.
+Nothing here yet. Drop files on this page or create a document above.	Ancora niente qui. Trascina dei file su questa pagina o crea un documento qui sopra.
+Off	Disattivate
+On	Attivate
+Only admins manage people.	Solo gli amministratori gestiscono le persone.
+Only you.	Solo tu.
+Open with	Apri con
+Open with…	Apri con…
+Open {name} with	Apri {name} con
+Opening…	Apertura…
+Password	Password
+Password (10+ characters)	Password (10+ caratteri)
+Password (at least 10 characters)	Password (almeno 10 caratteri)
+Password (optional)	Password (facoltativa)
+Password changed. Their sessions were signed out.	Password modificata. Le sue sessioni sono state chiuse.
+People	Persone
+People with access	Persone con accesso
+People you add find it under Shared.	Le persone che aggiungi lo trovano in Condivisi.
+People you add see everything in this folder.	Le persone che aggiungi vedono tutto in questa cartella.
+Permission	Permesso
+Points	Punti
+Remove	Rimuovi
+Remove access	Rimuovi accesso
+Remove from group	Rimuovi dal gruppo
+Rename	Rinomina
+Rename {current}	Rinomina {current}
+Reset password	Reimposta password
+Restore	Ripristina
+Role	Ruolo
+Same as the browser	Come il browser
+Same as the system	Come il sistema
+Save	Salva
+Save a copy	Salva una copia
+Save changes to the drive a few seconds after you stop typing	Salva le modifiche nel drive pochi secondi dopo che smetti di scrivere
+Save into {folder}	Salva in {folder}
+Saved {candidate}.	{candidate} salvato.
+Saved.	Salvato.
+Saved. Each app uses it the next time it opens.	Salvato. Ogni app lo userà alla prossima apertura.
+Set password	Imposta password
+Settings	Impostazioni
+Share	Condividi
+Share {name}	Condividi {name}
+Shared	Condivisi
+Shared by me	Condivisi da me
+Shared files	File condivisi
+Shared link	Link condiviso
+Shared with me	Condivisi con me
+Shown next to your comments.	Mostrate accanto ai tuoi commenti.
+Shown on comments, tracked changes and document properties.	Mostrato su commenti, revisioni e proprietà del documento.
+Sign in	Accedi
+Sign out	Esci
+Size	Dimensione
+Someone else changed this file.	Qualcun altro ha modificato questo file.
+Someone else changed this file. Save a copy to keep your version.	Qualcun altro ha modificato questo file. Salva una copia per mantenere la tua versione.
+Status	Stato
+Stop sharing	Interrompi condivisione
+Suggested	Suggerita
+Super admin	Super amministratore
+System	Sistema
+That app	Quell'app
+The app sent a save with no bytes.	L'app ha inviato un salvataggio vuoto.
+The drive and the apps that have this language use it.	Il drive e le app che hanno questa lingua la usano.
+The drive is not translated into this language yet and shows English; the apps that have it use it.	Il drive non è ancora tradotto in questa lingua e viene mostrato in inglese; le app che la hanno la usano.
+The trash is empty.	Il cestino è vuoto.
+Theme	Tema
+These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.	Queste impostazioni ti seguono su ogni browser. Una modifica viene scritta nelle opzioni di ogni app e ha effetto alla prossima apertura.
+This cannot be undone.	L'operazione non può essere annullata.
+This link has a password	Questo link ha una password
+This link has expired.	Questo link è scaduto.
+Toggle sidebar	Mostra o nascondi la barra laterale
+Trash	Cestino
+Unlock	Sblocca
+Unsaved changes	Modifiche non salvate
+Up one folder	Cartella superiore
+Upload	Carica
+User	Utente
+Username	Nome utente
+View only — the file was not stored.	Sola lettura: il file non è stato salvato.
+You can restore it from the trash later.	Potrai ripristinarlo dal cestino in seguito.
+You have not shared anything yet.	Non hai ancora condiviso nulla.
+Your files	I tuoi file
+Your files, in the Crafting Apps.	I tuoi file, nelle Crafting Apps.
+Your latest changes to this document have not been saved to the drive.	Le tue ultime modifiche a questo documento non sono state salvate nel drive.
+Your name in documents	Il tuo nome nei documenti
+password	password
+{app} is still downloading	{app} è ancora in download

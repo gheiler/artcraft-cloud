@@ -1,5 +1,6 @@
 //! Parent side of the `craft-web-host` contract (`?host=parent`), and the full-screen document view.
 
+use crate::i18n::{t, tf};
 use std::rc::Rc;
 
 use artcraft_cloud_types::{app_by_id, app_for_name, conflict_copy_name, HOST_CONTRACT_VERSION};
@@ -116,7 +117,7 @@ impl Editor {
             let own_author = settings::restore(&spec.app, user).await;
             let title = app_by_id(&spec.app)
                 .map(|app| app.title)
-                .unwrap_or("App")
+                .unwrap_or(t("App"))
                 .to_string();
             let _ = editor.own_author.try_set(own_author);
             let _ = editor.app.try_set(spec.app);
@@ -129,7 +130,7 @@ impl Editor {
             let _ = editor.read_only.try_set(spec.read_only);
             let _ = editor.dirty.try_set(false);
             let _ = editor.status.try_set(if spec.bytes.is_some() {
-                "Opening…".into()
+                t("Opening…").into()
             } else {
                 String::new()
             });
@@ -162,11 +163,24 @@ impl Editor {
 
     pub fn autosave_on(&self) -> bool {
         let app = self.app.get();
-        !self.autosave_off.with(|off| off.contains(&app))
+        ui().prefs.with(|p| p.autosave) && !self.autosave_off.with(|off| off.contains(&app))
     }
 
     pub fn toggle_autosave(&self) {
         let app = self.app.get_untracked();
+        // Turning it on for one app while Settings has it off everywhere: on here, off elsewhere.
+        if !ui().prefs.with_untracked(|p| p.autosave) {
+            let others: Vec<String> = artcraft_cloud_types::catalog()
+                .iter()
+                .map(|a| a.id.to_string())
+                .filter(|id| *id != app)
+                .collect();
+            self.set_autosave_off(others);
+            let mut next = ui().prefs.get_untracked();
+            next.autosave = true;
+            crate::preferences::save(next);
+            return;
+        }
         self.autosave_off.update(|off| {
             if let Some(index) = off.iter().position(|id| *id == app) {
                 off.remove(index);
@@ -175,6 +189,16 @@ impl Editor {
             }
         });
         let off = self.autosave_off.get_untracked();
+        wasm_bindgen_futures::spawn_local(async move {
+            let mut shell = api::settings("shell").await.unwrap_or_default();
+            shell.insert(AUTOSAVE_KEY.into(), serde_json::json!(off));
+            let _ = api::put_settings("shell", &shell).await;
+        });
+    }
+
+    /// Store which apps have autosave off.
+    pub fn set_autosave_off(&self, off: Vec<String>) {
+        let _ = self.autosave_off.try_set(off.clone());
         wasm_bindgen_futures::spawn_local(async move {
             let mut shell = api::settings("shell").await.unwrap_or_default();
             shell.insert(AUTOSAVE_KEY.into(), serde_json::json!(off));
@@ -335,7 +359,7 @@ fn autosave_tick(editor: Editor) {
         return;
     }
     let app = editor.app.get_untracked();
-    if editor.autosave_off.with_untracked(|off| off.contains(&app)) {
+    if !ui().prefs.with_untracked(|p| p.autosave) || editor.autosave_off.with_untracked(|off| off.contains(&app)) {
         return;
     }
     let now = now_ms();
@@ -346,7 +370,7 @@ fn autosave_tick(editor: Editor) {
     }
     editor.last_try.set_value(now);
     if run_command(editor, "file.save") {
-        let _ = editor.status.try_set("Autosaving…".into());
+        let _ = editor.status.try_set(t("Autosaving…").into());
     }
 }
 
@@ -427,13 +451,13 @@ fn on_save(editor: Editor, data: &JsValue) {
     let Some(bytes) = bytes_field(data) else {
         let _ = editor
             .status
-            .try_set("The app sent a save with no bytes.".into());
+            .try_set(t("The app sent a save with no bytes.").into());
         return;
     };
     if editor.read_only.get_untracked() {
         let _ = editor
             .status
-            .try_set("View only — the file was not stored.".into());
+            .try_set(t("View only — the file was not stored.").into());
         return;
     }
     let current = editor.path.get_untracked();
@@ -463,7 +487,7 @@ fn on_handoff(editor: Editor, data: &JsValue, frame: &HtmlIFrameElement) {
     let Some(app) = app_for_name(&name) else {
         let _ = editor
             .status
-            .try_set(format!("No installed app opens {name}."));
+            .try_set(tf("No installed app opens {name}.", &[("name", &name)]));
         return;
     };
     post(
@@ -500,7 +524,7 @@ fn on_handoff(editor: Editor, data: &JsValue, frame: &HtmlIFrameElement) {
                 folder,
                 kind: Some(kind),
                 bytes: Some((*bytes).clone()),
-                banner: "Handed off from the previous app.".into(),
+                banner: t("Handed off from the previous app.").into(),
                 ..Launch::default()
             });
         }
@@ -518,7 +542,7 @@ async fn overwrite(editor: Editor, bytes: Rc<Vec<u8>>) -> Option<()> {
         Ok(written) => {
             let _ = editor.etag.try_set(Some(written.etag));
             let _ = editor.dirty.try_set(false);
-            let _ = editor.status.try_set("Saved.".into());
+            let _ = editor.status.try_set(t("Saved.").into());
             Some(())
         }
         Err(PutFail::Conflict(etag)) => {
@@ -527,7 +551,7 @@ async fn overwrite(editor: Editor, bytes: Rc<Vec<u8>>) -> Option<()> {
             }
             let _ = editor.conflict.try_set(Some((*bytes).clone()));
             let _ = editor.status.try_set(
-                "Someone else changed this file. Save a copy to keep your version.".into(),
+                t("Someone else changed this file. Save a copy to keep your version.").into(),
             );
             None
         }
@@ -549,7 +573,7 @@ async fn write_new(editor: Editor, name: &str, bytes: Rc<Vec<u8>>, rebind: bool)
         let url = content_url(editor, &relative_of(editor, &full));
         match api::put_bytes(&url, &bytes, None).await {
             Ok(written) => {
-                let _ = editor.status.try_set(format!("Saved {candidate}."));
+                let _ = editor.status.try_set(tf("Saved {candidate}.", &[("candidate", &candidate)]));
                 if rebind || editor.path.get_untracked().is_none() {
                     let _ = editor.path.try_set(Some(full.clone()));
                     let _ = editor.name.try_set(candidate);
@@ -579,7 +603,7 @@ async fn write_new(editor: Editor, name: &str, bytes: Rc<Vec<u8>>, rebind: bool)
             }
         }
     }
-    let _ = editor.status.try_set("Could not find a free name.".into());
+    let _ = editor.status.try_set(t("Could not find a free name.").into());
     None
 }
 
@@ -743,7 +767,7 @@ pub fn EditorFrame() -> impl IntoView {
             <section class="editor" class:direct=move || !ui.from_drive.get()>
                 <Show when=move || ui.from_drive.get()>
                     <header class="doc-bar">
-                        <button type="button" class="icon-button" title="Back to your files" aria-label="Back to your files" on:click=move |_| leave_doc(None)>
+                        <button type="button" class="icon-button" title=t("Back to your files") aria-label=t("Back to your files") on:click=move |_| leave_doc(None)>
                             {icon(Icon::Back)}
                         </button>
                         {move || app_icon(&editor.app.get(), "app-icon")}
@@ -751,27 +775,27 @@ pub fn EditorFrame() -> impl IntoView {
                             <strong>{move || editor.name.get()}</strong>
                             <span class="muted">{move || editor.title.get()}</span>
                         </div>
-                        <Show when=move || editor.dirty.get()><span class="dot" title="Unsaved changes"></span></Show>
+                        <Show when=move || editor.dirty.get()><span class="dot" title=t("Unsaved changes")></span></Show>
                         <p class="status">{move || editor.status.get()}</p>
                         <div class="bar-actions">
                             <Show when=move || editor.path.get().is_some() && !editor.read_only.get()>
-                                <label class="switch" title="Save changes to the drive a few seconds after you stop typing">
+                                <label class="switch" title=t("Save changes to the drive a few seconds after you stop typing")>
                                     <input type="checkbox" prop:checked=move || editor.autosave_on() on:change=move |_| editor.toggle_autosave() />
                                     <span class="track"></span>
-                                    "Autosave"
+                                    {t("Autosave")}
                                 </label>
                             </Show>
                             <Show when=move || editor.conflict.get().is_some()>
-                                <button type="button" class="button primary" on:click=move |_| save_conflict(editor)>"Save a copy"</button>
+                                <button type="button" class="button primary" on:click=move |_| save_conflict(editor)>{t("Save a copy")}</button>
                             </Show>
-                            <button type="button" class="icon-button" title="Close" aria-label="Close" on:click=move |_| leave_doc(None)>{icon(Icon::Close)}</button>
+                            <button type="button" class="icon-button" title=t("Close") aria-label=t("Close") on:click=move |_| leave_doc(None)>{icon(Icon::Close)}</button>
                         </div>
                     </header>
                 </Show>
                 <Show when=move || !ui.from_drive.get()>
                     <div class="home-pill" class:collapsed=move || pill_collapsed.get()
                         style=move || { let (x, y) = pill_pos.get(); format!("left:{x}px;top:{y}px") }>
-                        <button type="button" class="grip" title="Drag to move" aria-label="Move"
+                        <button type="button" class="grip" title=t("Drag to move") aria-label=t("Move")
                             on:pointerdown=move |ev: web_sys::PointerEvent| {
                                 let (x, y) = pill_pos.get_untracked();
                                 dragging.set_value(Some((ev.client_x() as f64, ev.client_y() as f64, x, y)));
@@ -790,21 +814,21 @@ pub fn EditorFrame() -> impl IntoView {
                             }
                         >{icon(Icon::Grip)}</button>
                         <Show when=move || !pill_collapsed.get()>
-                            <button type="button" class="icon-button" title="Your files" aria-label="Your files" on:click=move |_| leave_doc(None)>{icon(Icon::Home)}</button>
+                            <button type="button" class="icon-button" title=t("Your files") aria-label=t("Your files") on:click=move |_| leave_doc(None)>{icon(Icon::Home)}</button>
                             <span class="pill-name">{move || editor.name.get()}</span>
-                            <Show when=move || editor.dirty.get()><span class="dot" title="Unsaved changes"></span></Show>
+                            <Show when=move || editor.dirty.get()><span class="dot" title=t("Unsaved changes")></span></Show>
                             <Show when=move || editor.path.get().is_some() && !editor.read_only.get()>
-                                <label class="switch small" title="Autosave">
+                                <label class="switch small" title=t("Autosave")>
                                     <input type="checkbox" prop:checked=move || editor.autosave_on() on:change=move |_| editor.toggle_autosave() />
                                     <span class="track"></span>
                                 </label>
                             </Show>
                         </Show>
                         <Show when=move || pill_collapsed.get()>
-                            <button type="button" class="icon-button" title="Your files" aria-label="Your files" on:click=move |_| leave_doc(None)>{icon(Icon::Home)}</button>
+                            <button type="button" class="icon-button" title=t("Your files") aria-label=t("Your files") on:click=move |_| leave_doc(None)>{icon(Icon::Home)}</button>
                         </Show>
-                        <button type="button" class="icon-button fold" title=move || if pill_collapsed.get() { "Expand" } else { "Collapse" }
-                            aria-label="Collapse or expand"
+                        <button type="button" class="icon-button fold" title=move || if pill_collapsed.get() { t("Expand") } else { t("Collapse") }
+                            aria-label=t("Collapse or expand")
                             on:click=move |_| {
                                 let collapsed = !pill_collapsed.get_untracked();
                                 pill_collapsed.set(collapsed);
@@ -821,13 +845,13 @@ pub fn EditorFrame() -> impl IntoView {
                     <Show when=move || !editor.banner.get().is_empty()>
                         <div class="note banner">
                             <span>{move || editor.banner.get()}</span>
-                            <button type="button" class="icon-button" aria-label="Dismiss" on:click=move |_| editor.banner.set(String::new())>{icon(Icon::Close)}</button>
+                            <button type="button" class="icon-button" aria-label=t("Dismiss") on:click=move |_| editor.banner.set(String::new())>{icon(Icon::Close)}</button>
                         </div>
                     </Show>
                     <Show when=move || !ui.from_drive.get() && editor.conflict.get().is_some()>
                         <div class="note">
-                            "Someone else changed this file. "
-                            <button type="button" class="button primary" on:click=move |_| save_conflict(editor)>"Save a copy"</button>
+                            {t("Someone else changed this file.")}" "
+                            <button type="button" class="button primary" on:click=move |_| save_conflict(editor)>{t("Save a copy")}</button>
                         </div>
                     </Show>
                     <Show when=move || editor.save_as.get().is_some()>
@@ -836,7 +860,11 @@ pub fn EditorFrame() -> impl IntoView {
                             confirm_save_as(editor, save_name.get_untracked());
                         }>
                             <label>
-                                "Save into "{move || if editor.folder.get().is_empty() { "My files".to_string() } else { editor.folder.get() }}
+                                {move || {
+                                    let folder = editor.folder.get();
+                                    let folder = if folder.is_empty() { t("My files").to_string() } else { folder };
+                                    tf("Save into {folder}", &[("folder", &folder)])
+                                }}" "
                                 <input class="field" prop:value=move || {
                                     if save_name.get().is_empty() {
                                         editor.save_as.with_untracked(|slot| slot.as_ref().map(|(name, _, _)| name.clone()).unwrap_or_default())
@@ -845,8 +873,8 @@ pub fn EditorFrame() -> impl IntoView {
                                     }
                                 } on:input=move |ev| save_name.set(event_target_value(&ev)) />
                             </label>
-                            <button type="submit" class="button primary">"Save"</button>
-                            <button type="button" class="button" on:click=move |_| editor.save_as.set(None)>"Cancel"</button>
+                            <button type="submit" class="button primary">{t("Save")}</button>
+                            <button type="button" class="button" on:click=move |_| editor.save_as.set(None)>{t("Cancel")}</button>
                         </form>
                     </Show>
                 </div>

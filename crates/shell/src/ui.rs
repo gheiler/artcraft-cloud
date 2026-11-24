@@ -1,5 +1,6 @@
 //! State every view shares, handed down through Leptos context.
 
+use artcraft_cloud_types::prefs::Preferences;
 use artcraft_cloud_types::{AppStatus, User};
 use leptos::prelude::*;
 
@@ -64,6 +65,8 @@ pub struct Ui {
     /// The open document was reached from the drive (so Back returns there in history).
     pub from_drive: RwSignal<bool>,
     pub sidebar_collapsed: RwSignal<bool>,
+    /// The user's Settings (theme, language, name in documents…).
+    pub prefs: RwSignal<Preferences>,
     pub editor: Editor,
 }
 
@@ -78,6 +81,7 @@ impl Ui {
             tick: RwSignal::new(0),
             from_drive: RwSignal::new(false),
             sidebar_collapsed: RwSignal::new(local_flag(SIDEBAR_KEY)),
+            prefs: RwSignal::new(Preferences::default()),
             editor: Editor::new(),
         }
     }

@@ -18,6 +18,9 @@ use std::cell::{Cell, RefCell};
 
 use serde_json::{Map, Value};
 use wasm_bindgen::{closure::Closure, JsCast};
+use leptos::prelude::*;
+
+use artcraft_cloud_types::prefs::{self, Field, Mode};
 
 use crate::api;
 
@@ -96,16 +99,15 @@ pub async fn restore(app: &str, user: i64) -> bool {
         }
     }
     let _ = storage.set_item(&owner_key, &user.to_string());
-    let mut has_author = false;
     for (key, value) in &saved {
         if !owned_by(app, key) {
             continue;
         }
         let Some(text) = value.as_str() else { continue };
-        let text = forget_recent(text);
-        has_author |= names_author(&text);
-        let _ = storage.set_item(key, &text);
+        let _ = storage.set_item(key, &forget_recent(text));
     }
+    // What the server has (or, the first time, nothing): a save after this uploads whatever
+    // the app or the settings below change.
     LAST_SAVED.with(|last| {
         *last.borrow_mut() = if keep_local {
             String::new()
@@ -113,14 +115,34 @@ pub async fn restore(app: &str, user: i64) -> bool {
             Value::Object(snapshot(app)).to_string()
         }
     });
-    if keep_local {
-        flush();
-        has_author = snapshot(app)
-            .values()
-            .filter_map(Value::as_str)
-            .any(names_author);
+    fill_from_settings(app, &storage);
+    flush();
+    snapshot(app)
+        .values()
+        .filter_map(Value::as_str)
+        .any(names_author)
+}
+
+/// Options the app has not chosen yet (no language, its placeholder name…) start from the user's
+/// Settings, so a first start is already in their language and under their name.
+fn fill_from_settings(app: &str, storage: &web_sys::Storage) {
+    let ui = crate::ui::ui();
+    let prefs = ui.prefs.get_untracked();
+    let name = ui
+        .user
+        .with_untracked(|user| user.as_ref().map(|u| u.display_name.clone()))
+        .unwrap_or_default();
+    let mut now = snapshot(app);
+    let before = now.clone();
+    if prefs::apply(app, &prefs, &Field::ALL, &name, Mode::FillMissing, &mut now) {
+        for (key, value) in &now {
+            if before.get(key) != Some(value) {
+                if let Some(text) = value.as_str() {
+                    let _ = storage.set_item(key, text);
+                }
+            }
+        }
     }
-    has_author
 }
 
 /// Save the open app's keys now, when they changed since the last save.

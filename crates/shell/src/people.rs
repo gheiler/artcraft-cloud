@@ -1,6 +1,7 @@
 //! People: accounts and groups (admins only). Only the super admin promotes and demotes admins;
 //! the server enforces it, the page only hides what would be refused.
 
+use crate::i18n::t;
 use artcraft_cloud_types::{Group, User};
 use leptos::prelude::*;
 
@@ -46,9 +47,9 @@ pub fn People() -> impl IntoView {
     let is_super = move || me().is_some_and(|u| u.super_admin);
     view! {
         <div class="drive people">
-            <header class="toolbar"><nav class="crumbs"><span class="crumb">"People"</span></nav></header>
+            <header class="toolbar"><nav class="crumbs"><span class="crumb">{t("People")}</span></nav></header>
             <section class="card">
-                <h2>"Add a person"</h2>
+                <h2>{t("Add a person")}</h2>
                 <form class="form-row" on:submit=move |ev| {
                     ev.prevent_default();
                     let body = serde_json::json!({
@@ -70,22 +71,22 @@ pub fn People() -> impl IntoView {
                         }
                     });
                 }>
-                    <input class="field" placeholder="Username" autocomplete="off" prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) />
-                    <input class="field" placeholder="Full name (optional)" autocomplete="off" prop:value=move || display.get() on:input=move |ev| display.set(event_target_value(&ev)) />
-                    <input class="field" placeholder="Password (10+ characters)" type="password" autocomplete="new-password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) />
+                    <input class="field" placeholder=t("Username") autocomplete="off" prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) />
+                    <input class="field" placeholder=t("Full name (optional)") autocomplete="off" prop:value=move || display.get() on:input=move |ev| display.set(event_target_value(&ev)) />
+                    <input class="field" placeholder=t("Password (10+ characters)") type="password" autocomplete="new-password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) />
                     <Show when=is_super>
-                        <select class="field narrow" aria-label="Role" prop:value=move || role.get() on:change=move |ev| role.set(event_target_value(&ev))>
-                            <option value="user">"User"</option>
-                            <option value="admin">"Admin"</option>
+                        <select class="field narrow" aria-label=t("Role") prop:value=move || role.get() on:change=move |ev| role.set(event_target_value(&ev))>
+                            <option value="user">{t("User")}</option>
+                            <option value="admin">{t("Admin")}</option>
                         </select>
                     </Show>
-                    <button type="submit" class="button primary" disabled=move || username.get().trim().is_empty() || password.get().len() < 10>{icon(Icon::Plus)}<span>"Add"</span></button>
+                    <button type="submit" class="button primary" disabled=move || username.get().trim().is_empty() || password.get().len() < 10>{icon(Icon::Plus)}<span>{t("Add")}</span></button>
                 </form>
             </section>
             <section class="card">
-                <h2>"Accounts"</h2>
+                <h2>{t("Accounts")}</h2>
                 <table class="file-table">
-                    <thead><tr><th class="name-col">"Name"</th><th>"Role"</th><th>"Status"</th><th class="actions-col"><span class="sr-only">"Actions"</span></th></tr></thead>
+                    <thead><tr><th class="name-col">{t("Name")}</th><th>{t("Role")}</th><th>{t("Status")}</th><th class="actions-col"><span class="sr-only">{t("Actions")}</span></th></tr></thead>
                     <tbody>
                         <For each=move || users.get() key=|u| (u.id, u.role.clone(), u.disabled) let(user)>
                             <tr class="row">
@@ -93,8 +94,8 @@ pub fn People() -> impl IntoView {
                                     <span class="avatar">{initials(&user.display_name)}</span>
                                     <span class="who"><strong>{user.display_name.clone()}</strong><span class="muted">{user.username.clone()}</span></span>
                                 </span></td>
-                                <td>{if user.super_admin { view! { <span class="badge primary">{icon(Icon::Shield)}"Super admin"</span> }.into_any() } else if user.role == "admin" { view! { <span class="badge">"Admin"</span> }.into_any() } else { view! { <span class="muted">"User"</span> }.into_any() }}</td>
-                                <td>{if user.disabled { view! { <span class="badge danger">"Disabled"</span> }.into_any() } else { view! { <span class="muted">"Active"</span> }.into_any() }}</td>
+                                <td>{if user.super_admin { view! { <span class="badge primary">{icon(Icon::Shield)}{t("Super admin")}</span> }.into_any() } else if user.role == "admin" { view! { <span class="badge">{t("Admin")}</span> }.into_any() } else { view! { <span class="muted">{t("User")}</span> }.into_any() }}</td>
+                                <td>{if user.disabled { view! { <span class="badge danger">{t("Disabled")}</span> }.into_any() } else { view! { <span class="muted">{t("Active")}</span> }.into_any() }}</td>
                                 <td class="row-actions">
                                     {
                                         let me = me();
@@ -108,16 +109,16 @@ pub fn People() -> impl IntoView {
                                         view! {
                                             {(am_super && !user.super_admin).then(|| view! {
                                                 <button type="button" class="button" on:click=move |_| set_role(id, if admin { "user" } else { "admin" }, reload)>
-                                                    {if admin { "Make user" } else { "Make admin" }}
+                                                    {if admin { t("Make user") } else { t("Make admin") }}
                                                 </button>
                                             })}
                                             {(can_touch || mine).then(|| {
                                                 let name = name.clone();
-                                                view! { <button type="button" class="button" on:click=move |_| ui.open_modal(Modal::ResetPassword { id, username: name.clone() })>"Reset password"</button> }
+                                                view! { <button type="button" class="button" on:click=move |_| ui.open_modal(Modal::ResetPassword { id, username: name.clone() })>{t("Reset password")}</button> }
                                             })}
                                             {(can_touch && !mine).then(|| view! {
                                                 <button type="button" class="button" class:danger=!disabled on:click=move |_| set_enabled(id, disabled, reload)>
-                                                    {if disabled { "Enable" } else { "Disable" }}
+                                                    {if disabled { t("Enable") } else { t("Disable") }}
                                                 </button>
                                             })}
                                         }
@@ -130,7 +131,7 @@ pub fn People() -> impl IntoView {
             </section>
             <section class="card">
                 <div class="files-head">
-                    <h2>"Groups"</h2>
+                    <h2>{t("Groups")}</h2>
                     <form class="form-row" on:submit=move |ev| {
                         ev.prevent_default();
                         let name = group_name.get_untracked();
@@ -144,11 +145,11 @@ pub fn People() -> impl IntoView {
                             }
                         });
                     }>
-                        <input class="field" placeholder="New group name" prop:value=move || group_name.get() on:input=move |ev| group_name.set(event_target_value(&ev)) />
-                        <button type="submit" class="button" disabled=move || group_name.get().trim().is_empty()>{icon(Icon::Plus)}<span>"Create group"</span></button>
+                        <input class="field" placeholder=t("New group name") prop:value=move || group_name.get() on:input=move |ev| group_name.set(event_target_value(&ev)) />
+                        <button type="submit" class="button" disabled=move || group_name.get().trim().is_empty()>{icon(Icon::Plus)}<span>{t("Create group")}</span></button>
                     </form>
                 </div>
-                <Show when=move || groups.get().is_empty()><p class="empty">"No groups yet. Groups let you share with a team in one step."</p></Show>
+                <Show when=move || groups.get().is_empty()><p class="empty">{t("No groups yet. Groups let you share with a team in one step.")}</p></Show>
                 <ul class="groups">
                     <For each=move || groups.get() key=|g| (g.id, g.members.join(",")) let(group)>
                         <li class="group">
@@ -156,7 +157,7 @@ pub fn People() -> impl IntoView {
                                 <span class="avatar group">{icon(Icon::People)}</span>
                                 <strong>{group.name.clone()}</strong>
                                 <span class="muted">{format!("{} {}", group.members.len(), if group.members.len() == 1 { "member" } else { "members" })}</span>
-                                <button type="button" class="icon-button danger" title="Delete group" aria-label="Delete group" on:click={
+                                <button type="button" class="icon-button danger" title=t("Delete group") aria-label=t("Delete group") on:click={
                                     let id = group.id;
                                     move |_| {
                                         wasm_bindgen_futures::spawn_local(async move {
@@ -175,7 +176,7 @@ pub fn People() -> impl IntoView {
                                     let remove = member.clone();
                                     view! {
                                         <span class="token">{member}
-                                            <button type="button" aria-label="Remove from group" on:click=move |_| {
+                                            <button type="button" aria-label=t("Remove from group") on:click=move |_| {
                                                 let remove = remove.clone();
                                                 wasm_bindgen_futures::spawn_local(async move {
                                                     if let Err(err) = api::delete(&format!("/api/groups/{id}/members/{}", api::enc(&remove))).await {
@@ -187,7 +188,7 @@ pub fn People() -> impl IntoView {
                                         </span>
                                     }
                                 }).collect_view()}
-                                <select class="bare" aria-label="Add a member" on:change={
+                                <select class="bare" aria-label=t("Add a member") on:change={
                                     let id = group.id;
                                     move |ev| {
                                         let username = event_target_value(&ev);

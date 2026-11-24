@@ -10,6 +10,8 @@ npm install                 # puppeteer-core only; uses the system Chrome (CHROM
 node ui-check.js            # drive, People on first open (regression), share dialog, new-file cards, docs
 node features.js all        # in-app Open, picture picker, discard, GridCraft autosave, options, zips, new doc, dialogs
 node features.js others     # in-app Open in DeckCraft and CADCraft; `pdf` for PdfCraft (Ctrl+O)
+node settings.js            # Settings: light/dark, shell language (German), WordCraft opened in German under the
+                            # Settings name with nothing stored (user jonas; E2E_USER / E2E_PASS to change)
 ```
 
 Screenshots go to `shots/` (`OUT=` to change). A run passes when every line looks right and

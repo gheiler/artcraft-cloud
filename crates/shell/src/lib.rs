@@ -1,6 +1,8 @@
 mod api;
 mod drive;
 mod editor;
+mod i18n;
+mod preferences;
 mod icons;
 mod modal;
 mod people;
@@ -9,6 +11,7 @@ mod route;
 mod settings;
 mod ui;
 
+use crate::i18n::t;
 use artcraft_cloud_types::app_by_id;
 use drive::{open_file, Drive};
 use editor::{install, EditorFrame, Launch, SaveKind};
@@ -47,7 +50,11 @@ pub fn App() -> impl IntoView {
     wasm_bindgen_futures::spawn_local(async move {
         if let Ok(me) = api::me().await {
             editor.author.set(me.display_name.clone());
+            let prefs = api::preferences().await;
             ui.user.set(Some(me));
+            if let Ok(prefs) = prefs {
+                preferences::adopt(prefs);
+            }
             editor.load_shell_settings();
             if let Ok(list) = api::apps().await {
                 ui.apps.set(list);
@@ -115,7 +122,7 @@ pub fn App() -> impl IntoView {
             <Show when=move || !ui.toast.get().is_empty()>
                 <div class="toast" role="status">
                     <span>{move || ui.toast.get()}</span>
-                    <button type="button" class="icon-button" aria-label="Dismiss" on:click=move |_| ui.toast.set(String::new())>{icon(Icon::Close)}</button>
+                    <button type="button" class="icon-button" aria-label=t("Dismiss") on:click=move |_| ui.toast.set(String::new())>{icon(Icon::Close)}</button>
                 </div>
             </Show>
         </div>
@@ -198,7 +205,11 @@ fn Login() -> impl IntoView {
                         Ok(me) => {
                             ui.editor.author.set(me.display_name.clone());
                             let _ = error.try_set(String::new());
+                            let prefs = api::preferences().await;
                             ui.user.set(Some(me));
+                            if let Ok(prefs) = prefs {
+                                preferences::adopt(prefs);
+                            }
                             ui.editor.load_shell_settings();
                             if let Ok(list) = api::apps().await {
                                 ui.apps.set(list);
@@ -213,10 +224,10 @@ fn Login() -> impl IntoView {
                 });
             }>
                 <div class="brand big"><span class="logo-mark"></span><span>"artcraft"<b>"Cloud"</b></span></div>
-                <p class="muted">"Your files, in the Crafting Apps."</p>
-                <label class="stack"><span>"Username"</span><input class="field" prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) autocomplete="username" /></label>
-                <label class="stack"><span>"Password"</span><input class="field" type="password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) autocomplete="current-password" /></label>
-                <button type="submit" class="button primary block">"Sign in"</button>
+                <p class="muted">{t("Your files, in the Crafting Apps.")}</p>
+                <label class="stack"><span>{t("Username")}</span><input class="field" prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) autocomplete="username" /></label>
+                <label class="stack"><span>{t("Password")}</span><input class="field" type="password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) autocomplete="current-password" /></label>
+                <button type="submit" class="button primary block">{t("Sign in")}</button>
                 <p class="error">{move || error.get()}</p>
             </form>
         </main>
@@ -246,27 +257,28 @@ fn Workspace() -> impl IntoView {
     let signed_in = move || ui.user.get().is_some();
     view! {
         <Show when=signed_in>
-            <aside class="sidebar" aria-label="Navigation">
+            <aside class="sidebar" aria-label=t("Navigation")>
                 <div class="sidebar-head">
                     <div class="brand"><span class="logo-mark"></span><span class="nav-label">"artcraft"<b>"Cloud"</b></span></div>
-                    <button type="button" class="icon-button" title=move || if ui.sidebar_collapsed.get() { "Expand sidebar" } else { "Collapse sidebar" }
-                        aria-label="Toggle sidebar" on:click=move |_| ui.toggle_sidebar()>{icon(Icon::Sidebar)}</button>
+                    <button type="button" class="icon-button" title=move || if ui.sidebar_collapsed.get() { t("Expand sidebar") } else { t("Collapse sidebar") }
+                        aria-label=t("Toggle sidebar") on:click=move |_| ui.toggle_sidebar()>{icon(Icon::Sidebar)}</button>
                 </div>
                 <nav>
-                    {nav("My files", Icon::Folder, Route::Files(String::new()))}
-                    {nav("Shared", Icon::Shared, Route::Shared)}
-                    {nav("Trash", Icon::Trash, Route::Trash)}
+                    {nav(t("My files"), Icon::Folder, Route::Files(String::new()))}
+                    {nav(t("Shared"), Icon::Shared, Route::Shared)}
+                    {nav(t("Trash"), Icon::Trash, Route::Trash)}
+                    {nav(t("Settings"), Icon::Settings, Route::Settings)}
                     <Show when=move || ui.is_admin()>
-                        {nav("People", Icon::People, Route::People)}
+                        {nav(t("People"), Icon::People, Route::People)}
                     </Show>
                 </nav>
                 <div class="sidebar-who">
                     <span class="avatar">{move || modal::initials(&ui.user.get().map(|u| u.display_name).unwrap_or_default())}</span>
                     <span class="nav-label who-name">
                         <strong>{move || ui.user.get().map(|u| u.display_name).unwrap_or_default()}</strong>
-                        <span class="muted">{move || ui.user.get().map(|u| if u.super_admin { "Super admin" } else if u.role == "admin" { "Admin" } else { "Member" }).unwrap_or_default()}</span>
+                        <span class="muted">{move || ui.user.get().map(|u| if u.super_admin { t("Super admin") } else if u.role == "admin" { t("Admin") } else { t("Member") }).unwrap_or_default()}</span>
                     </span>
-                    <button type="button" class="icon-button" title="Sign out" aria-label="Sign out" on:click=move |_| {
+                    <button type="button" class="icon-button" title=t("Sign out") aria-label=t("Sign out") on:click=move |_| {
                         wasm_bindgen_futures::spawn_local(async move {
                             let _ = api::logout().await;
                             ui.editor.close_now();
@@ -279,10 +291,14 @@ fn Workspace() -> impl IntoView {
         </Show>
         <main class="content">
             <Show when=move || !ui.route.get().is_doc()>
-                <Show when=move || matches!(ui.route.get(), Route::People) fallback=|| view! { <Drive /> }>
-                    <Show when=move || ui.is_admin() fallback=|| view! { <p class="empty">"Only admins manage people."</p> }>
-                        <People />
+                <Show when=move || matches!(ui.route.get(), Route::Settings) fallback=move || view! {
+                    <Show when=move || matches!(ui.route.get(), Route::People) fallback=|| view! { <Drive /> }>
+                        <Show when=move || ui.is_admin() fallback=|| view! { <p class="empty">{t("Only admins manage people.")}</p> }>
+                            <People />
+                        </Show>
                     </Show>
+                }>
+                    <preferences::Settings />
                 </Show>
             </Show>
             <EditorFrame />
@@ -294,5 +310,6 @@ fn Workspace() -> impl IntoView {
 #[wasm_bindgen::prelude::wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
+    preferences::boot();
     leptos::mount::mount_to_body(App);
 }

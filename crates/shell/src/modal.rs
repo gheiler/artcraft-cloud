@@ -1,6 +1,7 @@
 //! Dialogs. Every question the shell asks goes through one of these instead of the browser's
 //! `alert`, `prompt` or `confirm`.
 
+use crate::i18n::{t, tf};
 use artcraft_cloud_types::{app_by_id, Directory, FileEntry, Share};
 use leptos::prelude::*;
 
@@ -17,33 +18,33 @@ pub fn Modals() -> impl IntoView {
     let ui = ui();
     move || {
         ui.modal.get().map(|modal| match modal {
-            Modal::NewFolder { dir } => view! { <NameDialog title="New folder".into() label="Folder name".into() initial=String::new() confirm="Create".into() on_ok=Callback::new(move |name: String| {
+            Modal::NewFolder { dir } => view! { <NameDialog title=t("New folder").into() label=t("Folder name").into() initial=String::new() confirm=t("Create").into() on_ok=Callback::new(move |name: String| {
                 let path = if dir.is_empty() { name } else { format!("{dir}/{name}") };
                 run(api::req("POST", "/api/files/mkdir", Some(serde_json::json!({"path": path}))), None);
             }) /> }.into_any(),
             Modal::Rename { path } => {
                 let current = file_name(&path);
-                view! { <NameDialog title=format!("Rename {current}") label="New name".into() initial=current confirm="Rename".into() on_ok=Callback::new(move |name: String| {
+                view! { <NameDialog title=tf("Rename {current}", &[("current", &current)]) label=t("New name").into() initial=current confirm=t("Rename").into() on_ok=Callback::new(move |name: String| {
                     run(api::req("POST", "/api/files/rename", Some(serde_json::json!({"path": path, "name": name}))), None);
                 }) /> }.into_any()
             }
             Modal::Transfer { path, copy } => view! { <FolderDialog path=path copy=copy /> }.into_any(),
             Modal::Trash { path } => {
                 let name = file_name(&path);
-                view! { <ConfirmDialog title=format!("Move {name} to the trash?") body="You can restore it from the trash later.".into() confirm="Move to trash".into() danger=true
-                    on_ok=Callback::new(move |_| run(api::req("POST", "/api/files/delete", Some(serde_json::json!({"path": path}))), Some("Moved to the trash."))) /> }.into_any()
+                view! { <ConfirmDialog title=tf("Move {name} to the trash?", &[("name", &name)]) body=t("You can restore it from the trash later.").into() confirm=t("Move to trash").into() danger=true
+                    on_ok=Callback::new(move |_| run(api::req("POST", "/api/files/delete", Some(serde_json::json!({"path": path}))), Some(t("Moved to the trash.")))) /> }.into_any()
             }
-            Modal::Purge { id: Some(id) } => view! { <ConfirmDialog title="Delete forever?".into() body="This cannot be undone.".into() confirm="Delete forever".into() danger=true
+            Modal::Purge { id: Some(id) } => view! { <ConfirmDialog title=t("Delete forever?").into() body=t("This cannot be undone.").into() confirm=t("Delete forever").into() danger=true
                 on_ok=Callback::new(move |_| run(api::req("DELETE", format!("/api/trash/{id}"), None), None)) /> }.into_any(),
-            Modal::Purge { id: None } => view! { <ConfirmDialog title="Empty the trash?".into() body="Everything in the trash is deleted for good. This cannot be undone.".into() confirm="Empty trash".into() danger=true
+            Modal::Purge { id: None } => view! { <ConfirmDialog title=t("Empty the trash?").into() body=t("Everything in the trash is deleted for good. This cannot be undone.").into() confirm=t("Empty trash").into() danger=true
                 on_ok=Callback::new(move |_| run(api::req("DELETE", "/api/trash", None), None)) /> }.into_any(),
-            Modal::Discard { then } => view! { <ConfirmDialog title="Discard unsaved changes?".into() body="Your latest changes to this document have not been saved to the drive.".into() confirm="Discard changes".into() danger=true
+            Modal::Discard { then } => view! { <ConfirmDialog title=t("Discard unsaved changes?").into() body=t("Your latest changes to this document have not been saved to the drive.").into() confirm=t("Discard changes").into() danger=true
                 on_ok=Callback::new(move |_| finish_leave(then.clone())) /> }.into_any(),
             Modal::Share { path, is_dir } => view! { <ShareDialog path=path is_dir=is_dir /> }.into_any(),
             Modal::OpenWith { path, share } => view! { <OpenWithDialog path=path share=share /> }.into_any(),
             Modal::Pick { id, accept, multiple } => view! { <PickDialog id=id accept=accept multiple=multiple /> }.into_any(),
-            Modal::ResetPassword { id, username } => view! { <NameDialog title=format!("New password for {username}") label="Password (at least 10 characters)".into() initial=String::new() confirm="Set password".into() password=true
-                on_ok=Callback::new(move |password: String| run(api::req("POST", format!("/api/users/{id}/password"), Some(serde_json::json!({"password": password}))), Some("Password changed. Their sessions were signed out."))) /> }.into_any(),
+            Modal::ResetPassword { id, username } => view! { <NameDialog title=tf("New password for {username}", &[("username", &username)]) label=t("Password (at least 10 characters)").into() initial=String::new() confirm=t("Set password").into() password=true
+                on_ok=Callback::new(move |password: String| run(api::req("POST", format!("/api/users/{id}/password"), Some(serde_json::json!({"password": password}))), Some(t("Password changed. Their sessions were signed out.")))) /> }.into_any(),
         })
     }
 }
@@ -91,7 +92,7 @@ fn Dialog(
             <div class="dialog" class:wide=wide role="dialog" aria-modal="true" aria-label=title.clone()>
                 <header>
                     <h2>{title.clone()}</h2>
-                    <button type="button" class="icon-button" aria-label="Close" on:click=move |_| close()>{icon(Icon::Close)}</button>
+                    <button type="button" class="icon-button" aria-label=t("Close") on:click=move |_| close()>{icon(Icon::Close)}</button>
                 </header>
                 {children()}
             </div>
@@ -142,7 +143,7 @@ fn NameDialog(
                         prop:value=move || value.get() on:input=move |ev| value.set(event_target_value(&ev)) />
                 </label>
                 <footer>
-                    <button type="button" class="button" on:click=move |_| ui.close_modal()>"Cancel"</button>
+                    <button type="button" class="button" on:click=move |_| ui.close_modal()>{t("Cancel")}</button>
                     <button type="submit" class="button primary" disabled=move || value.get().trim().is_empty()>{confirm}</button>
                 </footer>
             </form>
@@ -171,7 +172,7 @@ fn ConfirmDialog(
             <div class="dialog-body">
                 <p>{body}</p>
                 <footer>
-                    <button type="button" class="button" on:click=move |_| ui.close_modal()>"Cancel"</button>
+                    <button type="button" class="button" on:click=move |_| ui.close_modal()>{t("Cancel")}</button>
                     <button type="button" node_ref=button class="button" class:danger-fill=danger class:primary=!danger on:click=move |_| {
                         ui.close_modal();
                         on_ok.run(());
@@ -205,7 +206,7 @@ fn FolderDialog(path: String, copy: bool) -> impl IntoView {
     });
     let name = file_name(&path);
     let moving = path.clone();
-    let title = format!("{} {name}", if copy { "Copy" } else { "Move" });
+    let title = if copy { tf("Copy {name}", &[("name", &name)]) } else { tf("Move {name}", &[("name", &name)]) };
     let blocked = move || {
         let at = folder.get();
         (!copy && at == start) || at == moving || at.starts_with(&format!("{moving}/"))
@@ -215,7 +216,7 @@ fn FolderDialog(path: String, copy: bool) -> impl IntoView {
         <Dialog title=title wide=false>
             <div class="dialog-body">
                 <div class="picker-path">
-                    <button type="button" class="crumb" on:click=move |_| folder.set(String::new())>{icon(Icon::Home)}<span>"My files"</span></button>
+                    <button type="button" class="crumb" on:click=move |_| folder.set(String::new())>{icon(Icon::Home)}<span>{t("My files")}</span></button>
                     {move || {
                         let mut acc = String::new();
                         folder.get().split('/').filter(|s| !s.is_empty()).map(|segment| {
@@ -232,17 +233,17 @@ fn FolderDialog(path: String, copy: bool) -> impl IntoView {
                             move |_| folder.set(target.clone())
                         }><span class="file-icon">{icon(Icon::Folder)}</span><span class="label">{entry.name.clone()}</span></button></li>
                     </For>
-                    <Show when=move || dirs.get().is_empty()><li class="empty">"No folders inside."</li></Show>
+                    <Show when=move || dirs.get().is_empty()><li class="empty">{t("No folders inside.")}</li></Show>
                 </ul>
                 <footer>
-                    <button type="button" class="button" on:click=move |_| ui.close_modal()>"Cancel"</button>
+                    <button type="button" class="button" on:click=move |_| ui.close_modal()>{t("Cancel")}</button>
                     <button type="button" class="button primary" disabled=blocked on:click=move |_| {
                         let to_dir = folder.get_untracked();
                         let url = if copy { "/api/files/copy" } else { "/api/files/move" };
                         let body = serde_json::json!({"from": source, "to_dir": to_dir});
                         ui.close_modal();
-                        run(async move { api::call("POST", url, Some(&body)).await }, Some(if copy { "Copied." } else { "Moved." }));
-                    }>{if copy { "Copy here" } else { "Move here" }}</button>
+                        run(async move { api::call("POST", url, Some(&body)).await }, Some(if copy { t("Copied.") } else { t("Moved.") }));
+                    }>{if copy { t("Copy here") } else { t("Move here") }}</button>
                 </footer>
             </div>
         </Dialog>
@@ -375,7 +376,7 @@ fn ShareDialog(path: String, is_dir: bool) -> impl IntoView {
                 Ok(share) => {
                     if let Some(token) = share.token {
                         copy_text(&link_of(&token));
-                        ui.say("Link created and copied.");
+                        ui.say(t("Link created and copied."));
                     }
                 }
                 Err(err) => ui.say(err),
@@ -401,9 +402,9 @@ fn ShareDialog(path: String, is_dir: bool) -> impl IntoView {
             .collect::<Vec<_>>()
     };
     view! {
-        <Dialog title=format!("Share {name}") wide=true>
+        <Dialog title=tf("Share {name}", &[("name", &name)]) wide=true>
             <div class="dialog-body share">
-                <p class="muted">{if is_dir { "People you add see everything in this folder." } else { "People you add find it under Shared." }}</p>
+                <p class="muted">{if is_dir { t("People you add see everything in this folder.") } else { t("People you add find it under Shared.") }}</p>
                 <div class="picker">
                     <div class="token-field">
                         {move || picked.get().into_iter().map(|target| {
@@ -414,25 +415,25 @@ fn ShareDialog(path: String, is_dir: bool) -> impl IntoView {
                                 <span class="token">
                                     {if is_group { icon(Icon::People) } else { icon(Icon::Shared) }}
                                     {label}
-                                    <button type="button" aria-label="Remove" on:click=move |_| picked.update(|list| list.retain(|t| t.key() != key))>{icon(Icon::Close)}</button>
+                                    <button type="button" aria-label=t("Remove") on:click=move |_| picked.update(|list| list.retain(|t| t.key() != key))>{icon(Icon::Close)}</button>
                                 </span>
                             }
                         }).collect_view()}
                         <span class="muted search-glyph">{icon(Icon::Search)}</span>
-                        <input class="bare" placeholder="Add people or groups" prop:value=move || query.get() on:input=move |ev| query.set(event_target_value(&ev)) />
+                        <input class="bare" placeholder=t("Add people or groups") prop:value=move || query.get() on:input=move |ev| query.set(event_target_value(&ev)) />
                     </div>
-                    <select class="field narrow" aria-label="Permission" on:change=move |ev| permission.set(event_target_value(&ev)) prop:value=move || permission.get()>
-                        <option value="view">"Can view"</option>
-                        <option value="edit">"Can edit"</option>
+                    <select class="field narrow" aria-label=t("Permission") on:change=move |ev| permission.set(event_target_value(&ev)) prop:value=move || permission.get()>
+                        <option value="view">{t("Can view")}</option>
+                        <option value="edit">{t("Can edit")}</option>
                     </select>
-                    <button type="button" class="button primary" disabled=move || picked.get().is_empty() || working.get() on:click=share_now>"Share"</button>
+                    <button type="button" class="button primary" disabled=move || picked.get().is_empty() || working.get() on:click=share_now>{t("Share")}</button>
                 </div>
                 <ul class="suggestions">
                     {move || suggestions().into_iter().map(|target| {
                         let add = target.clone();
                         let (title, detail, is_group) = match &target {
                             Target::User(name, display) => (display.clone(), name.clone(), false),
-                            Target::Group(name, members) => (name.clone(), format!("Group · {members} {}", if *members == 1 { "member" } else { "members" }), true),
+                            Target::Group(name, members) => (name.clone(), if *members == 1 { t("Group · 1 member").to_string() } else { tf("Group · {count} members", &[("count", &members.to_string())]) }, true),
                         };
                         view! {
                             <li><button type="button" class="suggestion" on:click=move |_| {
@@ -446,14 +447,14 @@ fn ShareDialog(path: String, is_dir: bool) -> impl IntoView {
                         }
                     }).collect_view()}
                 </ul>
-                <h3>"People with access"</h3>
+                <h3>{t("People with access")}</h3>
                 <ul class="access">
-                    <Show when=move || existing.get().iter().all(|s| s.public)><li class="empty">"Only you."</li></Show>
+                    <Show when=move || existing.get().iter().all(|s| s.public)><li class="empty">{t("Only you.")}</li></Show>
                     <For each=people_rows key=|s| (s.id, s.permission.clone()) let(share)>
                         <li>
                             <span class="avatar" class:group=share.group.is_some()>{if share.group.is_some() { icon(Icon::People).into_any() } else { initials(&share.grantee.clone().unwrap_or_default()).into_any() }}</span>
                             <span class="who"><strong>{share_target(&share)}</strong></span>
-                            <select class="field narrow" aria-label="Permission" prop:value=share.permission.clone() on:change={
+                            <select class="field narrow" aria-label=t("Permission") prop:value=share.permission.clone() on:change={
                                 let path = path_change.clone();
                                 let share = share.clone();
                                 move |ev| {
@@ -470,39 +471,39 @@ fn ShareDialog(path: String, is_dir: bool) -> impl IntoView {
                                     });
                                 }
                             }>
-                                <option value="view">"Can view"</option>
-                                <option value="edit">"Can edit"</option>
+                                <option value="view">{t("Can view")}</option>
+                                <option value="edit">{t("Can edit")}</option>
                             </select>
-                            <button type="button" class="icon-button danger" title="Remove access" aria-label="Remove access" on:click=move |_| revoke(share.id, reload)>{icon(Icon::Close)}</button>
+                            <button type="button" class="icon-button danger" title=t("Remove access") aria-label=t("Remove access") on:click=move |_| revoke(share.id, reload)>{icon(Icon::Close)}</button>
                         </li>
                     </For>
                 </ul>
-                <h3>"Links"</h3>
+                <h3>{t("Links")}</h3>
                 <ul class="access">
                     <For each=link_rows key=|s| s.id let(share)>
                         <li>
                             <span class="avatar link">{icon(Icon::Link)}</span>
                             <input class="field link-field" readonly prop:value=share.token.as_deref().map(link_of).unwrap_or_default() />
-                            <span class="badge">{if share.permission == "edit" { "Can edit" } else { "Can view" }}{if share.has_password { " · password" } else { "" }}</span>
+                            <span class="badge">{if share.permission == "edit" { t("Can edit") } else { t("Can view") }}{if share.has_password { " · " } else { "" }}{if share.has_password { t("password") } else { "" }}</span>
                             <button type="button" class="button" on:click={
                                 let token = share.token.clone().unwrap_or_default();
                                 move |_| {
                                     copy_text(&link_of(&token));
-                                    ui.say("Link copied.");
+                                    ui.say(t("Link copied."));
                                 }
-                            }>"Copy"</button>
-                            <button type="button" class="icon-button danger" title="Delete link" aria-label="Delete link" on:click=move |_| revoke(share.id, reload)>{icon(Icon::Trash)}</button>
+                            }>{t("Copy")}</button>
+                            <button type="button" class="icon-button danger" title=t("Delete link") aria-label=t("Delete link") on:click=move |_| revoke(share.id, reload)>{icon(Icon::Trash)}</button>
                         </li>
                     </For>
                 </ul>
                 <div class="link-form">
-                    <select class="field narrow" aria-label="Link permission" on:change=move |ev| link_permission.set(event_target_value(&ev)) prop:value=move || link_permission.get()>
-                        <option value="view">"Anyone with the link can view"</option>
-                        <option value="edit">"Anyone with the link can edit"</option>
+                    <select class="field narrow" aria-label=t("Link permission") on:change=move |ev| link_permission.set(event_target_value(&ev)) prop:value=move || link_permission.get()>
+                        <option value="view">{t("Anyone with the link can view")}</option>
+                        <option value="edit">{t("Anyone with the link can edit")}</option>
                     </select>
-                    <input class="field" type="password" placeholder="Password (optional)" autocomplete="new-password" prop:value=move || link_password.get() on:input=move |ev| link_password.set(event_target_value(&ev)) />
-                    <label class="inline-label">"Expires"<input class="field narrow" type="date" prop:value=move || link_expiry.get() on:input=move |ev| link_expiry.set(event_target_value(&ev)) /></label>
-                    <button type="button" class="button" on:click=make_link>{icon(Icon::Link)}<span>"Create link"</span></button>
+                    <input class="field" type="password" placeholder=t("Password (optional)") autocomplete="new-password" prop:value=move || link_password.get() on:input=move |ev| link_password.set(event_target_value(&ev)) />
+                    <label class="inline-label">{t("Expires")}<input class="field narrow" type="date" prop:value=move || link_expiry.get() on:input=move |ev| link_expiry.set(event_target_value(&ev)) /></label>
+                    <button type="button" class="button" on:click=make_link>{icon(Icon::Link)}<span>{t("Create link")}</span></button>
                 </div>
             </div>
         </Dialog>
@@ -577,9 +578,9 @@ fn OpenWithDialog(path: String, share: Option<i64>) -> impl IntoView {
     };
     let unknown = app_of_name(&name).is_none();
     view! {
-        <Dialog title=format!("Open {name} with")>
+        <Dialog title=tf("Open {name} with", &[("name", &name)])>
             <div class="dialog-body">
-                {unknown.then(|| view! { <p class="muted">"No app opens this kind of file by its name. Pick one, or download it."</p> })}
+                {unknown.then(|| view! { <p class="muted">{t("No app opens this kind of file by its name. Pick one, or download it.")}</p> })}
                 <ul class="app-choices">
                     {choices.into_iter().map(|(id, title, installed, best)| {
                         let path = path.clone();
@@ -594,14 +595,14 @@ fn OpenWithDialog(path: String, share: Option<i64>) -> impl IntoView {
                                 }
                             }>
                                 {app_icon(&id, "card-icon")}
-                                <span class="who"><strong>{title}</strong><span class="muted">{if installed { blurb.to_string() } else { "Not installed yet".to_string() }}</span></span>
-                                {best.then(|| view! { <span class="badge">"Suggested"</span> })}
+                                <span class="who"><strong>{title}</strong><span class="muted">{if installed { blurb.to_string() } else { t("Not installed yet").to_string() }}</span></span>
+                                {best.then(|| view! { <span class="badge">{t("Suggested")}</span> })}
                             </button></li>
                         }
                     }).collect_view()}
                 </ul>
                 <footer>
-                    <a class="button" href=download download=name.clone()>{icon(Icon::Download)}<span>"Download"</span></a>
+                    <a class="button" href=download download=name.clone()>{icon(Icon::Download)}<span>{t("Download")}</span></a>
                 </footer>
             </div>
         </Dialog>
@@ -685,7 +686,7 @@ fn PickDialog(id: u32, accept: String, multiple: bool) -> impl IntoView {
     let choose_entry = choose.clone();
     let device_accept = accept.clone();
     view! {
-        <Dialog title="Choose a file".into() wide=true on_close=Callback::new(move |_| picker::dismiss(id))>
+        <Dialog title=t("Choose a file").into() wide=true on_close=Callback::new(move |_| picker::dismiss(id))>
             <div class="dialog-body">
                 {suggested.map(|path| {
                     let label = file_name(&path);
@@ -697,7 +698,7 @@ fn PickDialog(id: u32, accept: String, multiple: bool) -> impl IntoView {
                     }
                 })}
                 <div class="picker-path">
-                    <button type="button" class="crumb" on:click=move |_| folder.set(String::new())>{icon(Icon::Home)}<span>"My files"</span></button>
+                    <button type="button" class="crumb" on:click=move |_| folder.set(String::new())>{icon(Icon::Home)}<span>{t("My files")}</span></button>
                     {move || {
                         let mut acc = String::new();
                         folder.get().split('/').filter(|s| !s.is_empty()).map(|segment| {
@@ -718,11 +719,11 @@ fn PickDialog(id: u32, accept: String, multiple: bool) -> impl IntoView {
                             <span class="label">{entry.name.clone()}</span>
                         </button></li>
                     </For>
-                    <Show when=move || entries.get().is_empty()><li class="empty">"No matching files in this folder."</li></Show>
+                    <Show when=move || entries.get().is_empty()><li class="empty">{t("No matching files in this folder.")}</li></Show>
                 </ul>
                 <footer>
                     <label class="button">
-                        {icon(Icon::Upload)}<span>"From this device…"</span>
+                        {icon(Icon::Upload)}<span>{t("From this device…")}</span>
                         <input type="file" class="hidden" accept=device_accept multiple=multiple on:change=move |ev| {
                             let input = crate::drive::event_target::<web_sys::HtmlInputElement>(&ev);
                             let Some(files) = input.files() else { return };
@@ -741,7 +742,7 @@ fn PickDialog(id: u32, accept: String, multiple: bool) -> impl IntoView {
                     <button type="button" class="button" on:click=move |_| {
                         picker::dismiss(id);
                         ui.close_modal();
-                    }>"Cancel"</button>
+                    }>{t("Cancel")}</button>
                 </footer>
             </div>
         </Dialog>

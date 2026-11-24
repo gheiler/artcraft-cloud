@@ -1,5 +1,6 @@
 //! The drive: folders, files, shares and the trash.
 
+use crate::i18n::{t, tf};
 use artcraft_cloud_types::{
     app_by_id, app_for_name, catalog, AppStatus, FileEntry, Share, TrashEntry,
 };
@@ -73,10 +74,10 @@ pub fn Drive() -> impl IntoView {
             <header class="toolbar">
                 <Crumbs />
                 <div class="tools">
-                    <Show when=move || busy.get()><span class="spinner" aria-label="Loading"></span></Show>
+                    <Show when=move || busy.get()><span class="spinner" aria-label=t("Loading")></span></Show>
                     <Show when=move || matches!(ui.route.get(), Route::Files(_))>
                         <label class="button">
-                            {icon(Icon::Upload)}<span>"Upload"</span>
+                            {icon(Icon::Upload)}<span>{t("Upload")}</span>
                             <input type="file" class="hidden" multiple on:change=move |ev| {
                                 let input = event_target::<web_sys::HtmlInputElement>(&ev);
                                 let Some(files) = input.files() else { return };
@@ -90,7 +91,7 @@ pub fn Drive() -> impl IntoView {
                             if let Route::Files(dir) = ui.route.get_untracked() {
                                 ui.open_modal(Modal::NewFolder { dir });
                             }
-                        }>{icon(Icon::FolderPlus)}<span>"New folder"</span></button>
+                        }>{icon(Icon::FolderPlus)}<span>{t("New folder")}</span></button>
                     </Show>
                 </div>
             </header>
@@ -109,7 +110,7 @@ pub fn Drive() -> impl IntoView {
             <Show when=move || matches!(ui.route.get(), Route::Files(_) | Route::Share(_, _) | Route::Public(_)) && !public_needs_password.try_get().unwrap_or(true)>
                 <section class="card files">
                     <div class="files-head">
-                        <h2>{move || if matches!(ui.route.get(), Route::Files(_)) { "Files" } else { "Shared files" }}</h2>
+                        <h2>{move || if matches!(ui.route.get(), Route::Files(_)) { t("Files") } else { t("Shared files") }}</h2>
                         <Filters entries=entries filter=filter />
                     </div>
                     <FileTable entries=entries permission=public_permission filter=filter />
@@ -145,22 +146,23 @@ fn Crumbs() -> impl IntoView {
         let route = ui.route.get();
         let (root, root_route, folder, share) = match &route {
             Route::Files(folder) => (
-                "My files",
+                t("My files"),
                 Route::Files(String::new()),
                 folder.clone(),
                 None,
             ),
-            Route::Share(id, folder) => ("Shared", Route::Shared, folder.clone(), Some(*id)),
-            Route::Shared => ("Shared", Route::Shared, String::new(), None),
-            Route::Trash => ("Trash", Route::Trash, String::new(), None),
-            Route::People => ("People", Route::People, String::new(), None),
-            Route::Public(_) => ("Shared link", route.clone(), String::new(), None),
-            _ => ("My files", Route::Files(String::new()), String::new(), None),
+            Route::Share(id, folder) => (t("Shared"), Route::Shared, folder.clone(), Some(*id)),
+            Route::Shared => (t("Shared"), Route::Shared, String::new(), None),
+            Route::Trash => (t("Trash"), Route::Trash, String::new(), None),
+            Route::People => (t("People"), Route::People, String::new(), None),
+            Route::Settings => (t("Settings"), Route::Settings, String::new(), None),
+            Route::Public(_) => (t("Shared link"), route.clone(), String::new(), None),
+            _ => (t("My files"), Route::Files(String::new()), String::new(), None),
         };
         let mut parts = Vec::new();
         let mut acc = String::new();
         if let Some(id) = share {
-            parts.push(("Share".to_string(), Route::Share(id, String::new())));
+            parts.push((t("Share").to_string(), Route::Share(id, String::new())));
         }
         for segment in folder.split('/').filter(|s| !s.is_empty()) {
             acc = if acc.is_empty() {
@@ -175,7 +177,7 @@ fn Crumbs() -> impl IntoView {
             parts.push((segment.to_string(), target));
         }
         view! {
-            <nav class="crumbs" aria-label="Folder">
+            <nav class="crumbs" aria-label=t("Folder")>
                 <button type="button" class="crumb" on:click=move |_| ui.go(root_route.clone())>{root}</button>
                 {parts.into_iter().map(|(label, target)| view! {
                     <span class="sep">{icon(Icon::Chevron)}</span>
@@ -191,10 +193,10 @@ fn Crumbs() -> impl IntoView {
 fn NewCards() -> impl IntoView {
     let ui = ui();
     view! {
-        <section class="new-cards" aria-label="New document">
+        <section class="new-cards" aria-label=t("New document")>
             <For each=move || ui.apps.get() key=|app| (app.id.clone(), app.installed) let(app)>
                 <button type="button" class="new-card" disabled=!app.installed
-                    title=if app.installed { format!("New {} document", app.title) } else { format!("{} is still downloading", app.title) }
+                    title=if app.installed { tf("New {app} document", &[("app", &app.title)]) } else { tf("{app} is still downloading", &[("app", &app.title)]) }
                     on:click={
                         let id = app.id.clone();
                         move |_| {
@@ -205,7 +207,7 @@ fn NewCards() -> impl IntoView {
                     }>
                     {app_icon(&app.id, "card-icon")}
                     <span class="card-title">{app.title.clone()}</span>
-                    <span class="card-blurb">{if app.installed { app.blurb.clone() } else { "Downloading…".to_string() }}</span>
+                    <span class="card-blurb">{if app.installed { app.blurb.clone() } else { t("Downloading…").to_string() }}</span>
                 </button>
             </For>
         </section>
@@ -233,8 +235,8 @@ fn Filters(entries: RwSignal<Vec<FileEntry>>, filter: RwSignal<Option<String>>) 
             .collect::<Vec<_>>()
     };
     view! {
-        <div class="chips" role="group" aria-label="Filter by app">
-            <button type="button" class="chip" class:on=move || filter.get().is_none() on:click=move |_| filter.set(None)>"All"</button>
+        <div class="chips" role="group" aria-label=t("Filter by app")>
+            <button type="button" class="chip" class:on=move || filter.get().is_none() on:click=move |_| filter.set(None)>{t("All")}</button>
             {move || present().into_iter().map(|(id, title)| view! {
                 <button type="button" class="chip" class:on=move || filter.get().as_deref() == Some(id)
                     on:click=move |_| filter.set(if filter.get_untracked().as_deref() == Some(id) { None } else { Some(id.to_string()) })>
@@ -290,7 +292,7 @@ async fn load(
             }
             let view: View = api::get_json(&format!("/api/public/{token}")).await?;
             if view.expired {
-                return Err("This link has expired.".into());
+                return Err(t("This link has expired.").into());
             }
             let _ = needs_password.try_set(view.needs_password);
             let _ = permission.try_set(view.permission);
@@ -321,7 +323,7 @@ async fn load(
         Route::Trash => {
             let _ = trash.try_set(api::trash().await?);
         }
-        Route::People | Route::Open { .. } | Route::New { .. } => {}
+        Route::People | Route::Settings | Route::Open { .. } | Route::New { .. } => {}
     }
     Ok(())
 }
@@ -362,12 +364,12 @@ fn FileTable(
     };
     view! {
         <table class="file-table">
-            <thead><tr><th class="name-col">"Name"</th><th>"Modified"</th><th>"Size"</th><th class="actions-col"><span class="sr-only">"Actions"</span></th></tr></thead>
+            <thead><tr><th class="name-col">{t("Name")}</th><th>{t("Modified")}</th><th>{t("Size")}</th><th class="actions-col"><span class="sr-only">{t("Actions")}</span></th></tr></thead>
             <tbody>
                 {move || up().map(|target| view! {
                     <tr class="row up">
                         <td colspan="4"><button type="button" class="file-name" on:click=move |_| ui.go(target.clone())>
-                            <span class="file-icon">{icon(Icon::Back)}</span><span>"Up one folder"</span>
+                            <span class="file-icon">{icon(Icon::Back)}</span><span>{t("Up one folder")}</span>
                         </button></td>
                     </tr>
                 })}
@@ -375,7 +377,7 @@ fn FileTable(
                     <FileRow entry=entry permission=permission />
                 </For>
                 <Show when=move || visible().is_empty()>
-                    <tr><td colspan="4" class="empty">{move || if filter.get().is_some() { "No files of that kind here." } else { "Nothing here yet. Drop files on this page or create a document above." }}</td></tr>
+                    <tr><td colspan="4" class="empty">{move || if filter.get().is_some() { t("No files of that kind here.") } else { t("Nothing here yet. Drop files on this page or create a document above.") }}</td></tr>
                 </Show>
             </tbody>
         </table>
@@ -426,10 +428,10 @@ fn FileRow(entry: FileEntry, permission: RwSignal<String>) -> impl IntoView {
             <td class="muted">{if is_dir { "—".to_string() } else { format_size(size) }}</td>
             <td class="row-actions">
                 {(!is_dir).then(|| view! {
-                    <a class="icon-button" href=download.clone() download=name.clone() title="Download" aria-label=format!("Download {name}")>{icon(Icon::Download)}</a>
+                    <a class="icon-button" href=download.clone() download=name.clone() title=t("Download") aria-label=tf("Download {name}", &[("name", &name)])>{icon(Icon::Download)}</a>
                 })}
                 <Show when=move || !is_dir && (is_home() || matches!(ui.route.get(), Route::Share(_, _)))>
-                    <button type="button" class="icon-button" title="Open with…" aria-label="Open with" on:click={
+                    <button type="button" class="icon-button" title=t("Open with…") aria-label=t("Open with") on:click={
                         let path = open_with_path.clone();
                         move |_| {
                             let share = match ui.route.get_untracked() { Route::Share(id, _) => Some(id), _ => None };
@@ -438,14 +440,14 @@ fn FileRow(entry: FileEntry, permission: RwSignal<String>) -> impl IntoView {
                     }>{icon(Icon::OpenWith)}</button>
                 </Show>
                 <Show when=can_edit>
-                    <button type="button" class="icon-button" title="Share" aria-label="Share" on:click={
+                    <button type="button" class="icon-button" title=t("Share") aria-label=t("Share") on:click={
                         let path = share_path.clone();
                         move |_| ui.open_modal(Modal::Share { path: path.clone(), is_dir })
                     }>{icon(Icon::Share)}</button>
-                    <button type="button" class="icon-button" title="Rename" aria-label="Rename" on:click=action(|path| Modal::Rename { path })>{icon(Icon::Rename)}</button>
-                    <button type="button" class="icon-button" title="Move" aria-label="Move" on:click=action(|path| Modal::Transfer { path, copy: false })>{icon(Icon::Move)}</button>
-                    <button type="button" class="icon-button" title="Copy" aria-label="Copy" on:click=action(|path| Modal::Transfer { path, copy: true })>{icon(Icon::Copy)}</button>
-                    <button type="button" class="icon-button danger" title="Move to trash" aria-label="Move to trash" on:click=action(|path| Modal::Trash { path })>{icon(Icon::Trash)}</button>
+                    <button type="button" class="icon-button" title=t("Rename") aria-label=t("Rename") on:click=action(|path| Modal::Rename { path })>{icon(Icon::Rename)}</button>
+                    <button type="button" class="icon-button" title=t("Move") aria-label=t("Move") on:click=action(|path| Modal::Transfer { path, copy: false })>{icon(Icon::Move)}</button>
+                    <button type="button" class="icon-button" title=t("Copy") aria-label=t("Copy") on:click=action(|path| Modal::Transfer { path, copy: true })>{icon(Icon::Copy)}</button>
+                    <button type="button" class="icon-button danger" title=t("Move to trash") aria-label=t("Move to trash") on:click=action(|path| Modal::Trash { path })>{icon(Icon::Trash)}</button>
                 </Show>
             </td>
         </tr>
@@ -536,7 +538,7 @@ pub fn open_file(kind: SaveKind, path: String, name: String, app: Option<String>
             .with_untracked(|list| list.iter().any(|item| item.id == app_id && item.installed));
         let apps_known = ui.apps.with_untracked(|list| !list.is_empty());
         if apps_known && !installed {
-            let title = app_by_id(&app_id).map(|a| a.title).unwrap_or("That app");
+            let title = app_by_id(&app_id).map(|a| a.title).unwrap_or(t("That app"));
             ui.say(format!(
                 "{title} is not installed yet. It downloads in the background after startup."
             ));
@@ -603,8 +605,8 @@ fn ShareLists(incoming: RwSignal<Vec<Share>>, outgoing: RwSignal<Vec<Share>>) ->
     let ui = ui();
     view! {
         <section class="card">
-            <h2>"Shared with me"</h2>
-            <Show when=move || incoming.get().is_empty()><p class="empty">"Nothing has been shared with you yet."</p></Show>
+            <h2>{t("Shared with me")}</h2>
+            <Show when=move || incoming.get().is_empty()><p class="empty">{t("Nothing has been shared with you yet.")}</p></Show>
             <ul class="list">
                 <For each=move || incoming.get() key=|share| share.id let(share)>
                     <li>
@@ -620,21 +622,21 @@ fn ShareLists(incoming: RwSignal<Vec<Share>>, outgoing: RwSignal<Vec<Share>>) ->
                             <span class="label">{file_name(&share.path)}</span>
                         </button>
                         <span class="muted">{format!("from {}{}", share.owner, share.group.as_deref().map(|g| format!(" · via {g}")).unwrap_or_default())}</span>
-                        <span class="badge">{if share.permission == "edit" { "Can edit" } else { "Can view" }}</span>
+                        <span class="badge">{if share.permission == "edit" { t("Can edit") } else { t("Can view") }}</span>
                     </li>
                 </For>
             </ul>
         </section>
         <section class="card">
-            <h2>"Shared by me"</h2>
-            <Show when=move || outgoing.get().is_empty()><p class="empty">"You have not shared anything yet."</p></Show>
+            <h2>{t("Shared by me")}</h2>
+            <Show when=move || outgoing.get().is_empty()><p class="empty">{t("You have not shared anything yet.")}</p></Show>
             <ul class="list">
                 <For each=move || outgoing.get() key=|share| share.id let(share)>
                     <li>
                         <span class="file-icon">{if share.public { icon(Icon::Link) } else if share.group.is_some() { icon(Icon::People) } else { icon(Icon::Shared) }}</span>
                         <span class="label">{share.path.clone()}</span>
                         <span class="muted">{share_target(&share)}</span>
-                        <span class="badge">{if share.permission == "edit" { "Can edit" } else { "Can view" }}</span>
+                        <span class="badge">{if share.permission == "edit" { t("Can edit") } else { t("Can view") }}</span>
                         <button type="button" class="button danger" on:click=move |_| {
                             let id = share.id;
                             wasm_bindgen_futures::spawn_local(async move {
@@ -643,7 +645,7 @@ fn ShareLists(incoming: RwSignal<Vec<Share>>, outgoing: RwSignal<Vec<Share>>) ->
                                 }
                                 ui.refresh();
                             });
-                        }>"Stop sharing"</button>
+                        }>{t("Stop sharing")}</button>
                     </li>
                 </For>
             </ul>
@@ -653,9 +655,9 @@ fn ShareLists(incoming: RwSignal<Vec<Share>>, outgoing: RwSignal<Vec<Share>>) ->
 
 pub fn share_target(share: &Share) -> String {
     if share.public {
-        "Anyone with the link".into()
+        t("Anyone with the link").into()
     } else if let Some(group) = &share.group {
-        format!("Group {group}")
+        tf("Group {group}", &[("group", group)])
     } else {
         share.grantee.clone().unwrap_or_default()
     }
@@ -667,12 +669,12 @@ fn TrashList(rows: RwSignal<Vec<TrashEntry>>) -> impl IntoView {
     view! {
         <section class="card">
             <div class="files-head">
-                <h2>"Trash"</h2>
+                <h2>{t("Trash")}</h2>
                 <Show when=move || !rows.get().is_empty()>
-                    <button type="button" class="button danger" on:click=move |_| ui.open_modal(Modal::Purge { id: None })>{icon(Icon::Trash)}<span>"Empty trash"</span></button>
+                    <button type="button" class="button danger" on:click=move |_| ui.open_modal(Modal::Purge { id: None })>{icon(Icon::Trash)}<span>{t("Empty trash")}</span></button>
                 </Show>
             </div>
-            <Show when=move || rows.get().is_empty()><p class="empty">"The trash is empty."</p></Show>
+            <Show when=move || rows.get().is_empty()><p class="empty">{t("The trash is empty.")}</p></Show>
             <table class="file-table">
                 <tbody>
                     <For each=move || rows.get() key=|row| row.id.clone() let(row)>
@@ -683,7 +685,7 @@ fn TrashList(rows: RwSignal<Vec<TrashEntry>>) -> impl IntoView {
                             </span></td>
                             <td class="muted">{format!("Deleted {}", format_date(row.deleted_at))}</td>
                             <td class="row-actions">
-                                <button type="button" class="icon-button" title="Restore" aria-label="Restore" on:click={
+                                <button type="button" class="icon-button" title=t("Restore") aria-label=t("Restore") on:click={
                                     let id = row.id.clone();
                                     move |_| {
                                         let id = id.clone();
@@ -695,7 +697,7 @@ fn TrashList(rows: RwSignal<Vec<TrashEntry>>) -> impl IntoView {
                                         });
                                     }
                                 }>{icon(Icon::Restore)}</button>
-                                <button type="button" class="icon-button danger" title="Delete forever" aria-label="Delete forever" on:click={
+                                <button type="button" class="icon-button danger" title=t("Delete forever") aria-label=t("Delete forever") on:click={
                                     let id = row.id.clone();
                                     move |_| ui.open_modal(Modal::Purge { id: Some(id.clone()) })
                                 }>{icon(Icon::Trash)}</button>
@@ -724,9 +726,9 @@ fn PublicUnlock() -> impl IntoView {
                 }
             });
         }>
-            <h2>"This link has a password"</h2>
-            <input class="field" type="password" placeholder="Password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) />
-            <button type="submit" class="button primary">"Unlock"</button>
+            <h2>{t("This link has a password")}</h2>
+            <input class="field" type="password" placeholder=t("Password") prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) />
+            <button type="submit" class="button primary">{t("Unlock")}</button>
         </form>
     }
 }

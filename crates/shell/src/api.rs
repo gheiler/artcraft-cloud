@@ -294,3 +294,15 @@ pub fn req(
     let url = url.into();
     async move { call(method, &url, body.as_ref()).await }
 }
+
+pub async fn preferences() -> Result<artcraft_cloud_types::prefs::Preferences, String> {
+    get_json("/api/preferences").await
+}
+
+pub async fn put_preferences(
+    prefs: &artcraft_cloud_types::prefs::Preferences,
+) -> Result<artcraft_cloud_types::prefs::Preferences, String> {
+    let bytes = serde_json::to_vec(prefs).map_err(|err| err.to_string())?;
+    let reply = send("PUT", "/api/preferences", Some(&bytes), Some("application/json"), None).await?;
+    decode(reply)
+}

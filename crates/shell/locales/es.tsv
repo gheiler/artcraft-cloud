@@ -1,0 +1,201 @@
+# artcraftCloud shell, es: English<TAB>translation. Keep {placeholders}.
+Accounts	Cuentas
+Actions	Acciones
+Active	Activo
+Add	Añadir
+Add a member	Añadir un miembro
+Add a person	Añadir una persona
+Add people or groups	Añadir personas o grupos
+Admin	Administrador
+All	Todos
+Animations	Animaciones
+Anyone with the link	Cualquiera con el enlace
+Anyone with the link can edit	Cualquiera con el enlace puede editar
+Anyone with the link can view	Cualquiera con el enlace puede ver
+App	Aplicación
+Appearance	Apariencia
+Applies to	Se aplica a
+Autosave	Guardado automático
+Autosaving…	Guardando automáticamente…
+Back to your files	Volver a tus archivos
+Can edit	Puede editar
+Can view	Puede ver
+Cancel	Cancelar
+Centimeters	Centímetros
+Choose a file	Elige un archivo
+Close	Cerrar
+Collapse	Contraer
+Collapse or expand	Contraer o expandir
+Collapse sidebar	Contraer la barra lateral
+Copied.	Copiado.
+Copy	Copiar
+Copy here	Copiar aquí
+Copy {name}	Copiar {name}
+Could not find a free name.	No se encontró un nombre libre.
+Could not save the settings: {error}	No se pudo guardar la configuración: {error}
+Create	Crear
+Create group	Crear grupo
+Create link	Crear enlace
+Dark	Oscuro
+Delete forever	Eliminar para siempre
+Delete forever?	¿Eliminar para siempre?
+Delete group	Eliminar grupo
+Delete link	Eliminar enlace
+Disable	Desactivar
+Disabled	Desactivado
+Discard changes	Descartar cambios
+Discard unsaved changes?	¿Descartar los cambios sin guardar?
+Dismiss	Descartar
+Documents	Documentos
+Download	Descargar
+Download {name}	Descargar {name}
+Downloading…	Descargando…
+Drag to move	Arrastra para mover
+Each app's default	El predeterminado de cada aplicación
+Empty the trash?	¿Vaciar la papelera?
+Empty trash	Vaciar papelera
+Enable	Activar
+Everything in the trash is deleted for good. This cannot be undone.	Todo lo que hay en la papelera se eliminará definitivamente. No se puede deshacer.
+Expand	Expandir
+Expand sidebar	Expandir la barra lateral
+Expires	Caduca
+Fades and smooth scrolling in the apps.	Fundidos y desplazamiento suave en las aplicaciones.
+Files	Archivos
+Filter by app	Filtrar por aplicación
+Folder	Carpeta
+Folder name	Nombre de la carpeta
+For rulers, margins and sizes.	Para reglas, márgenes y tamaños.
+From this device…	Desde este dispositivo…
+Full name (optional)	Nombre completo (opcional)
+Group {group}	Grupo {group}
+Group · 1 member	Grupo · 1 miembro
+Group · {count} members	Grupo · {count} miembros
+Groups	Grupos
+Handed off from the previous app.	Recibido de la aplicación anterior.
+Inches	Pulgadas
+Initials	Iniciales
+Interface language	Idioma de la interfaz
+Language	Idioma
+Light	Claro
+Light, dark, or the same as your system.	Claro, oscuro o igual que tu sistema.
+Link copied.	Enlace copiado.
+Link created and copied.	Enlace creado y copiado.
+Link permission	Permiso del enlace
+Links	Enlaces
+Loading	Cargando
+Make admin	Hacer administrador
+Make user	Hacer usuario
+Measurement units	Unidades de medida
+Member	Miembro
+Millimeters	Milímetros
+Modified	Modificado
+Move	Mover
+Move here	Mover aquí
+Move to trash	Mover a la papelera
+Move {name}	Mover {name}
+Move {name} to the trash?	¿Mover {name} a la papelera?
+Moved to the trash.	Movido a la papelera.
+Moved.	Movido.
+My files	Mis archivos
+Name	Nombre
+Navigation	Navegación
+New document	Nuevo documento
+New folder	Nueva carpeta
+New group name	Nombre del nuevo grupo
+New name	Nuevo nombre
+New password for {username}	Nueva contraseña para {username}
+New {app} document	Nuevo documento de {app}
+No app opens this kind of file by its name. Pick one, or download it.	Ninguna aplicación abre este tipo de archivo por su nombre. Elige una o descárgalo.
+No app takes this from the drive yet.	Ninguna aplicación toma esto del drive todavía.
+No files of that kind here.	No hay archivos de ese tipo aquí.
+No folders inside.	No hay carpetas dentro.
+No groups yet. Groups let you share with a team in one step.	Aún no hay grupos. Los grupos permiten compartir con un equipo en un solo paso.
+No installed app opens {name}.	Ninguna aplicación instalada abre {name}.
+No matching files in this folder.	No hay archivos coincidentes en esta carpeta.
+Not installed yet	Aún no instalada
+Nothing has been shared with you yet.	Todavía no se ha compartido nada contigo.
+Nothing here yet. Drop files on this page or create a document above.	Aún no hay nada. Suelta archivos en esta página o crea un documento arriba.
+Off	Desactivadas
+On	Activadas
+Only admins manage people.	Solo los administradores gestionan a las personas.
+Only you.	Solo tú.
+Open with	Abrir con
+Open with…	Abrir con…
+Open {name} with	Abrir {name} con
+Opening…	Abriendo…
+Password	Contraseña
+Password (10+ characters)	Contraseña (10+ caracteres)
+Password (at least 10 characters)	Contraseña (al menos 10 caracteres)
+Password (optional)	Contraseña (opcional)
+Password changed. Their sessions were signed out.	Contraseña cambiada. Se cerraron sus sesiones.
+People	Personas
+People with access	Personas con acceso
+People you add find it under Shared.	Las personas que añadas lo encontrarán en Compartido.
+People you add see everything in this folder.	Las personas que añadas verán todo lo que hay en esta carpeta.
+Permission	Permiso
+Points	Puntos
+Remove	Quitar
+Remove access	Quitar acceso
+Remove from group	Quitar del grupo
+Rename	Cambiar nombre
+Rename {current}	Cambiar el nombre de {current}
+Reset password	Restablecer contraseña
+Restore	Restaurar
+Role	Rol
+Same as the browser	Igual que el navegador
+Same as the system	Igual que el sistema
+Save	Guardar
+Save a copy	Guardar una copia
+Save changes to the drive a few seconds after you stop typing	Guardar los cambios en el drive unos segundos después de dejar de escribir
+Save into {folder}	Guardar en {folder}
+Saved {candidate}.	Se guardó {candidate}.
+Saved.	Guardado.
+Saved. Each app uses it the next time it opens.	Guardado. Cada aplicación lo usará la próxima vez que se abra.
+Set password	Establecer contraseña
+Settings	Configuración
+Share	Compartir
+Share {name}	Compartir {name}
+Shared	Compartido
+Shared by me	Compartido por mí
+Shared files	Archivos compartidos
+Shared link	Enlace compartido
+Shared with me	Compartido conmigo
+Shown next to your comments.	Se muestran junto a tus comentarios.
+Shown on comments, tracked changes and document properties.	Aparece en comentarios, cambios registrados y propiedades del documento.
+Sign in	Iniciar sesión
+Sign out	Cerrar sesión
+Size	Tamaño
+Someone else changed this file.	Otra persona cambió este archivo.
+Someone else changed this file. Save a copy to keep your version.	Otra persona cambió este archivo. Guarda una copia para conservar tu versión.
+Status	Estado
+Stop sharing	Dejar de compartir
+Suggested	Sugerida
+Super admin	Superadministrador
+System	Sistema
+That app	Esa aplicación
+The app sent a save with no bytes.	La aplicación envió un guardado sin datos.
+The drive and the apps that have this language use it.	El drive y las aplicaciones que tienen este idioma lo usan.
+The drive is not translated into this language yet and shows English; the apps that have it use it.	El drive aún no está traducido a este idioma y se muestra en inglés; las aplicaciones que lo tienen lo usan.
+The trash is empty.	La papelera está vacía.
+Theme	Tema
+These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.	Esta configuración es tuya en cualquier navegador. Cada cambio se escribe en las opciones de cada aplicación y se aplica la próxima vez que se abra.
+This cannot be undone.	No se puede deshacer.
+This link has a password	Este enlace tiene contraseña
+This link has expired.	Este enlace ha caducado.
+Toggle sidebar	Mostrar u ocultar la barra lateral
+Trash	Papelera
+Unlock	Desbloquear
+Unsaved changes	Cambios sin guardar
+Up one folder	Subir una carpeta
+Upload	Subir
+User	Usuario
+Username	Nombre de usuario
+View only — the file was not stored.	Solo lectura: el archivo no se guardó.
+You can restore it from the trash later.	Podrás restaurarlo desde la papelera más tarde.
+You have not shared anything yet.	Todavía no has compartido nada.
+Your files	Tus archivos
+Your files, in the Crafting Apps.	Tus archivos, en las Crafting Apps.
+Your latest changes to this document have not been saved to the drive.	Tus últimos cambios en este documento no se han guardado en el drive.
+Your name in documents	Tu nombre en los documentos
+password	contraseña
+{app} is still downloading	{app} todavía se está descargando

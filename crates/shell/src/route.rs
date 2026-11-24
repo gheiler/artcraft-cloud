@@ -6,6 +6,7 @@
 //! | `/`, `/files/<folder>` | My files |
 //! | `/shared`, `/shared/<id>/<folder>` | Shared with me / inside a share |
 //! | `/trash`, `/people` | Trash, People (admins) |
+//! | `/settings` | Settings |
 //! | `/s/<token>` | A public link |
 //! | `/open/<path>` (`?app=<id>`) | A file of mine, full screen |
 //! | `/shared/<id>/open/<path>` | A file inside a share, full screen |
@@ -18,6 +19,7 @@ pub enum Route {
     Share(i64, String),
     Trash,
     People,
+    Settings,
     Public(String),
     Open {
         share: Option<i64>,
@@ -59,6 +61,7 @@ impl Route {
             Some("files") => Route::Files(rest(1)),
             Some("trash") => Route::Trash,
             Some("people") => Route::People,
+            Some("settings") => Route::Settings,
             Some("s") => Route::Public(segments.get(1).cloned().unwrap_or_default()),
             Some("open") if segments.len() > 1 => Route::Open {
                 share: None,
@@ -91,6 +94,7 @@ impl Route {
             Route::Share(id, folder) => format!("/shared/{id}/{}", encode_path(folder)),
             Route::Trash => "/trash".into(),
             Route::People => "/people".into(),
+            Route::Settings => "/settings".into(),
             Route::Public(token) => format!("/s/{token}"),
             Route::Open { share, path, app } => {
                 let base = match share {
@@ -188,6 +192,7 @@ mod tests {
             Route::Share(7, "sub dir".into()),
             Route::Trash,
             Route::People,
+            Route::Settings,
             Route::Public("abcDEF123".into()),
             Route::Open {
                 share: None,

@@ -91,11 +91,11 @@ existing issues and pull requests.
 - **Groups** are managed under *People* by admins. Sharing with a group gives every member access; a
   member who leaves loses it.
 - **Addresses.** `/files/<folder>` is a folder, `/open/<path>?app=<app>` a document, `/new/<app>` a new
-  one (it moves to `/open/…` after the first save), `/shared`, `/trash`, `/people`, `/s/<token>` a
+  one (it moves to `/open/…` after the first save), `/shared`, `/trash`, `/people`, `/settings`, `/s/<token>` a
   public link. Opened from the drive, a document has a bar with a back arrow; opened from a link, it
   gets a small home button you can drag and fold away.
-- **Autosave.** On by default (switch in the document bar, remembered per user): the shell asks the app
-  to save a few seconds after a change.
+- **Autosave.** On by default (switch in *Settings* for every app, and in the document bar per app,
+  remembered per user): the shell asks the app to save a few seconds after a change.
 - **Options.** Each app's own options (WordCraft's author and initials, view settings…) are stored per
   user in `/api/settings/<app>` and restored before the app loads, so they follow you between browsers.
 - **Open from inside the apps.** *File ▸ Open*, *Insert ▸ Picture* and similar show a picker over your
@@ -103,6 +103,45 @@ existing issues and pull requests.
 - **LightCraft backups.** A `.zip` that is a LightCraft library backup gets the LightCraft icon and opens
   LightCraft, whose *Restore Library from Backup…* then offers it first. Any file can also be opened
   with another app via *Open with*.
+
+## Settings
+
+*Settings* (sidebar, `/settings`) holds what all the Crafting Apps have in common. It is stored per user
+on the server (`GET`/`PUT /api/preferences`), so it follows you between browsers.
+
+- **Theme**: System, Light or Dark. The shell switches at once (SnowUI-Dark tokens from the SnowUI
+  Figma file's dark mode; *System* follows `prefers-color-scheme`).
+- **Interface language**: *Same as the browser* or one of 44 languages, the union of what the apps
+  ship (WordCraft 29, PdfCraft 36, GridCraft 19, CADCraft 19, LightCraft 18). Each app only gets a
+  language it has; the page shows which. The shell itself is translated into **English, German,
+  Spanish, French, Italian and Brazilian Portuguese** (`crates/shell/locales/*.tsv`, English source
+  text as the key, English fallback); for another language it shows English. A change reloads the page.
+- **Name and initials** for comments, tracked changes and document properties (empty = your account
+  name and its initials).
+- **Measurement units**: each app's default, inches, centimeters, millimeters or points.
+- **Animations**: same as the system, on or off.
+- **Autosave**: on or off for every app (the document bar can still turn it off for one app).
+
+**How a change reaches the apps.** On `PUT /api/preferences` the server writes the changed settings
+into every app's stored options (`/api/settings/<app>`, the same per-user copy of the app's
+`localStorage` the shell restores before an app loads), keeping everything else the app stored. So it
+applies the next time each app opens, also for apps never opened yet. Only changed settings are
+written, so an option changed later inside an app stays until Settings changes again. When an app
+starts and its options have no language (or a placeholder name such as *WordCraft User*), the shell
+fills them from Settings first, so a first start is already in your language and under your name.
+
+| Setting | WordCraft | GridCraft | PdfCraft | CADCraft | FigCraft | DeckCraft | LightCraft, FilmCraft |
+|---|---|---|---|---|---|---|---|
+| Theme | `wordcraft.ui` `theme` (system/light/dark) | `gridcraft.ui` `systemTheme` + `dark` | `pdfcraft` `theme` (System/Light/Dark) | `cadcraft.prefs` `theme` | – | – | – |
+| Language | `wordcraft.ui` `language` | `gridcraft.ui` `language` (`zh`, `pt`…) | `pdfcraft` `language` | `cadcraft.prefs` `interfaceLanguage` (`pt-BR`, `zh`…) | English only | English only | LightCraft: from the browser; FilmCraft: English only |
+| Name | `wordcraft.ui` `author` | `gridcraft.prefs` `userName` | `pdfcraft` `author` | – | `figcraft.userName` | `?author=` at launch | – |
+| Initials | `wordcraft.ui` `initials` | – | – (its initials are a signature image) | – | – | – | – |
+| Units | `wordcraft.ui` `editing.measurementUnits` | – | `pdfcraft` `units` (`centimetres`…) | `cadcraft.profile` `sysvars.MEASUREINIT` (0 imperial, 1 metric; once the profile exists) | – | – | – |
+| Animations | `wordcraft.ui` `animations` | `gridcraft.ui` `animations` (on/off only) | `pdfcraft` `animation_effects` | `cadcraft.prefs` `animations` | – | – | – |
+| Autosave | shell | shell | shell | shell | shell | shell | shell |
+
+The mapping lives in `crates/types/src/prefs.rs` (`targets`); what cannot be mapped is listed in
+[docs/upstream-gaps.md](docs/upstream-gaps.md) (gaps 11, 16–20).
 
 ## Updating the apps
 

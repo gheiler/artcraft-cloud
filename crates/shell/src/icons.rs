@@ -28,6 +28,7 @@ pub enum Icon {
     Restore,
     Plus,
     Logout,
+    Settings,
     Shield,
     Chevron,
 }
@@ -89,6 +90,9 @@ fn paths(icon: Icon) -> &'static str {
             r#"<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6Z"/><path d="m9 12 2 2 4-4"/>"#
         }
         Icon::Chevron => r#"<path d="m9 6 6 6-6 6"/>"#,
+        Icon::Settings => {
+            r#"<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>"#
+        }
     }
 }
 
