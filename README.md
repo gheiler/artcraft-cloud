@@ -8,9 +8,12 @@ save straight into it.
 - **One Rust binary** (axum + SQLite), files stored as plain folders on disk, about **8–12 MB of RAM** idle.
 - **A drive in Rust/wasm** (Leptos, no JavaScript framework): folders, upload, download, rename,
   move, copy, trash, sharing, and an app launcher.
-- **Multi-user**: argon2id passwords, cookie sessions, an admin who creates and disables accounts.
-- **Sharing**: with other users (view or edit), a *Shared* view, and public links (view or edit,
-  optional password and expiry).
+- **Multi-user**: argon2id passwords, cookie sessions, admins who create and disable accounts, and one
+  super admin who alone makes or removes admins.
+- **Sharing**: with other users or groups (view or edit), a *Shared* view, and public links (view or
+  edit, optional password and expiry).
+- **Apps full screen** at their own address (`/open/Reports/q3.xlsx`), with a back arrow to the drive,
+  and app options (author name, initials…) kept per user on the server.
 - **WebDAV** at `/dav/` for desktop clients and, later, the apps' own cloud pages.
 - **Safe saves**: every write carries an ETag. If someone else changed the file meanwhile, the
   shell keeps theirs and offers *Save a copy* for yours.
@@ -79,6 +82,28 @@ PhotoCraft, VectorCraft, DesignCraft and the other Crafting Apps are not include
 builds do not speak the host bridge. `docs/upstream-gaps.md` lists what is missing upstream, with the
 existing issues and pull requests.
 
+## Using it
+
+- **Roles.** The first admin account is the *super admin* (an existing install marks its oldest admin).
+  Admins create users, reset passwords and disable or enable users. Only the super admin creates admins,
+  turns users into admins and back, or touches another admin's account; the server enforces it
+  (`403` otherwise), and the super admin cannot be disabled.
+- **Groups** are managed under *People* by admins. Sharing with a group gives every member access; a
+  member who leaves loses it.
+- **Addresses.** `/files/<folder>` is a folder, `/open/<path>?app=<app>` a document, `/new/<app>` a new
+  one (it moves to `/open/…` after the first save), `/shared`, `/trash`, `/people`, `/s/<token>` a
+  public link. Opened from the drive, a document has a bar with a back arrow; opened from a link, it
+  gets a small home button you can drag and fold away.
+- **Autosave.** On by default (switch in the document bar, remembered per user): the shell asks the app
+  to save a few seconds after a change.
+- **Options.** Each app's own options (WordCraft's author and initials, view settings…) are stored per
+  user in `/api/settings/<app>` and restored before the app loads, so they follow you between browsers.
+- **Open from inside the apps.** *File ▸ Open*, *Insert ▸ Picture* and similar show a picker over your
+  drive (or *From this device…*). Documents open through the drive, so they save back to it.
+- **LightCraft backups.** A `.zip` that is a LightCraft library backup gets the LightCraft icon and opens
+  LightCraft, whose *Restore Library from Backup…* then offers it first. Any file can also be opened
+  with another app via *Open with*.
+
 ## Updating the apps
 
 ```sh
@@ -115,7 +140,8 @@ Set `ARTCRAFT_GITHUB_TOKEN` if you hit GitHub's anonymous limit of 60 API calls 
 | `ARTCRAFT_OIDC_ISSUER` | | Reserved: the server refuses to start while OIDC is not implemented, rather than fall back to passwords silently |
 
 Accounts from the command line: `artcraft-cloud user create --username ana --password '…' [--admin]`,
-`artcraft-cloud user disable ana`, `artcraft-cloud user enable ana`.
+`artcraft-cloud user disable ana`, `artcraft-cloud user enable ana`. The command line acts as the host
+operator, so `--admin` works there without the super admin.
 
 ## Memory
 
@@ -131,7 +157,7 @@ Measured on Linux x86_64 with the release binary (23 Nov 2026):
 | In the container: during the first-start download of all 8 apps | 11.4 MB (peak 26 MB) |
 | In the container: after an end-to-end WordCraft open, edit and save | 8.6 MB (peak 28 MB) |
 
-Image: about 100 MB (Debian slim + gpg + a 9 MB binary). The drive UI is a 780 KB wasm file (250 KB gzipped).
+Image: about 100 MB (Debian slim + gpg + a 9 MB binary). The drive UI is a 1.5 MB wasm file (500 KB gzipped) plus 180 KB of icons and the Inter font.
 
 The image sets `TOKIO_WORKER_THREADS=2`, `MALLOC_ARENA_MAX=2` and `MALLOC_MMAP_THRESHOLD_=131072`. Without
 them the same binary idles at about 28 MB and holds about 48 MB after the first login, because glibc
@@ -179,7 +205,7 @@ to a same-origin parent.
 - Single sign-on via OIDC (the seam is in `crates/server/src/oidc.rs`).
 - More apps as their web builds gain the bridge (PhotoCraft, VectorCraft, DesignCraft…).
 - Live collaboration once ArtCraft has it beyond FigCraft (`figcraft-server` could run beside us).
-- WebDAV-backed Open/Save inside the apps, a host file picker, read-only sessions (see `docs/upstream-gaps.md`).
+- WebDAV-backed Open/Save inside the apps, a real host file picker message, read-only sessions (see `docs/upstream-gaps.md`).
 - Mail through Stalwart as an optional module (`docs/mail.md`).
 - S3-compatible storage, quotas, app passwords for WebDAV.
 
@@ -194,7 +220,10 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy -p artcraft-cloud-shell --target wasm32-unknown-unknown -- -D warnings
 ```
 
+The look follows the SnowUI design system (colour, type, radius and spacing tokens taken from its Figma
+file) with purple as the primary colour. Browser checks: `tests/e2e/`.
+
 ## License
 
-MIT OR Apache-2.0, at your option, like ArtCraft. The optional Stalwart container is AGPL-3.0 and runs
+MIT OR Apache-2.0, at your option, like ArtCraft. Third-party assets are listed in `NOTICE`. The optional Stalwart container is AGPL-3.0 and runs
 as a separate process; it is never linked into artcraftCloud.

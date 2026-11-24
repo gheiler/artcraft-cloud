@@ -1,0 +1,7 @@
+{
+  "name": "artcraft-cloud-e2e",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "description": "Headless Chrome checks for the drive and the app host",
+  "dependencies": { "puppeteer-core": "^23.11.1" }
+}

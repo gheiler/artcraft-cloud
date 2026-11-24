@@ -1,4 +1,6 @@
-use artcraft_cloud_types::{AppStatus, DirListing, ErrorBody, FileEntry, Share, TrashEntry, User, WriteResult};
+use artcraft_cloud_types::{
+    AppStatus, DirListing, ErrorBody, FileEntry, Share, TrashEntry, User, WriteResult,
+};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestCredentials, RequestInit, Response};
@@ -13,7 +15,13 @@ pub struct Reply {
     pub etag: Option<String>,
 }
 
-pub async fn send(method: &str, url: &str, body: Option<&[u8]>, content_type: Option<&str>, if_match: Option<&str>) -> Result<Reply, String> {
+pub async fn send(
+    method: &str,
+    url: &str,
+    body: Option<&[u8]>,
+    content_type: Option<&str>,
+    if_match: Option<&str>,
+) -> Result<Reply, String> {
     let window = web_sys::window().ok_or("no window")?;
     let init = RequestInit::new();
     init.set_method(method);
@@ -23,20 +31,44 @@ pub async fn send(method: &str, url: &str, body: Option<&[u8]>, content_type: Op
         init.set_body(&bytes);
     }
     let request = Request::new_with_str_and_init(url, &init).map_err(|err| format!("{err:?}"))?;
-    request.headers().set("x-requested-with", "artcraft").map_err(|err| format!("{err:?}"))?;
+    request
+        .headers()
+        .set("x-requested-with", "artcraft")
+        .map_err(|err| format!("{err:?}"))?;
     if let Some(content_type) = content_type {
-        request.headers().set("content-type", content_type).map_err(|err| format!("{err:?}"))?;
+        request
+            .headers()
+            .set("content-type", content_type)
+            .map_err(|err| format!("{err:?}"))?;
     }
     if let Some(if_match) = if_match {
-        request.headers().set("if-match", if_match).map_err(|err| format!("{err:?}"))?;
+        request
+            .headers()
+            .set("if-match", if_match)
+            .map_err(|err| format!("{err:?}"))?;
     }
-    let response = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|err| format!("{err:?}"))?;
-    let response: Response = response.dyn_into().map_err(|_| "not a response".to_string())?;
+    let response = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|err| format!("{err:?}"))?;
+    let response: Response = response
+        .dyn_into()
+        .map_err(|_| "not a response".to_string())?;
     let status = response.status();
-    let etag = response.headers().get("etag").ok().flatten().map(|value| value.trim_matches('"').to_string());
-    let buffer = JsFuture::from(response.array_buffer().map_err(|err| format!("{err:?}"))?).await.map_err(|err| format!("{err:?}"))?;
+    let etag = response
+        .headers()
+        .get("etag")
+        .ok()
+        .flatten()
+        .map(|value| value.trim_matches('"').to_string());
+    let buffer = JsFuture::from(response.array_buffer().map_err(|err| format!("{err:?}"))?)
+        .await
+        .map_err(|err| format!("{err:?}"))?;
     let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
-    Ok(Reply { status, body: bytes, etag })
+    Ok(Reply {
+        status,
+        body: bytes,
+        etag,
+    })
 }
 
 pub async fn get_json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T, String> {
@@ -44,7 +76,10 @@ pub async fn get_json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T, St
     decode(reply)
 }
 
-pub async fn post_json<T: serde::Serialize, R: serde::de::DeserializeOwned>(url: &str, body: &T) -> Result<R, String> {
+pub async fn post_json<T: serde::Serialize, R: serde::de::DeserializeOwned>(
+    url: &str,
+    body: &T,
+) -> Result<R, String> {
     let bytes = serde_json::to_vec(body).map_err(|err| err.to_string())?;
     let reply = send("POST", url, Some(&bytes), Some("application/json"), None).await?;
     decode(reply)
@@ -73,7 +108,9 @@ fn decode<T: serde::de::DeserializeOwned>(reply: Reply) -> Result<T, String> {
 }
 
 fn message(body: &[u8]) -> String {
-    serde_json::from_slice::<ErrorBody>(body).map(|err| err.error).unwrap_or_else(|_| String::from_utf8_lossy(body).to_string())
+    serde_json::from_slice::<ErrorBody>(body)
+        .map(|err| err.error)
+        .unwrap_or_else(|_| String::from_utf8_lossy(body).to_string())
 }
 
 pub async fn me() -> Result<User, String> {
@@ -81,7 +118,11 @@ pub async fn me() -> Result<User, String> {
 }
 
 pub async fn login(username: &str, password: &str) -> Result<User, String> {
-    post_json("/api/session", &serde_json::json!({ "username": username, "password": password })).await
+    post_json(
+        "/api/session",
+        &serde_json::json!({ "username": username, "password": password }),
+    )
+    .await
 }
 
 pub async fn logout() -> Result<(), String> {
@@ -115,10 +156,24 @@ pub enum PutFail {
     Other(String),
 }
 
-pub async fn put_bytes(url: &str, bytes: &[u8], if_match: Option<&str>) -> Result<WriteResult, PutFail> {
-    let reply = send("PUT", url, Some(bytes), Some("application/octet-stream"), if_match).await.map_err(PutFail::Other)?;
+pub async fn put_bytes(
+    url: &str,
+    bytes: &[u8],
+    if_match: Option<&str>,
+) -> Result<WriteResult, PutFail> {
+    let reply = send(
+        "PUT",
+        url,
+        Some(bytes),
+        Some("application/octet-stream"),
+        if_match,
+    )
+    .await
+    .map_err(PutFail::Other)?;
     if reply.status == 409 {
-        let etag = serde_json::from_slice::<ErrorBody>(&reply.body).ok().and_then(|err| err.etag);
+        let etag = serde_json::from_slice::<ErrorBody>(&reply.body)
+            .ok()
+            .and_then(|err| err.etag);
         return Err(PutFail::Conflict(etag));
     }
     if reply.status >= 400 {
@@ -142,22 +197,100 @@ pub fn public_content(token: &str, path: &str) -> String {
 pub async fn upload(dir: &str, name: &str, bytes: &[u8]) -> Result<FileEntry, String> {
     let window = web_sys::window().ok_or("no window")?;
     let form = web_sys::FormData::new().map_err(|err| format!("{err:?}"))?;
-    let blob = web_sys::Blob::new_with_u8_array_sequence(&js_sys::Array::of1(&js_sys::Uint8Array::from(bytes))).map_err(|err| format!("{err:?}"))?;
-    form.append_with_blob_and_filename("file", &blob, name).map_err(|err| format!("{err:?}"))?;
+    let blob = web_sys::Blob::new_with_u8_array_sequence(&js_sys::Array::of1(
+        &js_sys::Uint8Array::from(bytes),
+    ))
+    .map_err(|err| format!("{err:?}"))?;
+    form.append_with_blob_and_filename("file", &blob, name)
+        .map_err(|err| format!("{err:?}"))?;
     let init = RequestInit::new();
     init.set_method("POST");
     init.set_credentials(RequestCredentials::Include);
     init.set_body(&form);
     let url = format!("/api/files/upload?path={}", enc(dir));
     let request = Request::new_with_str_and_init(&url, &init).map_err(|err| format!("{err:?}"))?;
-    request.headers().set("x-requested-with", "artcraft").map_err(|err| format!("{err:?}"))?;
-    let response = JsFuture::from(window.fetch_with_request(&request)).await.map_err(|err| format!("{err:?}"))?;
-    let response: Response = response.dyn_into().map_err(|_| "not a response".to_string())?;
+    request
+        .headers()
+        .set("x-requested-with", "artcraft")
+        .map_err(|err| format!("{err:?}"))?;
+    let response = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|err| format!("{err:?}"))?;
+    let response: Response = response
+        .dyn_into()
+        .map_err(|_| "not a response".to_string())?;
     let status = response.status();
-    let buffer = JsFuture::from(response.array_buffer().map_err(|err| format!("{err:?}"))?).await.map_err(|err| format!("{err:?}"))?;
+    let buffer = JsFuture::from(response.array_buffer().map_err(|err| format!("{err:?}"))?)
+        .await
+        .map_err(|err| format!("{err:?}"))?;
     let body = js_sys::Uint8Array::new(&buffer).to_vec();
     if status >= 400 {
         return Err(message(&body));
     }
     serde_json::from_slice(&body).map_err(|err| err.to_string())
+}
+
+/// Any request whose reply body does not matter: `Err` carries the server's message.
+pub async fn call(method: &str, url: &str, body: Option<&serde_json::Value>) -> Result<(), String> {
+    let bytes = body.map(|value| serde_json::to_vec(value).unwrap_or_default());
+    let reply = send(
+        method,
+        url,
+        bytes.as_deref(),
+        bytes.as_ref().map(|_| "application/json"),
+        None,
+    )
+    .await?;
+    if reply.status >= 400 {
+        Err(message(&reply.body))
+    } else {
+        Ok(())
+    }
+}
+
+pub async fn delete(url: &str) -> Result<(), String> {
+    call("DELETE", url, None).await
+}
+
+/// The settings object the server keeps for this user and app (`{}` when there is none).
+pub async fn settings(app: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    get_json(&format!("/api/settings/{app}")).await
+}
+
+pub async fn put_settings(
+    app: &str,
+    value: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    let bytes = serde_json::to_vec(value).map_err(|err| err.to_string())?;
+    let reply = send(
+        "PUT",
+        &format!("/api/settings/{app}"),
+        Some(&bytes),
+        Some("application/json"),
+        None,
+    )
+    .await?;
+    if reply.status >= 400 {
+        Err(message(&reply.body))
+    } else {
+        Ok(())
+    }
+}
+
+pub async fn directory() -> Result<artcraft_cloud_types::Directory, String> {
+    get_json("/api/directory").await
+}
+
+pub async fn file_kind(path: &str) -> Result<artcraft_cloud_types::FileKind, String> {
+    get_json(&format!("/api/files/kind?path={}", enc(path))).await
+}
+
+/// [`call`] with owned arguments, for futures that outlive the caller.
+pub fn req(
+    method: &'static str,
+    url: impl Into<String>,
+    body: Option<serde_json::Value>,
+) -> impl std::future::Future<Output = Result<(), String>> + 'static {
+    let url = url.into();
+    async move { call(method, &url, body.as_ref()).await }
 }

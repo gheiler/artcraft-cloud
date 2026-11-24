@@ -1,92 +1,222 @@
 mod api;
 mod drive;
 mod editor;
+mod icons;
+mod modal;
+mod people;
+mod picker;
+mod route;
+mod settings;
+mod ui;
 
-use artcraft_cloud_types::{AppStatus, User};
-use drive::{Drive, Page};
-use editor::{install, Editor, EditorFrame};
+use artcraft_cloud_types::app_by_id;
+use drive::{open_file, Drive};
+use editor::{install, EditorFrame, Launch, SaveKind};
+use icons::{icon, Icon};
 use leptos::prelude::*;
+use modal::Modals;
+use people::People;
+use route::Route;
+use ui::{ui, Modal, Ui};
+use wasm_bindgen::{closure::Closure, JsCast};
+
+fn location_route() -> Route {
+    let Some(window) = web_sys::window() else {
+        return Route::Files(String::new());
+    };
+    let location = window.location();
+    Route::parse(
+        &location.pathname().unwrap_or_default(),
+        &location.search().unwrap_or_default(),
+    )
+}
 
 #[component]
 pub fn App() -> impl IntoView {
-    let user = RwSignal::new(None::<User>);
-    let page = RwSignal::new(Page::Files(String::new()));
-    let toast = RwSignal::new(String::new());
-    let apps = RwSignal::new(Vec::<AppStatus>::new());
-    let tick = RwSignal::new(0u32);
-    let editor = Editor::new();
+    let ui = Ui::new();
+    ui::set_global(ui);
+    provide_context(ui);
+    let editor = ui.editor;
+    let checked = RwSignal::new(false);
     install(editor);
-    let editor_for_refresh = editor;
-    let refresh = Callback::new(move |_: ()| tick.update(|n| *n += 1));
+    settings::install();
+    install_history();
+    install_escape();
+    ui.route.set(location_route());
 
     wasm_bindgen_futures::spawn_local(async move {
-        match api::me().await {
-            Ok(me) => {
-                editor.author.set(me.display_name.clone());
-                user.set(Some(me));
-                if let Some(window) = web_sys::window() {
-                    if let Ok(path) = window.location().pathname() {
-                        if let Some(token) = path.strip_prefix("/s/") {
-                            page.set(Page::Public(token.trim_matches('/').to_string()));
-                        }
-                    }
+        if let Ok(me) = api::me().await {
+            editor.author.set(me.display_name.clone());
+            ui.user.set(Some(me));
+            editor.load_shell_settings();
+            if let Ok(list) = api::apps().await {
+                ui.apps.set(list);
+            }
+        }
+        checked.set(true);
+    });
+
+    // Documents follow the address: opening a file, a reload or a pasted link all land here.
+    Effect::new(move |_| {
+        let route = ui.route.get();
+        let signed_in = ui.user.with(Option::is_some);
+        if !checked.get() || !signed_in {
+            return;
+        }
+        match route {
+            Route::Open { share, path, app } => {
+                let kind = share.map(SaveKind::Share).unwrap_or(SaveKind::Home);
+                let showing = editor.open.get_untracked()
+                    && editor.kind.get_untracked() == kind
+                    && (editor.path.get_untracked().as_deref() == Some(path.as_str())
+                        || editor.suggested.get_untracked().as_deref() == Some(path.as_str()))
+                    && app
+                        .as_ref()
+                        .is_none_or(|app| *app == editor.app.get_untracked());
+                if !showing {
+                    let name = editor::file_name(&path);
+                    open_file(kind, path, name, app);
                 }
             }
-            Err(_) => {
-                if let Some(window) = web_sys::window() {
-                    if let Ok(path) = window.location().pathname() {
-                        if let Some(token) = path.strip_prefix("/s/") {
-                            page.set(Page::Public(token.trim_matches('/').to_string()));
-                            user.set(None);
-                        }
-                    }
+            Route::New { app, folder } => {
+                let fresh = editor.open.get_untracked()
+                    && editor.path.get_untracked().is_none()
+                    && editor.app.get_untracked() == app;
+                if !fresh {
+                    let ext = app_by_id(&app)
+                        .and_then(|a| a.extensions.first().copied())
+                        .unwrap_or("txt");
+                    editor.launch(Launch {
+                        app: app.clone(),
+                        name: format!("Untitled.{ext}"),
+                        folder,
+                        kind: Some(SaveKind::Home),
+                        ..Launch::default()
+                    });
+                }
+            }
+            Route::Public(_) => {}
+            _ => {
+                if editor.open.get_untracked() {
+                    editor.close_now();
                 }
             }
         }
     });
 
     view! {
-        <div class="shell">
-            <Show when=move || user.get().is_none() && !matches!(page.get(), Page::Public(_)) fallback=move || view! {
-                <Workspace user=user page=page toast=toast apps=apps tick=tick editor=editor_for_refresh refresh=refresh />
-            }>
-                <Login user=user editor=editor />
+        <div class="shell" class:collapsed=move || ui.sidebar_collapsed.get() class:doc-open=move || ui.editor.open.get()>
+            <Show when=move || checked.get() fallback=|| view! { <div class="boot"><span class="spinner"></span></div> }>
+                <Show when=move || ui.user.get().is_none() && !matches!(ui.route.get(), Route::Public(_)) fallback=move || view! { <Workspace /> }>
+                    <Login />
+                </Show>
             </Show>
-            <Show when=move || !toast.get().is_empty()>
-                <button type="button" class="toast" on:click=move |_| toast.set(String::new())>{move || toast.get()}</button>
+            <Modals />
+            <Show when=move || !ui.toast.get().is_empty()>
+                <div class="toast" role="status">
+                    <span>{move || ui.toast.get()}</span>
+                    <button type="button" class="icon-button" aria-label="Dismiss" on:click=move |_| ui.toast.set(String::new())>{icon(Icon::Close)}</button>
+                </div>
             </Show>
         </div>
     }
 }
 
+/// Back and Forward. Leaving a document with unsaved changes asks first.
+fn install_history() {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let on_pop = Closure::<dyn FnMut()>::new(move || {
+        let ui = ui();
+        let next = location_route();
+        let current = ui.route.get_untracked();
+        if ui.editor.open.get_untracked()
+            && ui.editor.dirty.get_untracked()
+            && current.is_doc()
+            && !next.is_doc()
+        {
+            // Stay on the document until the user decides.
+            if let Some(history) = web_sys::window().and_then(|w| w.history().ok()) {
+                let _ = history.push_state_with_url(
+                    &wasm_bindgen::JsValue::NULL,
+                    "",
+                    Some(&current.href()),
+                );
+            }
+            ui.open_modal(Modal::Discard { then: Some(next) });
+            return;
+        }
+        if !next.is_doc() {
+            ui.from_drive.set(false);
+        }
+        ui.close_modal();
+        ui.route.set(next);
+    });
+    let _ = window.add_event_listener_with_callback("popstate", on_pop.as_ref().unchecked_ref());
+    on_pop.forget();
+}
+
+/// Escape closes the open dialog wherever the focus is.
+fn install_escape() {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let on_key =
+        Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
+            if event.key() != "Escape" {
+                return;
+            }
+            let ui = ui();
+            match ui.modal.get_untracked() {
+                Some(Modal::Pick { id, .. }) => {
+                    picker::dismiss(id);
+                    ui.close_modal();
+                }
+                Some(_) => ui.close_modal(),
+                None => {}
+            }
+        });
+    let _ = window.add_event_listener_with_callback("keydown", on_key.as_ref().unchecked_ref());
+    on_key.forget();
+}
+
 #[component]
-fn Login(user: RwSignal<Option<User>>, editor: Editor) -> impl IntoView {
+fn Login() -> impl IntoView {
+    let ui = ui();
     let username = RwSignal::new(String::new());
     let password = RwSignal::new(String::new());
     let error = RwSignal::new(String::new());
     view! {
         <main class="login">
-            <p class="mark">"artcraft"</p>
-            <h1>"Cloud"</h1>
-            <p class="lede">"Your files, in the Crafting Apps, on one origin."</p>
-            <form on:submit=move |ev| {
+            <form class="card login-card" on:submit=move |ev| {
                 ev.prevent_default();
                 let username = username.get_untracked();
                 let password = password.get_untracked();
                 wasm_bindgen_futures::spawn_local(async move {
                     match api::login(&username, &password).await {
                         Ok(me) => {
-                            editor.author.set(me.display_name.clone());
-                            error.set(String::new());
-                            user.set(Some(me));
+                            ui.editor.author.set(me.display_name.clone());
+                            let _ = error.try_set(String::new());
+                            ui.user.set(Some(me));
+                            ui.editor.load_shell_settings();
+                            if let Ok(list) = api::apps().await {
+                                ui.apps.set(list);
+                            }
+                            // Re-read the address: a document link opens once signed in.
+                            ui.route.set(location_route());
                         }
-                        Err(err) => error.set(err),
+                        Err(err) => {
+                            let _ = error.try_set(err);
+                        }
                     }
                 });
             }>
-                <label>"Username"<input prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) autocomplete="username" /></label>
-                <label>"Password"<input type="password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) autocomplete="current-password" /></label>
-                <button type="submit">"Sign in"</button>
+                <div class="brand big"><span class="logo-mark"></span><span>"artcraft"<b>"Cloud"</b></span></div>
+                <p class="muted">"Your files, in the Crafting Apps."</p>
+                <label class="stack"><span>"Username"</span><input class="field" prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) autocomplete="username" /></label>
+                <label class="stack"><span>"Password"</span><input class="field" type="password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) autocomplete="current-password" /></label>
+                <button type="submit" class="button primary block">"Sign in"</button>
                 <p class="error">{move || error.get()}</p>
             </form>
         </main>
@@ -94,110 +224,70 @@ fn Login(user: RwSignal<Option<User>>, editor: Editor) -> impl IntoView {
 }
 
 #[component]
-fn Workspace(
-    user: RwSignal<Option<User>>,
-    page: RwSignal<Page>,
-    toast: RwSignal<String>,
-    apps: RwSignal<Vec<AppStatus>>,
-    tick: RwSignal<u32>,
-    editor: Editor,
-    refresh: Callback<()>,
-) -> impl IntoView {
+fn Workspace() -> impl IntoView {
+    let ui = ui();
+    let nav = move |label: &'static str, glyph: Icon, target: Route| {
+        let active = target.clone();
+        view! {
+            <button type="button" class="nav" title=label
+                class:active=move || {
+                    let route = ui.route.get();
+                    match (&active, &route) {
+                        (Route::Files(_), Route::Files(_)) => true,
+                        (Route::Shared, Route::Shared | Route::Share(_, _)) => true,
+                        (a, b) => a == b,
+                    }
+                }
+                on:click=move |_| ui.go(target.clone())>
+                {icon(glyph)}<span class="nav-label">{label}</span>
+            </button>
+        }
+    };
+    let signed_in = move || ui.user.get().is_some();
     view! {
-        <aside>
-            <div class="brand"><span>"artcraft"</span>"Cloud"</div>
-            <nav>
-                <button type="button" class="nav" on:click=move |_| page.set(Page::Files(String::new()))>"My files"</button>
-                <button type="button" class="nav" on:click=move |_| page.set(Page::Shared)>"Shared"</button>
-                <button type="button" class="nav" on:click=move |_| page.set(Page::Trash)>"Trash"</button>
-                <Show when=move || user.get().is_some_and(|user| user.role == "admin")>
-                    <button type="button" class="nav" on:click=move |_| page.set(Page::Users)>"People"</button>
+        <Show when=signed_in>
+            <aside class="sidebar" aria-label="Navigation">
+                <div class="sidebar-head">
+                    <div class="brand"><span class="logo-mark"></span><span class="nav-label">"artcraft"<b>"Cloud"</b></span></div>
+                    <button type="button" class="icon-button" title=move || if ui.sidebar_collapsed.get() { "Expand sidebar" } else { "Collapse sidebar" }
+                        aria-label="Toggle sidebar" on:click=move |_| ui.toggle_sidebar()>{icon(Icon::Sidebar)}</button>
+                </div>
+                <nav>
+                    {nav("My files", Icon::Folder, Route::Files(String::new()))}
+                    {nav("Shared", Icon::Shared, Route::Shared)}
+                    {nav("Trash", Icon::Trash, Route::Trash)}
+                    <Show when=move || ui.is_admin()>
+                        {nav("People", Icon::People, Route::People)}
+                    </Show>
+                </nav>
+                <div class="sidebar-who">
+                    <span class="avatar">{move || modal::initials(&ui.user.get().map(|u| u.display_name).unwrap_or_default())}</span>
+                    <span class="nav-label who-name">
+                        <strong>{move || ui.user.get().map(|u| u.display_name).unwrap_or_default()}</strong>
+                        <span class="muted">{move || ui.user.get().map(|u| if u.super_admin { "Super admin" } else if u.role == "admin" { "Admin" } else { "Member" }).unwrap_or_default()}</span>
+                    </span>
+                    <button type="button" class="icon-button" title="Sign out" aria-label="Sign out" on:click=move |_| {
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let _ = api::logout().await;
+                            ui.editor.close_now();
+                            ui.user.set(None);
+                            ui.replace(Route::Files(String::new()));
+                        });
+                    }>{icon(Icon::Logout)}</button>
+                </div>
+            </aside>
+        </Show>
+        <main class="content">
+            <Show when=move || !ui.route.get().is_doc()>
+                <Show when=move || matches!(ui.route.get(), Route::People) fallback=|| view! { <Drive /> }>
+                    <Show when=move || ui.is_admin() fallback=|| view! { <p class="empty">"Only admins manage people."</p> }>
+                        <People />
+                    </Show>
                 </Show>
-            </nav>
-            <div class="who">
-                <span>{move || user.get().map(|user| user.display_name).unwrap_or_default()}</span>
-                <button type="button" on:click=move |_| {
-                    wasm_bindgen_futures::spawn_local(async move {
-                        let _ = api::logout().await;
-                        user.set(None);
-                    });
-                }>"Sign out"</button>
-            </div>
-        </aside>
-        <main>
-            <Show when=move || matches!(page.get(), Page::Users) fallback=move || view! {
-                <Drive page=page editor=editor toast=toast apps=apps refresh_tick=tick />
-            }>
-                <People toast=toast />
             </Show>
-            <EditorFrame editor=editor refresh=refresh />
+            <EditorFrame />
         </main>
     }
-}
-
-#[component]
-fn People(toast: RwSignal<String>) -> impl IntoView {
-    let users = RwSignal::new(Vec::<User>::new());
-    let username = RwSignal::new(String::new());
-    let password = RwSignal::new(String::new());
-    let tick = RwSignal::new(0u32);
-    Effect::new(move |_| {
-        tick.get();
-        wasm_bindgen_futures::spawn_local(async move {
-            match api::get_json::<Vec<User>>("/api/users").await {
-                Ok(list) => users.set(list),
-                Err(err) => toast.set(err),
-            }
-        });
-    });
-    view! {
-        <section class="people">
-            <h1>"People"</h1>
-            <form class="inline" on:submit=move |ev| {
-                ev.prevent_default();
-                let name = username.get_untracked();
-                let pass = password.get_untracked();
-                wasm_bindgen_futures::spawn_local(async move {
-                    let body = serde_json::json!({"username": name, "password": pass, "role": "user"});
-                    match api::post_json::<_, User>("/api/users", &body).await {
-                        Ok(_) => {
-                            username.set(String::new());
-                            password.set(String::new());
-                            tick.update(|n| *n += 1);
-                        }
-                        Err(err) => toast.set(err),
-                    }
-                });
-            }>
-                <input placeholder="username" prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) />
-                <input placeholder="password" type="password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) />
-                <button type="submit">"Create user"</button>
-            </form>
-            <ul>
-                <For each=move || users.get() key=|user| user.id let(user)>
-                    <li>
-                        <span>{user.username.clone()}" · "{user.role.clone()}</span>
-                        <Show when={let disabled = user.disabled; move || !disabled}>
-                            <button type="button" on:click=move |_| set_enabled(user.id, false, toast, tick)>"Disable"</button>
-                        </Show>
-                        <Show when={let disabled = user.disabled; move || disabled}>
-                            <button type="button" on:click=move |_| set_enabled(user.id, true, toast, tick)>"Enable"</button>
-                        </Show>
-                    </li>
-                </For>
-            </ul>
-        </section>
-    }
-}
-
-fn set_enabled(id: i64, enabled: bool, toast: RwSignal<String>, tick: RwSignal<u32>) {
-    wasm_bindgen_futures::spawn_local(async move {
-        let path = if enabled { format!("/api/users/{id}/enable") } else { format!("/api/users/{id}/disable") };
-        match api::post_empty(&path).await {
-            Ok(()) => tick.update(|n| *n += 1),
-            Err(err) => toast.set(err),
-        }
-    });
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -1,0 +1,14 @@
+artcraftCloud includes these third-party assets:
+
+crates/shell/assets/icons/*.png
+  The app icons of WordCraft, GridCraft, DeckCraft, PdfCraft, CADCraft, FigCraft, LightCraft and
+  FilmCraft, from each app's repository at github.com/storytold/<app>, assets/app-icon/hicolor/128x128.
+  Licensed MIT OR Apache-2.0 (see assets/app-icon/LICENSE in those repositories).
+  The ArtCraft brand marks are not used.
+
+crates/shell/assets/fonts/inter-latin-wght-normal.woff2
+  Inter, copyright the Inter Project Authors (https://github.com/rsms/inter), via
+  @fontsource-variable/inter 5.3.0. Licensed under the SIL Open Font License 1.1
+  (crates/shell/assets/fonts/OFL-Inter.txt).
+
+Design tokens (colours, type scale, radii, spacing) follow the SnowUI design system.
