@@ -1,175 +1,45 @@
-//! Types shared by the server and the wasm shell, plus the catalog of Crafting
-//! Apps whose released web builds speak the `craft-web-host` contract.
+//! Types shared by the server and the wasm shell. The catalog of Crafting Apps is no longer built
+//! in: it is the signed app registry (`registry` module, `registry/apps.json`).
 
 use serde::{Deserialize, Serialize};
 
 pub mod prefs;
+pub mod registry;
 
 /// Contract version of `craft-web-host`. Unknown versions are treated as this one.
 pub const HOST_CONTRACT_VERSION: &str = "1";
 
-/// A Crafting App whose web build can be framed with `?host=parent`.
+/// A Crafting App as the shell keeps it: built from `/api/catalog` (the registry's apps that are
+/// installed and enabled), with strings that live as long as the page.
 #[derive(Debug, Clone, Copy)]
 pub struct CraftApp {
     pub id: &'static str,
     pub title: &'static str,
-    pub repo: &'static str,
     pub blurb: &'static str,
     pub extensions: &'static [&'static str],
     /// The app reads `?author=` for comments and tracked changes.
     pub author_query: bool,
     /// The app understands `?chrome=nofiletab` (ignored by the others).
     pub chrome_query: bool,
-    /// GitHub owner of `repo`.
-    pub owner: &'static str,
     /// The web build speaks the `craft-web-host` contract (opens and saves drive files). MailCraft
     /// does not: it is launched on its own and reaches mail over JMAP.
     pub bridge: bool,
-    /// ed25519 public keys (base64) that sign the release's `SHA256SUMS.txt` as
-    /// `SHA256SUMS.txt.sig`. Empty: the release is checked with its OpenPGP `.asc`, if any.
-    pub release_keys: &'static [&'static str],
 }
 
-/// Apps verified against the latest GitHub release tag (November 2026).
-/// PhotoCraft, VectorCraft, DesignCraft and the rest are intentionally absent:
-/// their released web builds do not include the host bridge.
-pub static CATALOG: &[CraftApp] = &[
-    CraftApp {
-        id: "wordcraft",
-        title: "WordCraft",
-        repo: "wordcraft",
-        blurb: "Word processor",
-        extensions: &["docx", "odt", "rtf", "txt", "md", "markdown"],
-        author_query: true,
-        chrome_query: false,
-        owner: "storytold",
-        bridge: true,
-        release_keys: &[],
-    },
-    CraftApp {
-        id: "gridcraft",
-        title: "GridCraft",
-        repo: "gridcraft",
-        blurb: "Spreadsheets",
-        extensions: &["xlsx"],
-        author_query: true,
-        chrome_query: true,
-        owner: "storytold",
-        bridge: true,
-        release_keys: &[],
-    },
-    CraftApp {
-        id: "deckcraft",
-        title: "DeckCraft",
-        repo: "deckcraft",
-        blurb: "Presentations",
-        extensions: &["pptx", "potx", "ppsx", "deckcraft"],
-        author_query: true,
-        chrome_query: false,
-        owner: "storytold",
-        bridge: true,
-        release_keys: &[],
-    },
-    CraftApp {
-        id: "pdfcraft",
-        title: "PdfCraft",
-        repo: "pdfcraft",
-        blurb: "PDF editor",
-        extensions: &["pdf"],
-        author_query: true,
-        chrome_query: false,
-        owner: "storytold",
-        bridge: true,
-        release_keys: &[],
-    },
-    CraftApp {
-        id: "cadcraft",
-        title: "CADCraft",
-        repo: "cadcraft",
-        blurb: "Drawings",
-        extensions: &["dxf"],
-        author_query: false,
-        chrome_query: false,
-        owner: "storytold",
-        bridge: true,
-        release_keys: &[],
-    },
-    CraftApp {
-        id: "figcraft",
-        title: "FigCraft",
-        repo: "figcraft",
-        blurb: "Interface design",
-        extensions: &["figcraft", "fig"],
-        author_query: true,
-        chrome_query: false,
-        owner: "storytold",
-        bridge: true,
-        release_keys: &[],
-    },
-    CraftApp {
-        id: "lightcraft",
-        title: "LightCraft",
-        repo: "lightcraft",
-        blurb: "Photo library and raw development",
-        extensions: &["jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "dng"],
-        author_query: false,
-        chrome_query: false,
-        owner: "storytold",
-        bridge: true,
-        release_keys: &[],
-    },
-    CraftApp {
-        id: "filmcraft",
-        title: "FilmCraft",
-        repo: "filmcraft",
-        blurb: "Video editor",
-        extensions: &["fcproj"],
-        author_query: false,
-        chrome_query: false,
-        owner: "storytold",
-        bridge: true,
-        release_keys: &[],
-    },
-    CraftApp {
-        id: "calendarcraft",
-        title: "CalendarCraft",
-        repo: "calendarcraft",
-        blurb: "Calendar",
-        extensions: &["ics", "ical", "ifb"],
-        author_query: false,
-        chrome_query: false,
-        owner: "gheiler",
-        bridge: true,
-        release_keys: &[],
-    },
-    CraftApp {
-        id: "mailcraft",
-        title: "MailCraft",
-        repo: "mailcraft",
-        blurb: "Mail, calendar and contacts",
-        extensions: &[],
-        author_query: false,
-        chrome_query: false,
-        owner: "UCS-Care-Group",
-        bridge: false,
-        // `RELEASE_KEYS` in MailCraft's crates/net/src/update.rs: the key in use and the spare.
-        release_keys: &["Mu5RF5oJpFhDGfa5wpgznC39tDC8vbUbyNkiAMdluPQ=", "XV6WRgW06/mGhZCHhFVKMIEZDmLevQduZPLSj/UW5zI="],
-    },
-];
-
-pub fn catalog() -> &'static [CraftApp] {
-    CATALOG
+impl CraftApp {
+    /// Strings leaked to live as long as the page (the shell builds the catalog a few times per
+    /// visit; a few kilobytes each).
+    pub fn leak(id: &str, title: &str, blurb: &str, extensions: &[String], author_query: bool, chrome_query: bool, bridge: bool) -> CraftApp {
+        let leak = |s: &str| -> &'static str { Box::leak(s.to_string().into_boxed_str()) };
+        let extensions: Vec<&'static str> = extensions.iter().map(|e| leak(e)).collect();
+        CraftApp { id: leak(id), title: leak(title), blurb: leak(blurb), extensions: Box::leak(extensions.into_boxed_slice()), author_query, chrome_query, bridge }
+    }
 }
 
-pub fn app_by_id(id: &str) -> Option<&'static CraftApp> {
-    CATALOG.iter().find(|app| app.id == id)
-}
-
-pub fn app_for_name(name: &str) -> Option<&'static CraftApp> {
+/// The app that opens `name` by its extension, from `apps`.
+pub fn app_for_name_in<'a>(apps: &'a [CraftApp], name: &str) -> Option<&'a CraftApp> {
     let ext = extension_of(name)?.to_ascii_lowercase();
-    CATALOG
-        .iter()
-        .find(|app| app.extensions.iter().any(|candidate| *candidate == ext))
+    apps.iter().find(|app| app.extensions.iter().any(|candidate| *candidate == ext))
 }
 
 pub fn extension_of(name: &str) -> Option<&str> {
@@ -502,7 +372,7 @@ pub struct PublicShareView {
     pub listing: Option<DirListing>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppStatus {
     pub id: String,
     pub title: String,
@@ -512,6 +382,131 @@ pub struct AppStatus {
     pub version: Option<String>,
     pub previous: Option<String>,
     pub signature: Option<String>,
+    #[serde(default)]
+    pub publisher: String,
+    #[serde(default)]
+    pub bridge: bool,
+    #[serde(default)]
+    pub author_query: bool,
+    #[serde(default)]
+    pub chrome_query: bool,
+}
+
+/// `GET /api/admin/apps` (super admin): the registry, every app in it and what is installed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminApps {
+    pub registry: RegistryStatus,
+    /// The running artcraftCloud version, which versions are checked against.
+    pub cloud_version: String,
+    pub apps: Vec<AdminApp>,
+    /// Installed versions the registry blocks, and what was done about them.
+    pub alerts: Vec<AppAlert>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegistryStatus {
+    /// Where the registry is fetched from.
+    pub url: String,
+    /// What is in use: `network` (fetched this run), `cache` (fetched before), `embedded` (the copy
+    /// built into this artcraftCloud) or `none`.
+    pub source: String,
+    pub serial: u64,
+    pub issued: i64,
+    pub expires: i64,
+    pub expired: bool,
+    /// The registry in use carries a valid signature (always true when one is in use).
+    pub signature_ok: bool,
+    /// A self-hosted registry with its own keys (`ARTCRAFT_REGISTRY_KEYS`).
+    pub custom_keys: bool,
+    pub last_fetch: Option<i64>,
+    pub last_attempt: Option<i64>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminApp {
+    pub id: String,
+    pub title: String,
+    pub publisher: String,
+    pub blurb: String,
+    pub repo_url: String,
+    pub in_registry: bool,
+    pub installed: Option<String>,
+    pub previous: Option<String>,
+    /// The previous version is still on disk and allowed: Roll back is offered.
+    pub can_roll_back: bool,
+    /// `verified` (the app's own release signature), `registry` (checksum from the registry),
+    /// `local` (installed by hand) or what an older artcraftCloud wrote.
+    pub signature: Option<String>,
+    /// The installed version: `ok`, `blocked`, `incompatible`, `unlisted`; `absent` when not installed.
+    pub state: String,
+    pub reason: Option<String>,
+    /// Why the app is disabled (hidden and not served), when it is.
+    pub disabled: Option<String>,
+    pub auto_update: bool,
+    /// Something done automatically that the admin should know about.
+    pub notice: Option<String>,
+    pub recommended: Option<String>,
+    pub latest: Option<String>,
+    /// The version Update installs, when it is newer than the installed one.
+    pub update: Option<String>,
+    pub versions: Vec<AdminVersion>,
+    pub job: Option<AppJob>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminVersion {
+    pub version: String,
+    /// `ok`, `blocked` or `incompatible`.
+    pub status: String,
+    pub reason: Option<String>,
+    pub installable: bool,
+    pub recommended: bool,
+    /// `ed25519`, `openpgp` or `none`.
+    pub signed: String,
+}
+
+/// An install, update or rollback running (or just finished) on the server.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppJob {
+    pub action: String,
+    pub version: Option<String>,
+    /// `downloading`, `verifying`, `installing`, `done` or `failed`.
+    pub phase: String,
+    pub percent: Option<u8>,
+    pub error: Option<String>,
+    pub done: bool,
+    pub started: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppAlert {
+    pub app: String,
+    pub title: String,
+    pub version: String,
+    pub reason: String,
+    pub security: bool,
+    /// `rolled_back` (to `to`), `disabled`, or none (a warning only).
+    pub action: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
+}
+
+/// `POST /api/admin/apps/{id}/install`: add or update; no version means the recommended one.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AppInstallRequest {
+    #[serde(default)]
+    pub version: Option<String>,
+}
+
+/// `PUT /api/admin/apps/{id}/settings`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AppSettingsRequest {
+    #[serde(default)]
+    pub auto_update: Option<bool>,
+    /// `true` disables the app (hidden, not served); `false` enables it again.
+    #[serde(default)]
+    pub disabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -531,30 +526,39 @@ pub struct HealthBody {
 mod tests {
     use super::*;
 
+    fn snapshot() -> registry::Registry {
+        serde_json::from_str(include_str!("../../../registry/apps.json")).expect("registry/apps.json parses")
+    }
+
     #[test]
-    fn extensions_belong_to_one_app() {
+    fn the_registry_snapshot_is_valid_and_extensions_belong_to_one_app() {
+        let reg = snapshot();
+        reg.validate().unwrap();
         let mut seen = std::collections::BTreeSet::new();
-        for app in catalog() {
+        for app in &reg.apps {
             // An app opens documents exactly when it speaks the host bridge (MailCraft opens none).
             assert_eq!(app.extensions.is_empty(), !app.bridge, "{}", app.id);
-            for ext in app.extensions {
-                assert!(seen.insert(*ext), "{ext} is claimed twice");
+            for ext in &app.extensions {
+                assert!(seen.insert(ext.clone()), "{ext} is claimed twice");
                 assert_eq!(ext, &ext.to_ascii_lowercase());
             }
+            assert!(app.target("0.1.0").is_some(), "{} has an installable version", app.id);
         }
     }
 
     #[test]
     fn names_pick_the_app() {
-        assert_eq!(app_for_name("Notes.DOCX").map(|a| a.id), Some("wordcraft"));
-        assert_eq!(app_for_name("sheet.xlsx").map(|a| a.id), Some("gridcraft"));
-        assert_eq!(app_for_name("deck.deckcraft").map(|a| a.id), Some("deckcraft"));
-        assert_eq!(app_for_name("a.pdf").map(|a| a.id), Some("pdfcraft"));
-        assert_eq!(app_for_name("plan.dxf").map(|a| a.id), Some("cadcraft"));
-        assert_eq!(app_for_name("ui.figcraft").map(|a| a.id), Some("figcraft"));
-        assert_eq!(app_for_name("photo.JPEG").map(|a| a.id), Some("lightcraft"));
-        assert_eq!(app_for_name("cut.fcproj").map(|a| a.id), Some("filmcraft"));
-        assert_eq!(app_for_name("Holidays.ICS").map(|a| a.id), Some("calendarcraft"));
+        let apps: Vec<CraftApp> = snapshot().apps.iter().map(|a| CraftApp::leak(&a.id, &a.title, &a.blurb, &a.extensions, a.author_query, a.chrome_query, a.bridge)).collect();
+        let app_for_name = |name: &str| app_for_name_in(&apps, name).map(|a| a.id);
+        assert_eq!(app_for_name("Notes.DOCX"), Some("wordcraft"));
+        assert_eq!(app_for_name("sheet.xlsx"), Some("gridcraft"));
+        assert_eq!(app_for_name("deck.deckcraft"), Some("deckcraft"));
+        assert_eq!(app_for_name("a.pdf"), Some("pdfcraft"));
+        assert_eq!(app_for_name("plan.dxf"), Some("cadcraft"));
+        assert_eq!(app_for_name("ui.figcraft"), Some("figcraft"));
+        assert_eq!(app_for_name("photo.JPEG"), Some("lightcraft"));
+        assert_eq!(app_for_name("cut.fcproj"), Some("filmcraft"));
+        assert_eq!(app_for_name("Holidays.ICS"), Some("calendarcraft"));
         assert!(app_for_name("archive.zip").is_none());
         assert!(app_for_name(".docx").is_none());
     }

@@ -3,7 +3,8 @@
 use crate::i18n::{t, tf};
 use std::rc::Rc;
 
-use artcraft_cloud_types::{app_by_id, app_for_name, conflict_copy_name, HOST_CONTRACT_VERSION};
+use crate::catalog::{app_by_id, app_for_name};
+use artcraft_cloud_types::{conflict_copy_name, HOST_CONTRACT_VERSION};
 use leptos::prelude::*;
 use wasm_bindgen::{closure::Closure, JsCast, JsValue};
 use web_sys::{HtmlIFrameElement, MessageEvent};
@@ -170,7 +171,7 @@ impl Editor {
         let app = self.app.get_untracked();
         // Turning it on for one app while Settings has it off everywhere: on here, off elsewhere.
         if !ui().prefs.with_untracked(|p| p.autosave) {
-            let others: Vec<String> = artcraft_cloud_types::catalog()
+            let others: Vec<String> = crate::catalog::catalog()
                 .iter()
                 .map(|a| a.id.to_string())
                 .filter(|id| *id != app)

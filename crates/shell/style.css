@@ -493,3 +493,33 @@ select.field { padding-right: var(--space-8); }
 .mail-state .icon { width: 12px; height: 12px; }
 .key-check { padding: var(--space-4) 0 var(--space-8); }
 .fallback-note { font-size: var(--text-12); margin-bottom: var(--space-8); }
+
+/* Apps (super admin) */
+.app-alerts {
+  display: flex; align-items: flex-start; gap: var(--space-12); margin: var(--space-16) var(--space-40) 0; padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--danger); border-radius: var(--radius-12); background: var(--danger-soft); color: var(--danger);
+}
+.app-alerts.in-page { margin: 0; }
+.app-alerts .icon { flex: none; margin-top: 2px; }
+.app-alerts-text { flex: 1; display: grid; gap: var(--space-4); color: var(--text-1); }
+.app-list { list-style: none; margin: 0; padding: 0; display: grid; }
+.app-row { display: flex; align-items: center; gap: var(--space-12); padding: var(--space-12) 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.app-row:first-child { border-top: 0; }
+.app-row.blocked .app-row-icon { outline: 2px solid var(--danger); outline-offset: 2px; }
+.app-row-icon { width: 36px; height: 36px; border-radius: var(--radius-8); flex: none; }
+.app-row-text { flex: 1; min-width: 220px; display: grid; gap: 2px; }
+.app-row-badges { display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap; margin-top: var(--space-4); font-size: var(--text-12); }
+.app-row-actions { display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap; }
+.app-row-actions .check { font-size: var(--text-12); }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-8) var(--space-16); margin: 0; font-size: var(--text-14); }
+.facts dt { color: var(--text-2); }
+.facts dd { margin: 0; word-break: break-all; }
+.facts .bad, .bad { color: var(--danger); }
+.version-list { list-style: none; margin: 0; padding: 0; display: grid; max-height: 50vh; overflow: auto; }
+.version-row { display: flex; align-items: center; gap: var(--space-8); padding: var(--space-8) 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.version-row:first-child { border-top: 0; }
+.version-row .grow { flex: 1; }
+.progress { height: 8px; border-radius: var(--radius-full); background: var(--surface-2); overflow: hidden; }
+.progress-bar { height: 100%; background: var(--primary-strong); transition: width .3s ease; }
+.progress.indeterminate .progress-bar { animation: progress-slide 1.2s ease-in-out infinite; }
+@keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }

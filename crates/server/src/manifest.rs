@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Manifest {
     pub apps: BTreeMap<String, InstalledApp>,
+    /// Apps an admin removed: the start-up check does not install them again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +18,15 @@ pub struct InstalledApp {
     pub sha256: String,
     pub signature: String,
     pub installed_at: i64,
+    /// Why the app is disabled (hidden from everyone and not served).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<String>,
+    /// Updated by itself to the version the registry points to.
+    #[serde(default)]
+    pub auto_update: bool,
+    /// Something done automatically (a rollback for a blocked version) for the admin to read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 pub fn apps_root(data: &Path) -> PathBuf {
@@ -52,6 +64,9 @@ pub fn write_manifest(data: &Path, manifest: &Manifest) -> Result<(), String> {
 pub fn current_dir(data: &Path, id: &str) -> Option<PathBuf> {
     let manifest = read_manifest(data);
     let installed = manifest.apps.get(id)?;
+    if installed.disabled.is_some() {
+        return None;
+    }
     let dir = version_dir(data, id, &installed.version);
     dir.is_dir().then_some(dir)
 }

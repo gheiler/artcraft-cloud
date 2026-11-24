@@ -1,3 +1,4 @@
+pub(crate) mod apps;
 pub(crate) mod calendar;
 mod files;
 pub(crate) mod mail;
@@ -74,7 +75,16 @@ pub fn router(state: AppState) -> Router {
         .route("/api/public/{token}", get(shares::public_view))
         .route("/api/public/{token}/unlock", post(shares::public_unlock))
         .route("/api/public/{token}/content", get(shares::public_read).put(shares::public_write))
-        .route("/api/apps", get(users::apps))
+        .route("/api/apps", get(apps::list))
+        .route("/api/catalog", get(apps::public_catalog))
+        .route("/api/apps/{id}/icon", get(apps::icon))
+        .route("/api/admin/apps", get(apps::admin_list))
+        .route("/api/admin/apps/refresh", post(apps::admin_refresh))
+        .route("/api/admin/apps/{id}", axum::routing::delete(apps::admin_remove))
+        .route("/api/admin/apps/{id}/install", post(apps::admin_install))
+        .route("/api/admin/apps/{id}/rollback", post(apps::admin_rollback))
+        .route("/api/admin/apps/{id}/settings", axum::routing::put(apps::admin_settings))
+        .route("/api/admin/apps/{id}/dismiss", post(apps::admin_dismiss))
         .route("/apps", get(serve_app_index))
         .route("/apps/", get(serve_app_index))
         .route("/apps/{*path}", get(serve_app))
@@ -127,8 +137,14 @@ async fn serve_app_at(state: &AppState, path: &str, headers: &axum::http::Header
     let Some(id) = parts.next().filter(|id| !id.is_empty()) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    if artcraft_cloud_types::app_by_id(id).is_none() {
-        return StatusCode::NOT_FOUND.into_response();
+    let manifest = crate::manifest::read_manifest(&state.config.data_dir);
+    match manifest.apps.get(id) {
+        // Installed apps keep being served even if the registry stops listing them; a blocked
+        // version is handled by the registry check (rolled back or disabled), not here.
+        Some(row) if row.disabled.is_some() => return (StatusCode::FORBIDDEN, format!("{id} is disabled by the administrator")).into_response(),
+        Some(_) => {}
+        None if apps::registry_app(state, id).is_none() => return StatusCode::NOT_FOUND.into_response(),
+        None => {}
     }
     let Some(root) = current_dir(&state.config.data_dir, id) else {
         return (StatusCode::SERVICE_UNAVAILABLE, format!("{id} is not installed yet")).into_response();

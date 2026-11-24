@@ -29,7 +29,11 @@ const SHARED_KEYS: &[&str] = &["egui_memory_ron"];
 /// Keys an app keeps that are not options and never go to the server: MailCraft's copy of the
 /// mail itself. They stay in this browser for the person who made them, and go when another
 /// person opens the app here or the person signs out.
-const LOCAL_ONLY: &[&str] = &["mailcraft.mailbox.v1", "calendarcraft.secrets", "calendarcraft.cache"];
+const LOCAL_ONLY: &[&str] = &[
+    "mailcraft.mailbox.v1",
+    "calendarcraft.secrets",
+    "calendarcraft.cache",
+];
 /// Wait this long after the last write before saving.
 const DEBOUNCE_MS: i32 = 1500;
 /// Largest settings object the server takes.

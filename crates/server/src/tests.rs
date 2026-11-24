@@ -27,6 +27,19 @@ impl Env {
         env
     }
 
+    /// Like `boot`, with the configuration changed first.
+    async fn boot_with(change: impl FnOnce(&mut Config)) -> Self {
+        let dir = tempfile::tempdir().expect("temp");
+        let mut config = Config::for_tests(dir.path());
+        change(&mut config);
+        let boot = bootstrap(&config).expect("bootstrap");
+        let state = boot.state.clone();
+        let app = router(boot.state);
+        let mut env = Self { _dir: dir, app, cookie: String::new(), state };
+        env.cookie = env.login("admin", "admin-password-test").await;
+        env
+    }
+
     async fn login(&self, username: &str, password: &str) -> String {
         let (status, headers, _) = self
             .call(Request::builder().method("POST").uri("/api/session").body(Body::from(format!(r#"{{"username":"{username}","password":"{password}"}}"#))).unwrap())
@@ -1171,4 +1184,201 @@ async fn users_change_their_own_password() {
     assert_eq!(env.call(me(&second)).await.0, StatusCode::UNAUTHORIZED, "other sessions end");
     assert_eq!(env.call(me(&first)).await.0, StatusCode::UNAUTHORIZED);
     env.login("ada", "ada-new-password").await;
+}
+
+/// A registry and release host on loopback: files by path, swapped while the test runs.
+mod fake_registry {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    use axum::extract::{Path, State};
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    pub type Files = Arc<Mutex<HashMap<String, Vec<u8>>>>;
+
+    async fn file(State(files): State<Files>, Path(path): Path<String>) -> axum::response::Response {
+        match files.lock().unwrap().get(&path) {
+            Some(bytes) => bytes.clone().into_response(),
+            None => StatusCode::NOT_FOUND.into_response(),
+        }
+    }
+
+    pub async fn start() -> (String, Files) {
+        let files: Files = Arc::default();
+        let app = axum::Router::new().route("/{*path}", axum::routing::get(file)).with_state(files.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (format!("http://{addr}"), files)
+    }
+
+    /// A web build that speaks the host contract.
+    pub fn zip(version: &str) -> Vec<u8> {
+        use std::io::Write;
+        let mut out = std::io::Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(&mut out);
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("index.html", options).unwrap();
+        write!(zip, "<!doctype html><title>DemoCraft {version}</title><script>parent.postMessage('democraft:ready','*') // host=parent</script>").unwrap();
+        zip.finish().unwrap();
+        out.into_inner()
+    }
+}
+
+#[tokio::test]
+async fn apps_are_added_updated_blocked_and_rolled_back_at_runtime() {
+    use crate::registry::{public_key, sign};
+    use sha2::{Digest, Sha256};
+
+    let engine = base64::engine::general_purpose::STANDARD;
+    let registry_seed = engine.encode([7u8; 32]);
+    let app_seed = engine.encode([9u8; 32]);
+    let (base, files) = fake_registry::start().await;
+    let registry_url = format!("{base}/apps.json");
+    let env = Env::boot_with(|config| {
+        config.registry = crate::registry::RegistryConfig { url: registry_url.clone(), keys: vec![public_key(&registry_seed).unwrap()], custom_keys: true };
+    })
+    .await;
+    let get = |uri: &str| Request::builder().uri(uri).body(Body::empty()).unwrap();
+    let send = |method: &str, uri: &str, body: &str| Request::builder().method(method).uri(uri).body(Body::from(body.to_string())).unwrap();
+
+    // Two signed releases of an app this artcraftCloud has never heard of.
+    let mut versions = Vec::new();
+    for version in ["1.0.0", "1.1.0"] {
+        let zip = fake_registry::zip(version);
+        let sha = hex::encode(Sha256::digest(&zip));
+        let asset = format!("democraft-web-{version}.zip");
+        let sums = format!("{sha}  {asset}\n");
+        let mut files = files.lock().unwrap();
+        files.insert(format!("democraft/{version}/SHA256SUMS.txt.sig"), sign(sums.as_bytes(), &app_seed).unwrap().into_bytes());
+        files.insert(format!("democraft/{version}/SHA256SUMS.txt"), sums.into_bytes());
+        files.insert(format!("democraft/{version}/{asset}"), zip);
+        versions.push(serde_json::json!({"version": version, "tag": format!("v{version}"), "asset": asset, "url": format!("{base}/democraft/{version}/{asset}"), "sha256": sha, "signed": "ed25519", "status": "ok"}));
+    }
+    let publish = |serial: u64, versions: &[serde_json::Value]| {
+        let now = crate::registry::unix_now();
+        let registry = serde_json::json!({"schema": 1, "serial": serial, "issued": now, "expires": now + 30 * 86400, "apps": [{
+            "id": "democraft", "title": "DemoCraft", "publisher": "Test", "owner": "test", "repo": "democraft", "blurb": "A demo",
+            "extensions": ["demo"], "bridge": true, "keys": {"ed25519": [public_key(&app_seed).unwrap()]}, "versions": versions,
+        }]});
+        let bytes = serde_json::to_vec_pretty(&registry).unwrap();
+        let mut files = files.lock().unwrap();
+        files.insert("apps.json.sig".into(), sign(&bytes, &registry_seed).unwrap().into_bytes());
+        files.insert("apps.json".into(), bytes);
+    };
+    let admin = |body: &[u8]| -> artcraft_cloud_types::AdminApps { json(body) };
+    let wait_for_job = || async {
+        for _ in 0..200 {
+            let (_, _, body) = env.call(get("/api/admin/apps")).await;
+            let view = admin(&body);
+            let app = view.apps.iter().find(|a| a.id == "democraft").cloned().unwrap();
+            if app.job.as_ref().is_none_or(|j| j.done) {
+                assert!(app.job.as_ref().and_then(|j| j.error.clone()).is_none(), "{:?}", app.job);
+                return app;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        panic!("the install did not finish");
+    };
+
+    // Nothing is trusted before the registry is fetched: the built-in copy has other keys.
+    let (_, _, body) = env.call(get("/api/admin/apps")).await;
+    assert_eq!(admin(&body).registry.source, "none");
+    publish(5, &versions);
+    let (status, _, body) = env.call(send("POST", "/api/admin/apps/refresh", "")).await;
+    assert_eq!(status, StatusCode::OK);
+    let view = admin(&body);
+    assert_eq!((view.registry.source.as_str(), view.registry.serial, view.registry.signature_ok), ("network", 5, true));
+    let demo = view.apps.iter().find(|a| a.id == "democraft").unwrap();
+    assert_eq!((demo.installed.as_deref(), demo.latest.as_deref()), (None, Some("1.1.0")));
+    let (_, _, body) = env.call(get("/api/catalog")).await;
+    assert!(json::<Vec<artcraft_cloud_types::AppStatus>>(&body).is_empty(), "offered on the Apps page, not in the launcher");
+    let (status, _, _) = env.call(get("/apps/democraft/")).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "known, not installed yet");
+    let (status, _, _) = env.call(get("/apps/nocraft/")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Add it, then update it, while the server runs.
+    let (status, _, _) = env.call(send("POST", "/api/admin/apps/democraft/install", r#"{"version":"1.0.0"}"#)).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let demo = wait_for_job().await;
+    assert_eq!((demo.installed.as_deref(), demo.signature.as_deref(), demo.update.as_deref()), (Some("1.0.0"), Some("verified"), Some("1.1.0")));
+    let (_, _, body) = env.call(get("/api/catalog")).await;
+    let catalog: Vec<artcraft_cloud_types::AppStatus> = json(&body);
+    assert!(catalog.iter().any(|a| a.id == "democraft" && a.installed && a.extensions == ["demo"]));
+    let (status, _, body) = env.call(get("/apps/democraft/")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(String::from_utf8_lossy(&body).contains("DemoCraft 1.0.0"));
+    let (status, _, _) = env.call(send("POST", "/api/admin/apps/democraft/install", "{}")).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let demo = wait_for_job().await;
+    assert_eq!((demo.installed.as_deref(), demo.previous.as_deref(), demo.can_roll_back), (Some("1.1.0"), Some("1.0.0"), true));
+    let (_, _, body) = env.call(get("/apps/democraft/")).await;
+    assert!(String::from_utf8_lossy(&body).contains("DemoCraft 1.1.0"));
+
+    // A release whose checksum the registry does not pin is refused.
+    let mut tampered = versions.clone();
+    tampered[0]["sha256"] = serde_json::json!("0".repeat(64));
+    publish(6, &tampered);
+    env.call(send("POST", "/api/admin/apps/refresh", "")).await;
+    let (status, _, _) = env.call(send("POST", "/api/admin/apps/democraft/install", r#"{"version":"1.0.0"}"#)).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    for _ in 0..200 {
+        let (_, _, body) = env.call(get("/api/admin/apps")).await;
+        let job = admin(&body).apps.into_iter().find(|a| a.id == "democraft").and_then(|a| a.job).unwrap();
+        if job.done {
+            assert!(job.error.is_some_and(|e| e.contains("sha") || e.contains("checksum") || e.contains("SHA")), "a wrong checksum fails");
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+
+    // The registry blocks 1.1.0 for security: the server goes back to 1.0.0 on the next check.
+    let mut blocked = versions.clone();
+    blocked[1]["status"] = serde_json::json!("blocked");
+    blocked[1]["reason"] = serde_json::json!("leaks documents");
+    blocked[1]["security"] = serde_json::json!(true);
+    publish(7, &blocked);
+    let (_, _, body) = env.call(send("POST", "/api/admin/apps/refresh", "")).await;
+    let view = admin(&body);
+    let demo = view.apps.iter().find(|a| a.id == "democraft").unwrap();
+    assert_eq!((demo.installed.as_deref(), demo.state.as_str()), (Some("1.0.0"), "ok"));
+    let alert = view.alerts.iter().find(|a| a.app == "democraft").expect("an alert");
+    assert_eq!((alert.version.as_str(), alert.action.as_deref(), alert.to.as_deref(), alert.reason.as_str()), ("1.1.0", Some("rolled_back"), Some("1.0.0"), "leaks documents"));
+    let (_, _, body) = env.call(get("/apps/democraft/")).await;
+    assert!(String::from_utf8_lossy(&body).contains("DemoCraft 1.0.0"));
+    let (status, _, _) = env.call(send("POST", "/api/admin/apps/democraft/install", r#"{"version":"1.1.0"}"#)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a blocked version cannot be installed");
+    let (_, _, body) = env.call(send("POST", "/api/admin/apps/democraft/dismiss", "")).await;
+    assert!(admin(&body).alerts.is_empty());
+
+    // An older registry (a replayed or rolled-back copy) and a badly signed one are refused.
+    publish(6, &versions);
+    let (_, _, body) = env.call(send("POST", "/api/admin/apps/refresh", "")).await;
+    let view = admin(&body);
+    assert_eq!(view.registry.serial, 7);
+    assert!(view.registry.last_error.is_some());
+    publish(8, &versions);
+    files.lock().unwrap().insert("apps.json.sig".into(), sign(b"something else", &registry_seed).unwrap().into_bytes());
+    let (_, _, body) = env.call(send("POST", "/api/admin/apps/refresh", "")).await;
+    assert_eq!(admin(&body).registry.serial, 7);
+
+    // Disabled apps are not served; removed ones leave the catalog.
+    let (status, _, _) = env.call(send("PUT", "/api/admin/apps/democraft/settings", r#"{"disabled":true}"#)).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = env.call(get("/apps/democraft/")).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = env.call(send("DELETE", "/api/admin/apps/democraft", "")).await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, _, body) = env.call(get("/api/catalog")).await;
+    assert!(json::<Vec<artcraft_cloud_types::AppStatus>>(&body).is_empty());
+
+    // Only the super admin manages apps.
+    env.call(send("POST", "/api/users", r#"{"username":"ada","password":"ada-password","role":"admin"}"#)).await;
+    let ada = env.login("ada", "ada-password").await;
+    let mut req = get("/api/admin/apps");
+    req.headers_mut().insert(header::COOKIE, ada.parse().unwrap());
+    let (status, _, _) = env.call(req).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }

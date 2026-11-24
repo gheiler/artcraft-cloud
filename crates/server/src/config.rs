@@ -21,7 +21,6 @@ pub struct Config {
     pub cookie_secure: CookieSecure,
     pub session_ttl_secs: i64,
     pub skip_app_sync: bool,
-    pub github_token: Option<String>,
     pub max_upload_bytes: u64,
     pub argon_memory_kib: u32,
     pub argon_time: u32,
@@ -29,6 +28,10 @@ pub struct Config {
     pub oidc_issuer: Option<String>,
     /// Mail server base URL to suggest in Settings › Mail (`ARTCRAFT_MAIL_URL`).
     pub mail_url: Option<String>,
+    /// Where the app registry comes from and the keys it must be signed with.
+    pub registry: crate::registry::RegistryConfig,
+    /// What a registry block does to an installed version (`ARTCRAFT_BLOCKED_APPS`).
+    pub blocked_apps: crate::apps::BlockAction,
 }
 
 impl Config {
@@ -54,7 +57,6 @@ impl Config {
             .map(|h| h.saturating_mul(3600))
             .unwrap_or(14 * 24 * 3600);
         let skip_app_sync = matches!(std::env::var("ARTCRAFT_SKIP_APP_SYNC").ok().as_deref(), Some("1") | Some("true") | Some("yes"));
-        let github_token = std::env::var("ARTCRAFT_GITHUB_TOKEN").ok().filter(|s| !s.is_empty());
         let max_upload_bytes = std::env::var("ARTCRAFT_MAX_UPLOAD_MB")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
@@ -73,13 +75,14 @@ impl Config {
             cookie_secure,
             session_ttl_secs,
             skip_app_sync,
-            github_token,
             max_upload_bytes,
             argon_memory_kib: 19 * 1024,
             argon_time: 2,
             argon_parallelism: 1,
             oidc_issuer,
             mail_url,
+            registry: crate::registry::RegistryConfig::from_env(),
+            blocked_apps: crate::apps::BlockAction::from_env(),
         })
     }
 
@@ -94,13 +97,14 @@ impl Config {
             cookie_secure: CookieSecure::No,
             session_ttl_secs: 3600,
             skip_app_sync: true,
-            github_token: None,
             max_upload_bytes: 8 * 1024 * 1024,
             argon_memory_kib: 8,
             argon_time: 1,
             argon_parallelism: 1,
             oidc_issuer: None,
             mail_url: None,
+            registry: crate::registry::RegistryConfig::builtin(),
+            blocked_apps: crate::apps::BlockAction::Security,
         }
     }
 

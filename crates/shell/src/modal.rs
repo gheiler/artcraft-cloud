@@ -1,8 +1,9 @@
 //! Dialogs. Every question the shell asks goes through one of these instead of the browser's
 //! `alert`, `prompt` or `confirm`.
 
+use crate::catalog::app_by_id;
 use crate::i18n::{t, tf};
-use artcraft_cloud_types::{app_by_id, Directory, FileEntry, Share};
+use artcraft_cloud_types::{Directory, FileEntry, Share};
 use leptos::prelude::*;
 
 use crate::api;

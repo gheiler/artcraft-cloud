@@ -33,12 +33,16 @@ pub enum Icon {
     Chevron,
     Mail,
     Key,
+    Apps,
 }
 
 fn paths(icon: Icon) -> &'static str {
     match icon {
         Icon::Mail => {
             r#"<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/>"#
+        }
+        Icon::Apps => {
+            r#"<rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><path d="M17 14v6M14 17h6"/>"#
         }
         Icon::Key => {
             r#"<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9"/><path d="m17 6 3 3"/><path d="m15 8 2 2"/>"#
@@ -113,9 +117,9 @@ pub fn icon(icon: Icon) -> impl IntoView {
     }
 }
 
-/// Path of the app's own icon (from its repository's `assets/app-icon`, MIT OR Apache-2.0).
+/// The app's own icon, as the app registry names it (the shell's copy when it names none).
 pub fn app_icon_src(app: &str) -> String {
-    format!("/assets/icons/{app}.png")
+    format!("/api/apps/{app}/icon")
 }
 
 pub fn app_icon(app: &str, class: &'static str) -> impl IntoView {

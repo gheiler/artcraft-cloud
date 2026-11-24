@@ -6,6 +6,7 @@
 //! | `/`, `/files/<folder>` | My files |
 //! | `/shared`, `/shared/<id>/<folder>` | Shared with me / inside a share |
 //! | `/trash`, `/people` | Trash, People (admins) |
+//! | `/admin/apps` | Apps (super admin) |
 //! | `/settings` | Settings |
 //! | `/s/<token>` | A public link |
 //! | `/open/<path>` (`?app=<id>`) | A file of mine, full screen |
@@ -19,6 +20,7 @@ pub enum Route {
     Share(i64, String),
     Trash,
     People,
+    Apps,
     Mail,
     Settings,
     Public(String),
@@ -62,6 +64,7 @@ impl Route {
             Some("files") => Route::Files(rest(1)),
             Some("trash") => Route::Trash,
             Some("people") => Route::People,
+            Some("admin") if segments.get(1).map(String::as_str) == Some("apps") => Route::Apps,
             Some("mail") => Route::Mail,
             Some("settings") => Route::Settings,
             Some("s") => Route::Public(segments.get(1).cloned().unwrap_or_default()),
@@ -96,6 +99,7 @@ impl Route {
             Route::Share(id, folder) => format!("/shared/{id}/{}", encode_path(folder)),
             Route::Trash => "/trash".into(),
             Route::People => "/people".into(),
+            Route::Apps => "/admin/apps".into(),
             Route::Mail => "/mail".into(),
             Route::Settings => "/settings".into(),
             Route::Public(token) => format!("/s/{token}"),

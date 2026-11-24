@@ -1,4 +1,5 @@
 mod apps;
+mod maintain;
 
 use std::process::ExitCode;
 
@@ -22,6 +23,11 @@ enum Command {
     Apps {
         #[command(subcommand)]
         cmd: AppsCmd,
+    },
+    /// Maintain the app registry file (`registry/apps.json` in the artcraft-cloud repository).
+    Registry {
+        #[command(subcommand)]
+        cmd: RegistryCmd,
     },
     /// Create or disable accounts.
     User {
@@ -62,17 +68,18 @@ enum MailCmd {
 
 #[derive(Subcommand)]
 enum AppsCmd {
-    /// Download the latest signed web builds. Pass an app id to limit the run.
+    /// Install what the registry recommends: every installed app (and the default ones missing),
+    /// or one app. Only versions the signed registry allows are installed.
     Update {
         app: Option<String>,
-        /// Install this release (e.g. 0.18.0) instead of the latest; needs an app id.
+        /// Install this allowed version (e.g. 0.18.0) instead; needs an app id.
         #[arg(long, requires = "app")]
         version: Option<String>,
     },
     /// Switch one app back to the version kept from the previous update.
     Rollback { app: String },
     /// Install a web build from a local archive (a build of your own, or one copied in by
-    /// hand). It must still carry the host bridge when the app has one.
+    /// hand). The app must be in the registry and still carry the host bridge when it has one.
     Install {
         app: String,
         /// The `<app>-web-<version>.zip` archive.
@@ -81,8 +88,185 @@ enum AppsCmd {
         #[arg(long)]
         version: String,
     },
-    /// Show the catalog and what is installed.
+    /// Delete an app's files (documents stay); it is not installed again by itself.
+    Remove { app: String },
+    /// Hide an app from everyone and stop serving it.
+    Disable { app: String },
+    /// Serve a disabled app again.
+    Enable { app: String },
+    /// Turn auto-update on or off for one app.
+    AutoUpdate {
+        app: String,
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
+    /// The registry's apps and what is installed.
     List,
+    /// The signed app registry this server uses.
+    Registry {
+        #[command(subcommand)]
+        cmd: AppsRegistryCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum AppsRegistryCmd {
+    /// Fetch and verify the registry now, and apply its blocks.
+    Refresh,
+    /// Where the registry comes from, the one in use, and its apps.
+    Show,
+}
+
+#[derive(Subcommand)]
+enum RegistryCmd {
+    /// Make an ed25519 key pair for signing the registry (NAME.key, NAME.pub).
+    Keygen {
+        #[arg(long)]
+        out_dir: std::path::PathBuf,
+        #[arg(long, default_value = "registry")]
+        name: String,
+    },
+    /// List a new app (then add a version).
+    AddApp {
+        id: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        publisher: String,
+        /// GitHub owner of the releases.
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        repo: String,
+        #[arg(long, default_value = "")]
+        blurb: String,
+        /// File types it opens, comma separated (e.g. docx,odt).
+        #[arg(long, value_delimiter = ',')]
+        ext: Vec<String>,
+        /// The web build speaks the craft-web-host bridge (opens and saves drive files).
+        #[arg(long)]
+        bridge: bool,
+        #[arg(long)]
+        author_query: bool,
+        #[arg(long)]
+        chrome_query: bool,
+        /// Install it by itself on new installs.
+        #[arg(long)]
+        default_install: bool,
+        /// An ed25519 public key (base64) that signs the app's SHA256SUMS.txt; repeatable.
+        #[arg(long)]
+        ed25519_key: Vec<String>,
+        /// An OpenPGP fingerprint that signs the app's SHA256SUMS.txt.asc; repeatable.
+        #[arg(long)]
+        openpgp_key: Vec<String>,
+        /// An https URL of a PNG icon (its SHA-256 is pinned).
+        #[arg(long)]
+        icon_url: Option<String>,
+        /// The icon file, when the URL is not published yet.
+        #[arg(long, requires = "icon_url")]
+        icon_file: Option<std::path::PathBuf>,
+        #[arg(long, default_value = "registry/apps.json")]
+        file: std::path::PathBuf,
+    },
+    /// Download a release, check it and list it as allowed.
+    AddVersion {
+        app: String,
+        version: String,
+        /// Release tag (default v<version>).
+        #[arg(long)]
+        tag: Option<String>,
+        /// Archive name (default <app>-web-<version>.zip).
+        #[arg(long)]
+        asset: Option<String>,
+        /// Download address, when not the GitHub release asset.
+        #[arg(long)]
+        url: Option<String>,
+        /// Make it the recommended version.
+        #[arg(long)]
+        recommend: bool,
+        /// Pin the OpenPGP key the release is signed with (after checking its fingerprint).
+        #[arg(long)]
+        trust_key: bool,
+        #[arg(long)]
+        min_cloud: Option<String>,
+        #[arg(long)]
+        max_cloud: Option<String>,
+        /// Recompute a version that is already listed.
+        #[arg(long)]
+        replace: bool,
+        #[command(flatten)]
+        common: RegistryFile,
+    },
+    /// Block a version (compromised, broken); installs running it are warned, and for --security
+    /// rolled back or disabled.
+    Block {
+        app: String,
+        version: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long)]
+        security: bool,
+        #[command(flatten)]
+        common: RegistryFile,
+    },
+    /// Set a version's status: ok, blocked or incompatible (with --min-cloud / --max-cloud).
+    SetStatus {
+        app: String,
+        version: String,
+        #[arg(value_parser = ["ok", "blocked", "incompatible"])]
+        status: String,
+        #[arg(long)]
+        reason: Option<String>,
+        #[arg(long)]
+        security: bool,
+        #[arg(long)]
+        min_cloud: Option<String>,
+        #[arg(long)]
+        max_cloud: Option<String>,
+        #[command(flatten)]
+        common: RegistryFile,
+    },
+    /// Set (or with no version, clear) the recommended version.
+    Recommend {
+        app: String,
+        version: Option<String>,
+        #[command(flatten)]
+        common: RegistryFile,
+    },
+    /// Bump the serial and the expiry date and sign (the monthly CI run).
+    Renew {
+        #[command(flatten)]
+        common: RegistryFile,
+    },
+    /// Sign the file as it is (apps.json.sig).
+    Sign {
+        #[command(flatten)]
+        common: RegistryFile,
+    },
+    /// Check the signature (built-in keys unless --key) and the structure.
+    Verify {
+        #[arg(long, default_value = "registry/apps.json")]
+        file: std::path::PathBuf,
+        /// A public key to check against instead of the built-in ones; repeatable.
+        #[arg(long = "key")]
+        keys: Vec<String>,
+        /// An older copy: the serial must have grown if the file changed.
+        #[arg(long)]
+        against: Option<std::path::PathBuf>,
+        /// Do not fail on a missing or stale signature (a pull request before CI signs).
+        #[arg(long)]
+        unsigned_ok: bool,
+    },
+}
+
+#[derive(clap::Args)]
+struct RegistryFile {
+    /// The registry file.
+    #[arg(long, default_value = "registry/apps.json")]
+    file: std::path::PathBuf,
+    /// The private key (base64 ed25519 seed); default ARTCRAFT_REGISTRY_SIGNING_KEY.
+    #[arg(long)]
+    key_file: Option<std::path::PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -125,30 +309,57 @@ async fn run(command: Command) -> Result<(), String> {
             if let Some(password) = &boot.generated_admin_password {
                 print_generated_password(password);
             }
-            if !config.skip_app_sync {
-                let data = config.data_dir.clone();
-                let token = config.github_token.clone();
-                tokio::spawn(async move {
-                    if let Err(err) = apps::sync_missing(&data, token.as_deref()).await {
-                        tracing::error!("{err}");
-                    }
-                });
-            }
             let listen = config.listen;
             serve(boot.state, listen).await.map_err(|err| err.to_string())
         }
         Command::Healthcheck => healthcheck(&config),
         Command::Apps { cmd } => match cmd {
-            AppsCmd::Update { app, version } => apps::update(&config.data_dir, config.github_token.as_deref(), app.as_deref(), version.as_deref()).await,
-            AppsCmd::Rollback { app } => apps::rollback(&config.data_dir, &app),
-            AppsCmd::Install { app, zip, version } => apps::install_local(&config.data_dir, &app, &version, &zip),
-            AppsCmd::List => {
-                apps::print_list(&config.data_dir);
-                Ok(())
-            }
+            AppsCmd::Update { app, version } => apps::update(&config, app.as_deref(), version.as_deref()).await,
+            AppsCmd::Rollback { app } => apps::rollback(&config, &app),
+            AppsCmd::Install { app, zip, version } => apps::install_local(&config, &app, &version, &zip),
+            AppsCmd::Remove { app } => apps::remove(&config, &app),
+            AppsCmd::Disable { app } => apps::settings(&config, &app, None, Some(true)),
+            AppsCmd::Enable { app } => apps::settings(&config, &app, None, Some(false)),
+            AppsCmd::AutoUpdate { app, state } => apps::settings(&config, &app, Some(state == "on"), None),
+            AppsCmd::List => apps::list(&config),
+            AppsCmd::Registry { cmd: AppsRegistryCmd::Refresh } => apps::registry_refresh(&config).await,
+            AppsCmd::Registry { cmd: AppsRegistryCmd::Show } => apps::registry_show(&config),
         },
+        Command::Registry { cmd } => registry_cmd(cmd).await,
         Command::User { cmd } => user_cmd(&config, cmd),
         Command::Mail { cmd } => mail_cmd(&config, cmd).await,
+    }
+}
+
+async fn registry_cmd(cmd: RegistryCmd) -> Result<(), String> {
+    use artcraft_cloud_types::registry::VersionStatus;
+    match cmd {
+        RegistryCmd::Keygen { out_dir, name } => maintain::keygen(&out_dir, &name),
+        RegistryCmd::AddApp { id, title, publisher, owner, repo, blurb, ext, bridge, author_query, chrome_query, default_install, ed25519_key, openpgp_key, icon_url, icon_file, file } => {
+            let new = maintain::NewApp { id, title, publisher, owner, repo, blurb, extensions: ext, bridge, author_query, chrome_query, default_install, ed25519: ed25519_key, openpgp: openpgp_key, icon_url, icon_file };
+            maintain::add_app(&file, new).await
+        }
+        RegistryCmd::AddVersion { app, version, tag, asset, url, recommend, trust_key, min_cloud, max_cloud, replace, common } => {
+            let new = maintain::NewVersion { app, version, tag, asset, url, recommend, trust_key, min_cloud, max_cloud, replace };
+            maintain::add_version(&common.file, new, common.key_file.as_deref()).await
+        }
+        RegistryCmd::Block { app, version, reason, security, common } => {
+            let change = maintain::StatusChange { status: VersionStatus::Blocked, reason: Some(reason), security, min_cloud: None, max_cloud: None };
+            maintain::set_status(&common.file, &app, &version, change, common.key_file.as_deref())
+        }
+        RegistryCmd::SetStatus { app, version, status, reason, security, min_cloud, max_cloud, common } => {
+            let status = match status.as_str() {
+                "blocked" => VersionStatus::Blocked,
+                "incompatible" => VersionStatus::Incompatible,
+                _ => VersionStatus::Ok,
+            };
+            let change = maintain::StatusChange { status, reason, security, min_cloud, max_cloud };
+            maintain::set_status(&common.file, &app, &version, change, common.key_file.as_deref())
+        }
+        RegistryCmd::Recommend { app, version, common } => maintain::recommend(&common.file, &app, version.as_deref(), common.key_file.as_deref()),
+        RegistryCmd::Renew { common } => maintain::renew(&common.file, common.key_file.as_deref()),
+        RegistryCmd::Sign { common } => maintain::sign_file(&common.file, common.key_file.as_deref(), true),
+        RegistryCmd::Verify { file, keys, against, unsigned_ok } => maintain::verify(&file, &keys, against.as_deref(), unsigned_ok),
     }
 }
 

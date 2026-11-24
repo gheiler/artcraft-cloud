@@ -22,6 +22,9 @@ pub struct AppState {
     pub throttle: Arc<Throttle>,
     pub basic_cache: Arc<BasicCache>,
     pub dummy_hash: Arc<String>,
+    pub registry: Arc<crate::registry::RegistryStore>,
+    /// Installs and updates started from the Apps page, by app id.
+    pub app_jobs: Arc<std::sync::Mutex<std::collections::HashMap<String, artcraft_cloud_types::AppJob>>>,
 }
 
 pub struct Boot {
@@ -81,6 +84,8 @@ pub fn bootstrap(config: &Config) -> Result<Boot, Error> {
         throttle: Arc::new(Throttle::default()),
         basic_cache: Arc::new(BasicCache::default()),
         dummy_hash,
+        registry: Arc::new(crate::registry::RegistryStore::new(&config.data_dir, config.registry.clone())),
+        app_jobs: Arc::default(),
     };
     Ok(Boot { state, generated_admin_password: generated })
 }

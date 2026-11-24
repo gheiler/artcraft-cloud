@@ -1,13 +1,12 @@
 //! The drive: folders, files, shares and the trash.
 
 use crate::i18n::{t, tf};
-use artcraft_cloud_types::{
-    app_by_id, app_for_name, catalog, AppStatus, FileEntry, Share, TrashEntry,
-};
+use artcraft_cloud_types::{AppStatus, FileEntry, Share, TrashEntry};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
 
 use crate::api;
+use crate::catalog::{app_by_id, app_for_name, catalog};
 use crate::editor::{file_name, parent_folder, Launch, SaveKind};
 use crate::icons::{app_icon, icon, Icon};
 use crate::route::Route;
@@ -265,7 +264,7 @@ async fn load(
     let ui = ui();
     if !matches!(route, Route::Public(_)) {
         if let Ok(list) = api::apps().await {
-            let _ = ui.apps.try_set(list);
+            crate::catalog::adopt(ui, list);
         }
     }
     match route {
@@ -328,7 +327,12 @@ async fn load(
         Route::Trash => {
             let _ = trash.try_set(api::trash().await?);
         }
-        Route::People | Route::Mail | Route::Settings | Route::Open { .. } | Route::New { .. } => {}
+        Route::People
+        | Route::Apps
+        | Route::Mail
+        | Route::Settings
+        | Route::Open { .. }
+        | Route::New { .. } => {}
     }
     Ok(())
 }
@@ -798,8 +802,24 @@ pub fn apps_for(name: &str, apps: &[AppStatus]) -> Vec<(String, String, bool, bo
 mod tests {
     use super::*;
 
+    fn app(id: &str, title: &str, extensions: &[&str]) -> AppStatus {
+        AppStatus {
+            id: id.into(),
+            title: title.into(),
+            extensions: extensions.iter().map(|e| e.to_string()).collect(),
+            bridge: true,
+            ..AppStatus::default()
+        }
+    }
+
     #[test]
     fn files_map_to_app_icons() {
+        crate::catalog::set(&[
+            app("wordcraft", "WordCraft", &["docx", "txt"]),
+            app("gridcraft", "GridCraft", &["xlsx"]),
+            app("pdfcraft", "PdfCraft", &["pdf"]),
+            app("lightcraft", "LightCraft", &["jpg"]),
+        ]);
         assert_eq!(app_of_name("Hola.docx"), Some("wordcraft"));
         assert_eq!(app_of_name("Book1.XLSX"), Some("gridcraft"));
         assert_eq!(

@@ -1,6 +1,7 @@
 //! artcraftCloud server: one process for accounts, files, sharing, WebDAV and
 //! the static Crafting App builds.
 
+pub mod apps;
 mod config;
 mod db;
 mod error;
@@ -9,6 +10,7 @@ mod manifest;
 mod oidc;
 mod password;
 mod paths;
+pub mod registry;
 mod state;
 mod sniff;
 mod static_files;
@@ -35,6 +37,8 @@ pub async fn serve(state: AppState, listen: std::net::SocketAddr) -> Result<(), 
     tracing::info!(%listen, "artcraftCloud listening");
     // Mailbox password changes that could not reach the mail server are retried from here.
     tokio::spawn(http::mail::retry_loop(state.clone()));
+    // The app registry, its blocks, auto-updates, and the default apps of a new install.
+    tokio::spawn(http::apps::apps_loop(state.clone()));
     axum::serve(listener, router(state)).with_graceful_shutdown(shutdown_signal()).await
 }
 
@@ -42,6 +46,16 @@ pub async fn serve(state: AppState, listen: std::net::SocketAddr) -> Result<(), 
 /// stored, without the secret.
 pub async fn mail_connect(state: &AppState, update: artcraft_cloud_types::MailConfigUpdate) -> Result<artcraft_cloud_types::MailConfig, String> {
     http::mail::connect(state, &update).await.map_err(|err| err.message)
+}
+
+/// Fetch the registry, apply its blocks and fetch icons (`artcraft-cloud apps registry refresh`).
+pub async fn registry_refresh(state: &AppState) -> Result<(), String> {
+    http::apps::refresh_and_enforce(state).await
+}
+
+/// The Apps page's view (`artcraft-cloud apps list` / `apps registry show`).
+pub fn apps_view(state: &AppState) -> artcraft_cloud_types::AdminApps {
+    http::apps::admin_view(state)
 }
 
 /// Check the stored mail connection (`artcraft-cloud mail test`).

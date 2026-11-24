@@ -1,4 +1,6 @@
 mod api;
+mod apps_admin;
+mod catalog;
 mod drive;
 mod editor;
 mod i18n;
@@ -13,7 +15,7 @@ mod settings;
 mod ui;
 
 use crate::i18n::t;
-use artcraft_cloud_types::app_by_id;
+use catalog::app_by_id;
 use drive::{open_file, Drive};
 use editor::{install, EditorFrame, Launch, SaveKind};
 use icons::{icon, Icon};
@@ -52,14 +54,20 @@ pub fn App() -> impl IntoView {
         if let Ok(me) = api::me().await {
             editor.author.set(me.display_name.clone());
             let prefs = api::preferences().await;
+            let super_admin = me.super_admin;
             ui.user.set(Some(me));
+            if super_admin {
+                apps_admin::load_alerts(ui);
+            }
             if let Ok(prefs) = prefs {
                 preferences::adopt(prefs);
             }
             editor.load_shell_settings();
             if let Ok(list) = api::apps().await {
-                ui.apps.set(list);
+                catalog::adopt(ui, list);
             }
+        } else if let Ok(list) = api::catalog().await {
+            catalog::adopt(ui, list);
         }
         checked.set(true);
     });
@@ -219,7 +227,7 @@ fn Login() -> impl IntoView {
                             }
                             ui.editor.load_shell_settings();
                             if let Ok(list) = api::apps().await {
-                                ui.apps.set(list);
+                                catalog::adopt(ui, list);
                             }
                             // Re-read the address: a document link opens once signed in.
                             ui.route.set(location_route());
@@ -280,6 +288,7 @@ fn Workspace() -> impl IntoView {
                     </Show>
                     <Show when=move || ui.user.with(|u| u.as_ref().is_some_and(|u| u.super_admin))>
                         {nav(t("Mail"), Icon::Mail, Route::Mail)}
+                        {nav(t("Apps"), Icon::Apps, Route::Apps)}
                     </Show>
                 </nav>
                 <div class="sidebar-who">
@@ -302,9 +311,16 @@ fn Workspace() -> impl IntoView {
         </Show>
         <main class="content">
             <Show when=move || !ui.route.get().is_doc()>
+                <apps_admin::AppAlerts />
                 <Show when=move || matches!(ui.route.get(), Route::Settings) fallback=move || view! {
                     <Show when=move || matches!(ui.route.get(), Route::People) fallback=move || view! {
-                        <Show when=move || matches!(ui.route.get(), Route::Mail) fallback=|| view! { <Drive /> }>
+                        <Show when=move || matches!(ui.route.get(), Route::Mail) fallback=move || view! {
+                            <Show when=move || matches!(ui.route.get(), Route::Apps) fallback=|| view! { <Drive /> }>
+                                <Show when=move || ui.user.with(|u| u.as_ref().is_some_and(|u| u.super_admin)) fallback=|| view! { <p class="empty">{t("Only the super admin manages apps.")}</p> }>
+                                    <apps_admin::AppsPage />
+                                </Show>
+                            </Show>
+                        }>
                             <Show when=move || ui.user.with(|u| u.as_ref().is_some_and(|u| u.super_admin)) fallback=|| view! { <p class="empty">{t("Only the super admin sets up mail.")}</p> }>
                                 <mail::MailPage />
                             </Show>

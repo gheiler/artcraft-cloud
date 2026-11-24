@@ -4,7 +4,7 @@
 //! options there (`artcraft_cloud_types::prefs`), so each app takes it the next time it opens;
 //! the shell applies the theme at once and reloads for a new language.
 
-use artcraft_cloud_types::catalog;
+use crate::catalog::catalog;
 use artcraft_cloud_types::prefs::{self, Field, Preferences, LANGUAGES};
 use leptos::prelude::*;
 

@@ -1,7 +1,7 @@
 //! State every view shares, handed down through Leptos context.
 
 use artcraft_cloud_types::prefs::Preferences;
-use artcraft_cloud_types::{AppStatus, User};
+use artcraft_cloud_types::{AppAlert, AppStatus, User};
 use leptos::prelude::*;
 
 use crate::editor::Editor;
@@ -66,6 +66,8 @@ pub struct Ui {
     pub toast: RwSignal<String>,
     pub modal: RwSignal<Option<Modal>>,
     pub apps: RwSignal<Vec<AppStatus>>,
+    /// Installed versions the app registry blocks (super admin).
+    pub app_alerts: RwSignal<Vec<AppAlert>>,
     pub tick: RwSignal<u32>,
     /// The open document was reached from the drive (so Back returns there in history).
     pub from_drive: RwSignal<bool>,
@@ -83,6 +85,7 @@ impl Ui {
             toast: RwSignal::new(String::new()),
             modal: RwSignal::new(None),
             apps: RwSignal::new(Vec::new()),
+            app_alerts: RwSignal::new(Vec::new()),
             tick: RwSignal::new(0),
             from_drive: RwSignal::new(false),
             sidebar_collapsed: RwSignal::new(local_flag(SIDEBAR_KEY)),

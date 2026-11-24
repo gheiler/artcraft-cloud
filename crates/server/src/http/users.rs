@@ -3,12 +3,11 @@ use axum::http::StatusCode;
 use axum::Json;
 
 use crate::error::ApiError;
-use crate::manifest::read_manifest;
 use crate::password::hash_password;
 use crate::paths::{check_password_policy, display_name_of, normalize_username};
 use crate::state::AppState;
 use artcraft_cloud_types::{
-    AdminPasswordReset, AppStatus, CreateGroupRequest, CreateUserRequest, Directory, DirectoryGroup, DirectoryUser, Group, GroupMemberRequest, PasswordChanged, SetRoleRequest, User,
+    AdminPasswordReset, CreateGroupRequest, CreateUserRequest, Directory, DirectoryGroup, DirectoryUser, Group, GroupMemberRequest, PasswordChanged, SetRoleRequest, User,
 };
 
 use super::session::AuthUser;
@@ -136,27 +135,6 @@ pub async fn reset_password(
     Ok(Json(super::mail::sync_password(&state, id, &body.password).await))
 }
 
-pub async fn apps(State(state): State<AppState>, AuthUser(_user): AuthUser) -> Json<Vec<AppStatus>> {
-    let manifest = read_manifest(&state.config.data_dir);
-    let apps = artcraft_cloud_types::catalog()
-        .iter()
-        .map(|app| {
-            let installed = manifest.apps.get(app.id);
-            AppStatus {
-                id: app.id.to_string(),
-                title: app.title.to_string(),
-                blurb: app.blurb.to_string(),
-                extensions: app.extensions.iter().map(|ext| (*ext).to_string()).collect(),
-                installed: installed.is_some(),
-                version: installed.map(|row| row.version.clone()),
-                previous: installed.and_then(|row| row.previous.clone()),
-                signature: installed.map(|row| row.signature.clone()),
-            }
-        })
-        .collect();
-    Json(apps)
-}
-
 /// `POST /api/users/{id}/role`: promote to admin or demote to user. Only the super admin may.
 pub async fn set_role(
     State(state): State<AppState>,
@@ -254,8 +232,8 @@ fn member_of(state: &AppState, group: i64, username: &str) -> Result<i64, ApiErr
 /// Largest settings blob one app may store for one user.
 pub const SETTINGS_LIMIT: usize = 1024 * 1024;
 
-fn settings_key(app: &str) -> Result<&str, ApiError> {
-    if app == "shell" || artcraft_cloud_types::catalog().iter().any(|row| row.id == app) {
+fn settings_key<'a>(state: &AppState, app: &'a str) -> Result<&'a str, ApiError> {
+    if app == "shell" || (artcraft_cloud_types::registry::valid_id(app) && super::apps::known_ids(state).iter().any(|id| id == app)) {
         Ok(app)
     } else {
         Err(ApiError::new(StatusCode::NOT_FOUND, "no such app"))
@@ -265,14 +243,14 @@ fn settings_key(app: &str) -> Result<&str, ApiError> {
 /// `GET /api/settings/{app}`: the JSON object the shell stored for this user and app, or `{}`.
 pub async fn get_settings(State(state): State<AppState>, AuthUser(user): AuthUser, Path(app): Path<String>) -> Result<axum::response::Response, ApiError> {
     use axum::response::IntoResponse;
-    let key = settings_key(&app)?;
+    let key = settings_key(&state, &app)?;
     let data = state.db.setting(user.id, key).map_err(ApiError::from)?.unwrap_or_else(|| "{}".to_string());
     Ok(([(axum::http::header::CONTENT_TYPE, "application/json"), (axum::http::header::CACHE_CONTROL, "no-store")], data).into_response())
 }
 
 /// `PUT /api/settings/{app}`: replace the stored settings. The body must be a JSON object.
 pub async fn put_settings(State(state): State<AppState>, AuthUser(user): AuthUser, Path(app): Path<String>, body: axum::body::Bytes) -> Result<StatusCode, ApiError> {
-    let key = settings_key(&app)?;
+    let key = settings_key(&state, &app)?;
     if body.len() > SETTINGS_LIMIT {
         return Err(ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "settings are limited to 1 MiB per app"));
     }
@@ -332,17 +310,18 @@ pub async fn put_preferences(State(state): State<AppState>, AuthUser(user): Auth
     let text = serde_json::to_string(&next).map_err(|err| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
     state.db.put_setting(user.id, PREFERENCES_KEY, &text).map_err(ApiError::from)?;
     if !changed.is_empty() {
-        for app in artcraft_cloud_types::catalog() {
-            let stored = state.db.setting(user.id, app.id).map_err(ApiError::from)?;
+        for app in super::apps::known_ids(&state) {
+            let app = app.as_str();
+            let stored = state.db.setting(user.id, app).map_err(ApiError::from)?;
             let mut map = match stored.as_deref().map(serde_json::from_str::<serde_json::Value>) {
                 Some(Ok(serde_json::Value::Object(map))) => map,
                 Some(_) => continue,
                 None => serde_json::Map::new(),
             };
-            if prefs::apply(app.id, &next, &changed, &user.display_name, prefs::Mode::Override, &mut map) {
+            if prefs::apply(app, &next, &changed, &user.display_name, prefs::Mode::Override, &mut map) {
                 let text = serde_json::Value::Object(map).to_string();
                 if text.len() <= SETTINGS_LIMIT {
-                    state.db.put_setting(user.id, app.id, &text).map_err(ApiError::from)?;
+                    state.db.put_setting(user.id, app, &text).map_err(ApiError::from)?;
                 }
             }
         }

@@ -142,6 +142,11 @@ pub async fn apps() -> Result<Vec<AppStatus>, String> {
     get_json("/api/apps").await
 }
 
+/// The apps without signing in (public share pages).
+pub async fn catalog() -> Result<Vec<AppStatus>, String> {
+    get_json("/api/catalog").await
+}
+
 pub async fn trash() -> Result<Vec<TrashEntry>, String> {
     get_json("/api/trash").await
 }

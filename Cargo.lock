@@ -137,21 +137,12 @@ dependencies = [
  "artcraft-cloud-server",
  "artcraft-cloud-types",
  "base64 0.22.1",
- "brotli",
  "clap",
- "ed25519-dalek",
- "flate2",
- "fs2",
- "hex",
  "reqwest",
- "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "tokio",
- "tracing",
  "tracing-subscriber",
- "zip",
 ]
 
 [[package]]
@@ -162,8 +153,12 @@ dependencies = [
  "artcraft-cloud-types",
  "axum",
  "base64 0.22.1",
+ "brotli",
  "bytes",
  "chacha20poly1305",
+ "ed25519-dalek",
+ "flate2",
+ "fs2",
  "futures-util",
  "hex",
  "hmac",
@@ -184,6 +179,7 @@ dependencies = [
  "tower",
  "tracing",
  "url",
+ "zip",
 ]
 
 [[package]]
