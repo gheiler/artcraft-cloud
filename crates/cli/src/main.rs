@@ -226,6 +226,18 @@ enum RegistryCmd {
         #[command(flatten)]
         common: RegistryFile,
     },
+    /// Pin an existing app's release keys (replaces the list of each kind that is given).
+    SetKeys {
+        app: String,
+        /// An ed25519 public key (base64) that signs the app's SHA256SUMS.txt; repeatable, first in use.
+        #[arg(long)]
+        ed25519_key: Vec<String>,
+        /// An OpenPGP fingerprint that signs the app's SHA256SUMS.txt.asc; repeatable.
+        #[arg(long)]
+        openpgp_key: Vec<String>,
+        #[command(flatten)]
+        common: RegistryFile,
+    },
     /// Set (or with no version, clear) the recommended version.
     Recommend {
         app: String,
@@ -355,6 +367,9 @@ async fn registry_cmd(cmd: RegistryCmd) -> Result<(), String> {
             };
             let change = maintain::StatusChange { status, reason, security, min_cloud, max_cloud };
             maintain::set_status(&common.file, &app, &version, change, common.key_file.as_deref())
+        }
+        RegistryCmd::SetKeys { app, ed25519_key, openpgp_key, common } => {
+            maintain::set_keys(&common.file, &app, &ed25519_key, &openpgp_key, common.key_file.as_deref())
         }
         RegistryCmd::Recommend { app, version, common } => maintain::recommend(&common.file, &app, version.as_deref(), common.key_file.as_deref()),
         RegistryCmd::Renew { common } => maintain::renew(&common.file, common.key_file.as_deref()),

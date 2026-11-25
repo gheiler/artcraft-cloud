@@ -81,7 +81,7 @@ One replica with `Recreate` (SQLite has one writer), a 10 Gi PVC, startup/livene
 | FilmCraft | fcproj | 0.20.1 | new, Save As: tested |
 | FigCraft | figcraft, fig | 0.18.1 | handshake tested |
 | LightCraft | jpg, png, webp, gif, bmp, tif, dng | 0.21.1 | handshake and open tested |
-| CalendarCraft | ics, ical, ifb | 0.2.0 (local build) | the person's Stalwart calendar over CalDAV, `.ics` files, feeds: tested against Stalwart |
+| CalendarCraft | ics, ical, ifb | 0.2.0 | the person's Stalwart calendar over CalDAV, `.ics` files, feeds: tested against Stalwart |
 | MailCraft | (mail) | 0.15.0 | opens the signed-in person's mailbox through the JMAP proxy: tested against Stalwart |
 
 MailCraft (from [UCS-Care-Group/mailcraft](https://github.com/UCS-Care-Group/mailcraft)) has no host

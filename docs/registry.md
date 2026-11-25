@@ -38,8 +38,8 @@ Installing a version (Apps page, auto-update or `apps update`):
 3. The publisher's signature over `SHA256SUMS.txt` is checked with the pinned key: OpenPGP
    (`SHA256SUMS.txt.asc`, the fingerprint must be pinned; a key shipped in the release only helps
    gpg find it) or ed25519 (`SHA256SUMS.txt.sig`). The signed checksum must equal the registry's.
-   A version marked `"signed": "none"` (CalendarCraft 0.2.0 has no release signature) relies on the
-   registry checksum alone; the Apps page says so ("Checksum from the registry").
+   A version marked `"signed": "none"` relies on the registry checksum alone; the Apps page says so
+   ("Checksum from the registry"). CalendarCraft 0.2.0 is signed with ed25519, like MailCraft.
 4. The archive must carry the host bridge (for bridge apps) and safe paths; then it is unpacked,
    precompressed and switched in atomically. The previous version stays for rollback.
 
@@ -115,11 +115,21 @@ artcraft-cloud registry add-app notecraft --title NoteCraft --publisher "Example
 artcraft-cloud registry add-version notecraft 1.0.0 --trust-key --recommend
 ```
 
-`--ed25519-key <base64>` (repeatable) pins an ed25519 release key; for OpenPGP, the first
-`add-version` with `--trust-key` pins the fingerprint of the key that signed that release. Compare
-the fingerprint it prints with one the publisher states elsewhere (their website, another
-repository, a signed tag) before you merge. Without `--default-install` the app is offered on Apps
-but not installed on its own. Put a 256×256 PNG icon in `registry/icons/`.
+`--ed25519-key <base64>` (repeatable; first is the key in use) pins an ed25519 release key; for
+OpenPGP, the first `add-version` with `--trust-key` pins the fingerprint of the key that signed
+that release. Compare the fingerprint it prints with one the publisher states elsewhere (their
+website, another repository, a signed tag) before you merge. To add or replace keys on an app
+that is already listed:
+
+```sh
+artcraft-cloud registry set-keys calendarcraft \
+  --ed25519-key 'Hv8y6mNjnmRqTlAcnJl1v/jCiRyCVsHUi9/fT1T629E=' \
+  --ed25519-key 'jF5sjrTxNhzH0nffbxO2SXoeITH3UsofUPTEu9IKPEk='
+```
+
+Then `registry add-version <app> <version> --replace` if a listed version should now be checked
+against those keys. Without `--default-install` the app is offered on Apps but not installed on
+its own. Put a 256×256 PNG icon in `registry/icons/`.
 
 ### Block a version
 

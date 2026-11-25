@@ -328,6 +328,30 @@ pub fn set_status(path: &Path, app: &str, version: &str, change: StatusChange, k
     save(path, &mut reg, key_file)
 }
 
+/// Pin an existing app's release keys (replaces the list of each kind that is given).
+pub fn set_keys(path: &Path, app: &str, ed25519: &[String], openpgp: &[String], key_file: Option<&Path>) -> Result<(), String> {
+    if ed25519.is_empty() && openpgp.is_empty() {
+        return Err("pass --ed25519-key or --openpgp-key (repeatable; the first is the key in use)".into());
+    }
+    for key in ed25519 {
+        let raw = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, key.trim())
+            .map_err(|_| format!("ed25519 key is not standard base64: {key}"))?;
+        if raw.len() != 32 {
+            return Err(format!("ed25519 public keys are 32 bytes (got {})", raw.len()));
+        }
+    }
+    let mut reg = load(path)?;
+    let entry = reg.apps.iter_mut().find(|a| a.id == app).ok_or_else(|| format!("{app} is not in the registry"))?;
+    if !ed25519.is_empty() {
+        entry.keys.ed25519 = ed25519.iter().map(|k| k.trim().to_string()).collect();
+    }
+    if !openpgp.is_empty() {
+        entry.keys.openpgp = openpgp.iter().map(|f| f.replace(' ', "").to_ascii_uppercase()).collect();
+    }
+    println!("{app} release keys: ed25519 {}, OpenPGP {}", entry.keys.ed25519.len(), entry.keys.openpgp.len());
+    save(path, &mut reg, key_file)
+}
+
 pub fn recommend(path: &Path, app: &str, version: Option<&str>, key_file: Option<&Path>) -> Result<(), String> {
     let mut reg = load(path)?;
     let entry = reg.apps.iter_mut().find(|a| a.id == app).ok_or_else(|| format!("{app} is not in the registry"))?;

@@ -393,7 +393,7 @@ mod tests {
         registry.validate().expect("a valid registry");
         assert!(registry.app("wordcraft").is_some());
         assert!(registry.app("mailcraft").is_some_and(|a| a.keys.ed25519.len() == 2));
-        assert!(registry.app("calendarcraft").is_some_and(|a| a.versions.iter().any(|v| v.version == "0.2.0" && v.signed == "none")));
+        assert!(registry.app("calendarcraft").is_some_and(|a| a.keys.ed25519.len() == 2 && a.versions.iter().any(|v| v.version == "0.2.0" && v.signed == "ed25519")));
         let store = RegistryStore::new(Path::new("/nonexistent"), RegistryConfig::builtin());
         if store.load_embedded().is_none() {
             // A pull request may change the registry without the key (the registry workflow signs
