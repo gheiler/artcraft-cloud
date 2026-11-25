@@ -62,6 +62,8 @@ pub enum Modal {
         app: String,
         title: String,
     },
+    /// The app wants to create a file or save a copy; the user picks the folder and name.
+    SaveAs,
 }
 
 #[derive(Clone, Copy)]

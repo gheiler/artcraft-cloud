@@ -32,7 +32,7 @@ pub struct Config {
     pub registry: crate::registry::RegistryConfig,
     /// What a registry block does to an installed version (`ARTCRAFT_BLOCKED_APPS`).
     pub blocked_apps: crate::apps::BlockAction,
-    /// Origin isolated (sideloaded) apps are served from (`ARTCRAFT_APPS_URL`).
+    /// Optional second origin for sideloaded apps (`ARTCRAFT_APPS_URL`). Unset: same host, sandboxed.
     pub apps_url: Option<String>,
 }
 
@@ -109,8 +109,8 @@ impl Config {
             mail_url: None,
             registry: crate::registry::RegistryConfig::builtin(),
             blocked_apps: crate::apps::BlockAction::Security,
-            // Same process, second Host header: browsers resolve *.localhost to the loopback.
-            apps_url: Some("http://apps.localhost".into()),
+            // Same-domain sandbox is the default; tests that want a second host set this.
+            apps_url: None,
         }
     }
 
@@ -140,39 +140,15 @@ impl Config {
     }
 }
 
-/// `ARTCRAFT_APPS_URL` if set (empty disables isolation). Otherwise a loopback default when the
-/// public URL is local or unset, so Docker Compose and `cargo run` work without extra DNS.
-fn parse_apps_url(explicit: Option<String>, public_url: Option<&str>, listen_port: u16) -> Option<String> {
-    match explicit {
-        Some(value) => {
-            let value = value.trim();
-            if value.is_empty() || value == "off" || value == "0" {
-                return None;
-            }
-            origin_of(value).ok()
-        }
-        None => default_apps_url(public_url, listen_port),
+/// `ARTCRAFT_APPS_URL` if set. Unset or empty leaves sideloaded apps on the main host
+/// (sandboxed iframes, no second hostname). This is optional extra origin isolation.
+fn parse_apps_url(explicit: Option<String>, _public_url: Option<&str>, _listen_port: u16) -> Option<String> {
+    let value = explicit?;
+    let value = value.trim();
+    if value.is_empty() || value == "off" || value == "0" {
+        return None;
     }
-}
-
-fn default_apps_url(public_url: Option<&str>, listen_port: u16) -> Option<String> {
-    let Some(public) = public_url.filter(|s| !s.is_empty()) else {
-        return Some(format!("http://apps.localhost:{listen_port}"));
-    };
-    let origin = origin_of(public).ok()?;
-    let host = host_of(&origin)?;
-    let (name, port) = split_host_port(&host);
-    if is_loopback_name(name) {
-        let port = port.unwrap_or(if origin.starts_with("https://") { 443 } else { 80 });
-        let default_port = origin.starts_with("https://") && port == 443 || origin.starts_with("http://") && port == 80;
-        return Some(if default_port {
-            format!("{}://apps.localhost", if origin.starts_with("https://") { "https" } else { "http" })
-        } else {
-            format!("{}://apps.localhost:{port}", if origin.starts_with("https://") { "https" } else { "http" })
-        });
-    }
-    // Production: do not guess an `apps.` hostname (it needs DNS and a certificate).
-    None
+    origin_of(value).ok()
 }
 
 /// Scheme + host[+port], no path, or an error if the URL is not a plain http(s) origin.
@@ -206,6 +182,7 @@ fn split_host_port(host: &str) -> (&str, Option<u16>) {
     }
 }
 
+#[allow(dead_code)]
 fn is_loopback_name(name: &str) -> bool {
     matches!(name, "localhost" | "127.0.0.1" | "::1" | "[::1]") || name.ends_with(".localhost")
 }

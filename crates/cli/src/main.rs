@@ -142,6 +142,12 @@ enum AppsCmd {
         /// https manifest URL to check for later versions.
         #[arg(long)]
         manifest: Option<String>,
+        /// Isolation: sandbox (default), regular, or domain (needs ARTCRAFT_APPS_URL).
+        #[arg(long, default_value = "sandbox")]
+        isolation: String,
+        /// Required with --isolation regular: the app can use the signed-in session.
+        #[arg(long)]
+        confirm_regular: bool,
     },
     /// Connect or clear a version source on a sideloaded app.
     SetSource {
@@ -170,6 +176,15 @@ enum AppsCmd {
         app: String,
         #[arg(long, value_delimiter = ',')]
         grants: Vec<String>,
+    },
+    /// Set how a sideloaded app is isolated: sandbox, regular, or domain.
+    SetIsolation {
+        app: String,
+        /// `sandbox`, `regular` or `domain`.
+        isolation: String,
+        /// Required when setting regular: the app can use the signed-in session.
+        #[arg(long)]
+        confirm_regular: bool,
     },
     /// Show recent app install, update, disable and remove actions. Needs the data directory (no log from a remote server).
     Audit,
@@ -402,13 +417,14 @@ async fn run(command: Command) -> Result<(), String> {
             AppsCmd::List => apps::list(&config),
             AppsCmd::Registry { cmd: AppsRegistryCmd::Refresh } => apps::registry_refresh(&config).await,
             AppsCmd::Registry { cmd: AppsRegistryCmd::Show } => apps::registry_show(&config),
-            AppsCmd::Sideload { zip, id, name, version, publisher, blurb, ext, bridge, claim_defaults, confirm, confirm_conflicts, github, manifest } => {
-                apps::sideload(&config, apps::SideloadArgs { zip, id, name, version, publisher, blurb, ext, bridge, claim_defaults, confirm, confirm_conflicts, github, manifest }).await
+            AppsCmd::Sideload { zip, id, name, version, publisher, blurb, ext, bridge, claim_defaults, confirm, confirm_conflicts, github, manifest, isolation, confirm_regular } => {
+                apps::sideload(&config, apps::SideloadArgs { zip, id, name, version, publisher, blurb, ext, bridge, claim_defaults, confirm, confirm_conflicts, github, manifest, isolation, confirm_regular }).await
             }
             AppsCmd::SetSource { app, github, manifest, clear } => apps::set_source(&config, &app, github, manifest, clear),
             AppsCmd::Check { app } => apps::check_source(&config, &app).await,
             AppsCmd::SetTypes { app, ext, claim_defaults, confirm_conflicts } => apps::set_types(&config, &app, ext, claim_defaults, confirm_conflicts),
             AppsCmd::SetGrants { app, grants } => apps::set_grants(&config, &app, grants),
+            AppsCmd::SetIsolation { app, isolation, confirm_regular } => apps::set_isolation(&config, &app, &isolation, confirm_regular),
             AppsCmd::Audit => apps::audit(&config),
         },
         Command::Registry { cmd } => registry_cmd(cmd).await,

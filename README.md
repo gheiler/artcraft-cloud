@@ -107,7 +107,7 @@ builds do not speak the host bridge. `docs/upstream-gaps.md` lists what is missi
 existing issues and pull requests.
 
 The super admin can also sideload an app that is not on the trust list (Apps › Danger zone, or
-`artcraft-cloud apps sideload`). Those builds are marked Unverified and run on a second origin so
+`artcraft-cloud apps sideload`). Those builds are marked Unverified and run in a sandboxed iframe so
 they cannot use the signed-in session. See [docs/sideloaded-apps.md](docs/sideloaded-apps.md).
 
 ## Screenshots
@@ -243,7 +243,7 @@ switch on the next request; no restart. No GitHub API calls are made, so no toke
 | `ARTCRAFT_DATA` | `/data` (image), `data` | Everything persistent: `db.sqlite`, `files/<user id>/`, `trash/`, `apps/`, `secret.key` |
 | `ARTCRAFT_LISTEN` | `0.0.0.0:8080` | |
 | `ARTCRAFT_PUBLIC_URL` | | `https://…` turns on Secure cookies (with `ARTCRAFT_COOKIE_SECURE=auto`) |
-| `ARTCRAFT_APPS_URL` | `http://apps.localhost:<port>` when the public URL is local or unset | Origin sideloaded apps are served from, with no session cookie. Required to use the Danger zone in production (e.g. `https://apps.your-domain`). See [docs/sideloaded-apps.md](docs/sideloaded-apps.md) |
+| `ARTCRAFT_APPS_URL` | unset | Optional second origin for sideloads set to separate-domain isolation. See [docs/sideloaded-apps.md](docs/sideloaded-apps.md) |
 | `ARTCRAFT_ADMIN_USER` / `ARTCRAFT_ADMIN_PASSWORD` | `admin` / generated | Only used when the database has no users yet |
 | `ARTCRAFT_COOKIE_SECURE` | `auto` | `1` / `0` to force |
 | `ARTCRAFT_SESSION_HOURS` | `336` | |

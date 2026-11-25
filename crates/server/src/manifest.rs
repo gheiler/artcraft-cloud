@@ -42,6 +42,10 @@ fn is_zero(value: &u64) -> bool {
     *value == 0
 }
 
+fn default_sandbox() -> String {
+    "sandbox".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SideloadMeta {
     pub name: String,
@@ -63,6 +67,9 @@ pub struct SideloadMeta {
     /// Last version a source check found (newer than the installed one, or the same).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offered: Option<OfferedVersion>,
+    /// `sandbox` (default), `regular` or `domain`.
+    #[serde(default = "default_sandbox")]
+    pub isolation: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

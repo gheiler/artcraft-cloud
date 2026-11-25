@@ -25,6 +25,7 @@ pub struct AppState {
     pub registry: Arc<crate::registry::RegistryStore>,
     /// Installs and updates started from the Apps page, by app id.
     pub app_jobs: Arc<std::sync::Mutex<std::collections::HashMap<String, artcraft_cloud_types::AppJob>>>,
+    pub capabilities: Arc<crate::capability::CapabilityStore>,
 }
 
 pub struct Boot {
@@ -86,6 +87,7 @@ pub fn bootstrap(config: &Config) -> Result<Boot, Error> {
         dummy_hash,
         registry: Arc::new(crate::registry::RegistryStore::new(&config.data_dir, config.registry.clone())),
         app_jobs: Arc::default(),
+        capabilities: Arc::new(crate::capability::CapabilityStore::new()),
     };
     Ok(Boot { state, generated_admin_password: generated })
 }

@@ -104,6 +104,7 @@ fn state_label(state: &str) -> String {
 fn signature_label(signature: &str) -> String {
     match signature {
         "verified" | "openpgp" | "ed25519" => t("Signed by the publisher").to_string(),
+        "source" => t("Checksum from the app's source").to_string(),
         "registry" | "none" => t("Checksum from the registry").to_string(),
         "local" => t("Installed by hand").to_string(),
         _ => t("Unknown").to_string(),
@@ -132,6 +133,10 @@ pub fn AppsPage() -> impl IntoView {
     // The app whose install dialog is open, and the one whose versions are listed.
     let job_for = RwSignal::new(None::<String>);
     let versions_for = RwSignal::new(None::<String>);
+    let types_for = RwSignal::new(None::<String>);
+    let grants_for = RwSignal::new(None::<String>);
+    let source_for = RwSignal::new(None::<String>);
+    let isolation_for = RwSignal::new(None::<String>);
     let refreshing = RwSignal::new(false);
     let polling = RwSignal::new(false);
 
@@ -318,15 +323,11 @@ pub fn AppsPage() -> impl IntoView {
     };
 
     let danger_zone = move || {
-        let origin_missing = data.with(|d| d.as_ref().is_some_and(|d| d.apps_origin.is_none()));
         view! {
             <section class="card settings-card danger-zone" id="danger-zone">
                 <h2>{t("Danger zone")}</h2>
-                <p class="muted">{t("Install an app that is not on the artcraftCloud trust list. It runs on a separate origin and cannot use the signed-in session. Only add software you trust.")}</p>
-                <Show when=move || origin_missing>
-                    <p class="test-result bad" role="alert">{t("Sideloaded apps need ARTCRAFT_APPS_URL (a second hostname for this same server, for example http://apps.localhost:8080 or https://apps.your-domain).")}</p>
-                </Show>
-                <SideloadForm disabled=origin_missing on_done=Callback::new(move |result: Result<AdminApps, String>| finish(result)) />
+                <p class="muted">{t("Install an app that is not on the artcraftCloud trust list. It runs in a sandbox on this site and cannot use the signed-in session. Only add software you trust.")}</p>
+                <SideloadForm disabled=false apps_origin=data.with(|d| d.as_ref().and_then(|d| d.apps_origin.clone())) on_done=Callback::new(finish) />
             </section>
         }
     };
@@ -430,6 +431,7 @@ pub fn AppsPage() -> impl IntoView {
                         {disabled.then(|| view! { <span class="badge danger">{t("Disabled")}</span> })}
                         {app.update.clone().map(|v| view! { <span class="badge primary">{tf("Update available: {version}", &[("version", &v)])}</span> })}
                         {job.map(|j| view! { <span class="badge">{phase_label(&j)}</span> })}
+                        {app.unverified.then(|| view! { <span class="badge">{isolation_label(&app.isolation)}</span> })}
                         {app.official_available.then(|| view! { <span class="badge">{t("Now in the official registry")}</span> })}
                     </span>
                 </div>
@@ -449,35 +451,16 @@ pub fn AppsPage() -> impl IntoView {
                         }>{t("Switch to official")}</button> }
                     })}
                     {app.unverified.then(|| {
-                        let id = id.clone();
-                        let current = app.extensions.join(", ");
-                        view! { <button type="button" class="button small" on:click=move |_| {
-                            let Some(window) = web_sys::window() else { return };
-                            let Ok(Some(value)) = window.prompt_with_message_and_default(t("File types this app should open (comma-separated suffixes, for example md,txt)."), &current) else { return };
-                            let exts: Vec<String> = value.split([',', ' ', ';']).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-                            let claim = confirm(t("Make this the default app for these types if an official app already opens them?"));
-                            let mut body = serde_json::json!({ "extensions": exts, "claim_defaults": claim, "confirm_conflicts": false });
-                            let id = id.clone();
-                            wasm_bindgen_futures::spawn_local(async move {
-                                let reply = api::send("PUT", &format!("/api/admin/apps/{id}/settings"), Some(&serde_json::to_vec(&body).unwrap_or_default()), Some("application/json"), None).await;
-                                match reply {
-                                    Ok(r) if r.status == 409 => {
-                                        let msg = api::error_body(&r.body).map(|e| e.error).unwrap_or_else(|| t("This file type is already used.").to_string());
-                                        if confirm(&format!("{msg}
-
-{}", t("Continue anyway?"))) {
-                                            body["confirm_conflicts"] = serde_json::json!(true);
-                                            finish(api::json::<AdminApps>("PUT", &format!("/api/admin/apps/{id}/settings"), &body).await);
-                                        }
-                                    }
-                                    Ok(r) if r.status >= 400 => ui.say(api::error_body(&r.body).map(|e| e.error).unwrap_or_else(|| t("Could not save file types.").to_string())),
-                                    Ok(r) => {
-                                        if let Ok(view) = serde_json::from_slice::<AdminApps>(&r.body) { finish(Ok(view)); }
-                                    }
-                                    Err(err) => ui.say(err),
-                                }
-                            });
-                        }>{t("File types…")}</button> }
+                        let id_types = id.clone();
+                        let id_grants = id.clone();
+                        let id_source = id.clone();
+                        let id_isolation = id.clone();
+                        view! {
+                            <button type="button" class="button small" on:click=move |_| types_for.set(Some(id_types.clone()))>{t("File types…")}</button>
+                            <button type="button" class="button small" on:click=move |_| grants_for.set(Some(id_grants.clone()))>{t("Grants…")}</button>
+                            <button type="button" class="button small" on:click=move |_| isolation_for.set(Some(id_isolation.clone()))>{t("Isolation…")}</button>
+                            <button type="button" class="button small" on:click=move |_| source_for.set(Some(id_source.clone()))>{t("Source…")}</button>
+                        }
                     })}
                     {app.can_roll_back.then(|| view! { <button type="button" class="button small" on:click=move |_| rollback(a3.clone())>{tf("Roll back to {version}", &[("version", a3.previous.as_deref().unwrap_or(""))])}</button> })}
                     <button type="button" class="button small" disabled=state == "blocked" && disabled on:click=move |_| settings(a4.id.clone(), serde_json::json!({ "disabled": a4.disabled.is_none() }))>{if disabled { t("Enable") } else { t("Disable") }}</button>
@@ -613,6 +596,18 @@ pub fn AppsPage() -> impl IntoView {
             </Show>
             {job_dialog}
             {versions_dialog}
+            {move || types_for.get().and_then(|id| app_of(&id)).map(|app| view! {
+                <FileTypesDialog app=app on_done=Callback::new(finish) on_close=Callback::new(move |_| types_for.set(None)) />
+            })}
+            {move || grants_for.get().and_then(|id| app_of(&id)).map(|app| view! {
+                <GrantsDialog app=app on_done=Callback::new(finish) on_close=Callback::new(move |_| grants_for.set(None)) />
+            })}
+            {move || isolation_for.get().and_then(|id| app_of(&id)).map(|app| view! {
+                <IsolationDialog app=app apps_origin=data.with(|d| d.as_ref().and_then(|d| d.apps_origin.clone())) on_done=Callback::new(finish) on_close=Callback::new(move |_| isolation_for.set(None)) />
+            })}
+            {move || source_for.get().and_then(|id| app_of(&id)).map(|app| view! {
+                <SourceDialog app=app on_done=Callback::new(finish) on_close=Callback::new(move |_| source_for.set(None)) />
+            })}
         </section>
     }
 }
@@ -627,12 +622,24 @@ fn audit_action(action: &str) -> String {
         "remove" => t("Removed").to_string(),
         "settings" => t("Settings changed").to_string(),
         "source" => t("Source changed").to_string(),
+        "isolation" => t("Isolation changed").to_string(),
         other => other.to_string(),
     }
 }
 
+fn parse_exts(raw: &str) -> Vec<String> {
+    raw.split([',', ' ', ';'])
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 #[component]
-fn SideloadForm(disabled: bool, on_done: Callback<Result<AdminApps, String>>) -> impl IntoView {
+fn SideloadForm(
+    disabled: bool,
+    apps_origin: Option<String>,
+    on_done: Callback<Result<AdminApps, String>>,
+) -> impl IntoView {
     let id = RwSignal::new(String::new());
     let name = RwSignal::new(String::new());
     let version = RwSignal::new(String::from("0.1.0"));
@@ -644,9 +651,15 @@ fn SideloadForm(disabled: bool, on_done: Callback<Result<AdminApps, String>>) ->
     let bridge = RwSignal::new(true);
     let confirm = RwSignal::new(false);
     let claim = RwSignal::new(false);
+    let grant_drive = RwSignal::new(false);
+    let grant_clipboard = RwSignal::new(false);
+    let grant_fullscreen = RwSignal::new(false);
+    let isolation = RwSignal::new(String::from("sandbox"));
+    let confirm_regular = RwSignal::new(false);
     let busy = RwSignal::new(false);
     let file = RwSignal::new(None::<web_sys::File>);
     let error = RwSignal::new(String::new());
+    let confirm_conflicts = RwSignal::new(false);
     view! {
         <form class="sideload-form" on:submit=move |ev| {
             ev.prevent_default();
@@ -654,6 +667,16 @@ fn SideloadForm(disabled: bool, on_done: Callback<Result<AdminApps, String>>) ->
                 return;
             }
             error.set(String::new());
+            let mut grants: Vec<String> = Vec::new();
+            if bridge.get_untracked() {
+                grants.push("document".into());
+                if grant_drive.get_untracked() { grants.push("drive".into()); }
+                if grant_clipboard.get_untracked() { grants.push("clipboard".into()); }
+                if grant_fullscreen.get_untracked() { grants.push("fullscreen".into()); }
+            } else {
+                if grant_clipboard.get_untracked() { grants.push("clipboard".into()); }
+                if grant_fullscreen.get_untracked() { grants.push("fullscreen".into()); }
+            }
             let meta = SideloadRequest {
                 id: id.get_untracked(),
                 name: name.get_untracked(),
@@ -661,11 +684,13 @@ fn SideloadForm(disabled: bool, on_done: Callback<Result<AdminApps, String>>) ->
                 publisher: publisher.get_untracked(),
                 blurb: blurb.get_untracked(),
                 bridge: bridge.get_untracked(),
-                extensions: extensions.get_untracked().split([',', ' ', ';']).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
-                grants: vec!["document".into()],
+                extensions: parse_exts(&extensions.get_untracked()),
+                grants,
                 confirm: confirm.get_untracked(),
                 confirm_conflicts: false,
                 claim_defaults: claim.get_untracked(),
+                isolation: isolation.get_untracked(),
+                confirm_regular: confirm_regular.get_untracked(),
                 source: match source_kind.get_untracked().as_str() {
                     "github" | "manifest" => Some(AppSource { kind: source_kind.get_untracked(), url: source_url.get_untracked() }),
                     _ => None,
@@ -682,9 +707,9 @@ fn SideloadForm(disabled: bool, on_done: Callback<Result<AdminApps, String>>) ->
             }
             busy.set(true);
             wasm_bindgen_futures::spawn_local(async move {
-                let send = |confirm_conflicts: bool| {
+                let send = |conflicts: bool| {
                     let mut meta = meta.clone();
-                    meta.confirm_conflicts = confirm_conflicts;
+                    meta.confirm_conflicts = conflicts;
                     let form = web_sys::FormData::new().expect("form");
                     let _ = form.append_with_str("meta", &serde_json::to_string(&meta).unwrap_or_default());
                     if let Some(zip) = &zip {
@@ -692,14 +717,12 @@ fn SideloadForm(disabled: bool, on_done: Callback<Result<AdminApps, String>>) ->
                     }
                     async move { crate::api::post_form::<AdminApps>("/api/admin/apps/sideload", form).await }
                 };
-                let result = send(false).await;
+                let result = send(confirm_conflicts.get_untracked()).await;
                 let result = match result {
                     Err(msg) if msg.contains("already opened") || msg.contains("official") => {
-                        if web_sys::window().and_then(|w| w.confirm_with_message(&format!("{msg}\n\n{}", t("Continue anyway?"))).ok()).unwrap_or(false) {
-                            send(true).await
-                        } else {
-                            Err(msg)
-                        }
+                        error.set(format!("{msg} {}", t("Tick “continue anyway” below if you still want to install, then try again.")));
+                        confirm_conflicts.set(true);
+                        Err(msg)
                     }
                     other => other,
                 };
@@ -707,42 +730,386 @@ fn SideloadForm(disabled: bool, on_done: Callback<Result<AdminApps, String>>) ->
                 match result {
                     Ok(view) => on_done.run(Ok(view)),
                     Err(err) => {
-                        error.set(err.clone());
+                        if error.get_untracked().is_empty() {
+                            error.set(err.clone());
+                        }
                         on_done.run(Err(err));
                     }
                 }
             });
         }>
             <div class="sideload-grid">
-                <label>{t("App id")}" "<input class="field" prop:value=move || id.get() on:input=move |ev| id.set(event_target_value(&ev)) placeholder="myapp" disabled=disabled /></label>
-                <label>{t("Name")}" "<input class="field" prop:value=move || name.get() on:input=move |ev| name.set(event_target_value(&ev)) disabled=disabled /></label>
-                <label>{t("Version")}" "<input class="field" prop:value=move || version.get() on:input=move |ev| version.set(event_target_value(&ev)) disabled=disabled /></label>
-                <label>{t("Publisher")}" "<input class="field" prop:value=move || publisher.get() on:input=move |ev| publisher.set(event_target_value(&ev)) disabled=disabled /></label>
-                <label class="wide">{t("Description")}" "<input class="field" prop:value=move || blurb.get() on:input=move |ev| blurb.set(event_target_value(&ev)) disabled=disabled /></label>
-                <label class="wide">{t("File types")}" "<input class="field" prop:value=move || extensions.get() on:input=move |ev| extensions.set(event_target_value(&ev)) placeholder="md, txt" disabled=disabled /></label>
-                <label>{t("Source")}" "
+                <label class="stack"><span>{t("App id")}</span>
+                    <input class="field" prop:value=move || id.get() on:input=move |ev| id.set(event_target_value(&ev)) placeholder="myapp" disabled=disabled />
+                    <span class="muted">{t("Lower-case letters, numbers and dashes. This becomes the folder name under /apps.")}</span>
+                </label>
+                <label class="stack"><span>{t("Name")}</span>
+                    <input class="field" prop:value=move || name.get() on:input=move |ev| name.set(event_target_value(&ev)) disabled=disabled />
+                </label>
+                <label class="stack"><span>{t("Version")}</span>
+                    <input class="field" prop:value=move || version.get() on:input=move |ev| version.set(event_target_value(&ev)) disabled=disabled />
+                </label>
+                <label class="stack"><span>{t("Publisher")}</span>
+                    <input class="field" prop:value=move || publisher.get() on:input=move |ev| publisher.set(event_target_value(&ev)) disabled=disabled />
+                </label>
+                <label class="stack wide"><span>{t("Description")}</span>
+                    <input class="field" prop:value=move || blurb.get() on:input=move |ev| blurb.set(event_target_value(&ev)) disabled=disabled />
+                </label>
+                <label class="stack wide"><span>{t("File types")}</span>
+                    <input class="field" prop:value=move || extensions.get() on:input=move |ev| extensions.set(event_target_value(&ev)) placeholder="md, txt" disabled=disabled />
+                    <span class="muted">{t("Comma-separated suffixes this app should open, for example md,txt. Not taken from the zip.")}</span>
+                </label>
+                <label class="stack"><span>{t("Source")}</span>
                     <select class="field" prop:value=move || source_kind.get() on:change=move |ev| source_kind.set(event_target_value(&ev)) disabled=disabled>
                         <option value="none">{t("None (zip only)")}</option>
                         <option value="github">{t("GitHub releases")}</option>
                         <option value="manifest">{t("Manifest URL")}</option>
                     </select>
                 </label>
-                <label>{t("Source URL or owner/repo")}" "<input class="field" prop:value=move || source_url.get() on:input=move |ev| source_url.set(event_target_value(&ev)) disabled=disabled || source_kind.get() == "none" /></label>
-                <label class="wide">{t("Zip file")}" "<input class="field" type="file" accept=".zip,application/zip" disabled=disabled on:change=move |ev| {
-                    let input = event_target::<web_sys::HtmlInputElement>(&ev);
-                    let next = input.and_then(|el| el.files()).and_then(|list| list.get(0));
-                    file.set(next);
-                } /></label>
+                <label class="stack"><span>{t("Source URL or owner/repo")}</span>
+                    <input class="field" prop:value=move || source_url.get() on:input=move |ev| source_url.set(event_target_value(&ev)) disabled=disabled || source_kind.get() == "none" placeholder="owner/repo or https://…" />
+                    <span class="muted">{t("A GitHub owner/repo with the usual release zips, or an https URL to a manifest.")}</span>
+                </label>
+                <label class="stack wide"><span>{t("Zip file")}</span>
+                    <input class="field" type="file" accept=".zip,application/zip" disabled=disabled on:change=move |ev| {
+                        let input = event_target::<web_sys::HtmlInputElement>(&ev);
+                        let next = input.and_then(|el| el.files()).and_then(|list| list.get(0));
+                        file.set(next);
+                    } />
+                </label>
             </div>
-            <label class="check"><input type="checkbox" prop:checked=move || bridge.get() on:change=move |ev| bridge.set(event_target_checked(&ev)) disabled=disabled /><span>{t("This app speaks the host bridge (opens and saves the document)")}</span></label>
             <label class="check"><input type="checkbox" prop:checked=move || claim.get() on:change=move |ev| claim.set(event_target_checked(&ev)) disabled=disabled /><span>{t("Make it the default app for these file types, even if an official app already opens them")}</span></label>
+            <fieldset class="grant-list" disabled=disabled>
+                <legend>{t("What this app may do")}</legend>
+                <label class="check"><input type="checkbox" prop:checked=move || bridge.get() on:change=move |ev| bridge.set(event_target_checked(&ev)) disabled=disabled /><span><strong>{t("Host bridge")}</strong><span class="muted">{t("The app opens and saves the document you chose, and can create a new file only where you pick in the save dialog. It does not get the rest of your drive unless you also grant that below.")}</span></span></label>
+                <label class="check"><input type="checkbox" prop:checked=true disabled=true /><span><strong>{t("Opened document")}</strong><span class="muted">{t("Always included for a host-bridge app: edit and save the file that was opened, and create a new file through the shell's save dialog.")}</span></span></label>
+                <label class="check"><input type="checkbox" prop:checked=move || grant_drive.get() on:change=move |ev| grant_drive.set(event_target_checked(&ev)) disabled=move || disabled || !bridge.get() /><span><strong>{t("Other files on the drive")}</strong><span class="muted">{t("The app can open or insert other files you pick in the shell's file dialog (File ▸ Open, a picture…). It still cannot use your signed-in session. Only grant this if you trust the app with any file you might choose.")}</span></span></label>
+                <label class="check"><input type="checkbox" prop:checked=move || grant_clipboard.get() on:change=move |ev| grant_clipboard.set(event_target_checked(&ev)) disabled=disabled /><span><strong>{t("Clipboard")}</strong><span class="muted">{t("Read from and write to the clipboard while the app is open.")}</span></span></label>
+                <label class="check"><input type="checkbox" prop:checked=move || grant_fullscreen.get() on:change=move |ev| grant_fullscreen.set(event_target_checked(&ev)) disabled=disabled /><span><strong>{t("Full screen")}</strong><span class="muted">{t("Allow the app to enter full screen.")}</span></span></label>
+            </fieldset>
+            <IsolationPicker mode=isolation confirm_regular=confirm_regular apps_origin=apps_origin.clone() disabled=disabled />
             <label class="check confirm-risk"><input type="checkbox" prop:checked=move || confirm.get() on:change=move |ev| confirm.set(event_target_checked(&ev)) disabled=disabled /><span>{t("I understand this build is not on the artcraftCloud trust list and I trust the file I am adding.")}</span></label>
-            <Show when=move || !error.get().is_empty()><p class="test-result bad" role="alert">{move || error.get()}</p></Show>
+            <Show when=move || confirm_conflicts.get() || !error.get().is_empty()>
+                <label class="check confirm-risk"><input type="checkbox" prop:checked=move || confirm_conflicts.get() on:change=move |ev| confirm_conflicts.set(event_target_checked(&ev)) disabled=disabled /><span>{t("Continue anyway")}</span></label>
+            </Show>
+            <Show when=move || !error.get().is_empty()><p class="form-error" role="alert">{move || error.get()}</p></Show>
             <button type="submit" class="button danger-fill" disabled=move || disabled || busy.get()>{move || if busy.get() { t("Installing…") } else { t("Install unverified app") }}</button>
         </form>
     }
 }
 
+#[component]
+fn FileTypesDialog(
+    app: AdminApp,
+    on_done: Callback<Result<AdminApps, String>>,
+    on_close: Callback<()>,
+) -> impl IntoView {
+    let id = app.id.clone();
+    let extensions = RwSignal::new(app.extensions.join(", "));
+    let claim = RwSignal::new(app.claim_defaults);
+    let confirm_conflicts = RwSignal::new(false);
+    let error = RwSignal::new(String::new());
+    let busy = RwSignal::new(false);
+    view! {
+        <Dialog title=tf("File types for {app}", &[("app", &app.title)]) on_close=on_close>
+            <form class="dialog-body" on:submit=move |ev| {
+                ev.prevent_default();
+                if busy.get_untracked() { return; }
+                error.set(String::new());
+                let exts = parse_exts(&extensions.get_untracked());
+                let mut body = serde_json::json!({ "extensions": exts, "claim_defaults": claim.get_untracked(), "confirm_conflicts": confirm_conflicts.get_untracked() });
+                let id = id.clone();
+                busy.set(true);
+                wasm_bindgen_futures::spawn_local(async move {
+                    let reply = api::send("PUT", &format!("/api/admin/apps/{id}/settings"), Some(&serde_json::to_vec(&body).unwrap_or_default()), Some("application/json"), None).await;
+                    busy.set(false);
+                    match reply {
+                        Ok(r) if r.status == 409 => {
+                            let msg = api::error_body(&r.body).map(|e| e.error).unwrap_or_else(|| t("This file type is already used.").to_string());
+                            error.set(format!("{msg} {}", t("Tick “continue anyway” below if you still want to save.")));
+                            confirm_conflicts.set(true);
+                        }
+                        Ok(r) if r.status >= 400 => error.set(api::error_body(&r.body).map(|e| e.error).unwrap_or_else(|| t("Could not save file types.").to_string())),
+                        Ok(r) => {
+                            if let Ok(view) = serde_json::from_slice::<AdminApps>(&r.body) {
+                                on_close.run(());
+                                on_done.run(Ok(view));
+                            }
+                        }
+                        Err(err) => error.set(err),
+                    }
+                });
+            }>
+                <label class="stack">
+                    <span>{t("File types")}</span>
+                    <input class="field" prop:value=move || extensions.get() on:input=move |ev| extensions.set(event_target_value(&ev)) placeholder="md, txt" />
+                    <span class="muted">{t("Comma-separated suffixes, for example md,txt.")}</span>
+                </label>
+                <label class="check"><input type="checkbox" prop:checked=move || claim.get() on:change=move |ev| claim.set(event_target_checked(&ev)) /><span>{t("Make this the default app for these types if an official app already opens them")}</span></label>
+                <Show when=move || confirm_conflicts.get()>
+                    <label class="check confirm-risk"><input type="checkbox" prop:checked=move || confirm_conflicts.get() on:change=move |ev| confirm_conflicts.set(event_target_checked(&ev)) /><span>{t("Continue anyway")}</span></label>
+                </Show>
+                <Show when=move || !error.get().is_empty()><p class="form-error" role="alert">{move || error.get()}</p></Show>
+                <footer>
+                    <button type="button" class="button" on:click=move |_| on_close.run(())>{t("Cancel")}</button>
+                    <button type="submit" class="button primary" disabled=move || busy.get()>{t("Save")}</button>
+                </footer>
+            </form>
+        </Dialog>
+    }
+}
+
+#[component]
+fn GrantsDialog(
+    app: AdminApp,
+    on_done: Callback<Result<AdminApps, String>>,
+    on_close: Callback<()>,
+) -> impl IntoView {
+    let id = app.id.clone();
+    let document = app.grants.iter().any(|g| g == "document") || !app.extensions.is_empty();
+    let grant_drive = RwSignal::new(app.grants.iter().any(|g| g == "drive"));
+    let grant_clipboard = RwSignal::new(app.grants.iter().any(|g| g == "clipboard"));
+    let grant_fullscreen = RwSignal::new(app.grants.iter().any(|g| g == "fullscreen"));
+    let error = RwSignal::new(String::new());
+    let busy = RwSignal::new(false);
+    view! {
+        <Dialog title=tf("Grants for {app}", &[("app", &app.title)]) on_close=on_close>
+            <form class="dialog-body" on:submit=move |ev| {
+                ev.prevent_default();
+                if busy.get_untracked() { return; }
+                let mut grants: Vec<String> = Vec::new();
+                if document { grants.push("document".into()); }
+                if grant_drive.get_untracked() { grants.push("drive".into()); }
+                if grant_clipboard.get_untracked() { grants.push("clipboard".into()); }
+                if grant_fullscreen.get_untracked() { grants.push("fullscreen".into()); }
+                let body = serde_json::json!({ "grants": grants });
+                let id = id.clone();
+                busy.set(true);
+                wasm_bindgen_futures::spawn_local(async move {
+                    match api::json::<AdminApps>("PUT", &format!("/api/admin/apps/{id}/settings"), &body).await {
+                        Ok(view) => { on_close.run(()); on_done.run(Ok(view)); }
+                        Err(err) => { busy.set(false); error.set(err); }
+                    }
+                });
+            }>
+                <p class="muted">{t("These limits apply on top of origin isolation. The app still cannot use the signed-in session. Mail and calendar access cannot be granted.")}</p>
+                <div class="grant-list">
+                    <label class="check"><input type="checkbox" prop:checked=document disabled=true /><span><strong>{t("Opened document")}</strong><span class="muted">{t("Edit and save the file that was opened, and create a new file through the shell's save dialog (you pick the folder and name).")}</span></span></label>
+                    <label class="check"><input type="checkbox" prop:checked=move || grant_drive.get() on:change=move |ev| grant_drive.set(event_target_checked(&ev)) disabled=!document /><span><strong>{t("Other files on the drive")}</strong><span class="muted">{t("The app can open or insert other files you pick in the shell's file dialog. Only grant this if you trust the app with any file you might choose.")}</span></span></label>
+                    <label class="check"><input type="checkbox" prop:checked=move || grant_clipboard.get() on:change=move |ev| grant_clipboard.set(event_target_checked(&ev)) /><span><strong>{t("Clipboard")}</strong><span class="muted">{t("Read from and write to the clipboard while the app is open.")}</span></span></label>
+                    <label class="check"><input type="checkbox" prop:checked=move || grant_fullscreen.get() on:change=move |ev| grant_fullscreen.set(event_target_checked(&ev)) /><span><strong>{t("Full screen")}</strong><span class="muted">{t("Allow the app to enter full screen.")}</span></span></label>
+                </div>
+                <Show when=move || !error.get().is_empty()><p class="form-error" role="alert">{move || error.get()}</p></Show>
+                <footer>
+                    <button type="button" class="button" on:click=move |_| on_close.run(())>{t("Cancel")}</button>
+                    <button type="submit" class="button primary" disabled=move || busy.get()>{t("Save")}</button>
+                </footer>
+            </form>
+        </Dialog>
+    }
+}
+
+#[component]
+fn SourceDialog(
+    app: AdminApp,
+    on_done: Callback<Result<AdminApps, String>>,
+    on_close: Callback<()>,
+) -> impl IntoView {
+    let id = app.id.clone();
+    let existing = app.source.clone();
+    let kind = RwSignal::new(
+        existing
+            .as_ref()
+            .map(|s| s.kind.clone())
+            .unwrap_or_else(|| "manifest".into()),
+    );
+    let url = RwSignal::new(existing.as_ref().map(|s| s.url.clone()).unwrap_or_default());
+    let error = RwSignal::new(String::new());
+    let busy = RwSignal::new(false);
+    view! {
+        <Dialog title=tf("Source for {app}", &[("app", &app.title)]) on_close=on_close>
+            <form class="dialog-body" on:submit=move |ev| {
+                ev.prevent_default();
+                if busy.get_untracked() { return; }
+                let source = AppSource { kind: kind.get_untracked(), url: url.get_untracked() };
+                if source.url.trim().is_empty() {
+                    error.set(t("Enter a GitHub owner/repo or an https manifest URL.").to_string());
+                    return;
+                }
+                let id = id.clone();
+                busy.set(true);
+                wasm_bindgen_futures::spawn_local(async move {
+                    match api::json::<AdminApps>("POST", &format!("/api/admin/apps/{id}/source"), &serde_json::to_value(&source).unwrap_or_default()).await {
+                        Ok(view) => { on_close.run(()); on_done.run(Ok(view)); }
+                        Err(err) => { busy.set(false); error.set(err); }
+                    }
+                });
+            }>
+                <label class="stack">
+                    <span>{t("Source")}</span>
+                    <select class="field" prop:value=move || kind.get() on:change=move |ev| kind.set(event_target_value(&ev))>
+                        <option value="github">{t("GitHub releases")}</option>
+                        <option value="manifest">{t("Manifest URL")}</option>
+                    </select>
+                </label>
+                <label class="stack">
+                    <span>{t("Source URL or owner/repo")}</span>
+                    <input class="field" prop:value=move || url.get() on:input=move |ev| url.set(event_target_value(&ev)) placeholder="owner/repo or https://…" />
+                    <span class="muted">{t("A GitHub owner/repo with the usual release zips, or an https URL to a manifest.")}</span>
+                </label>
+                <Show when=move || !error.get().is_empty()><p class="form-error" role="alert">{move || error.get()}</p></Show>
+                <footer>
+                    <button type="button" class="button" on:click=move |_| on_close.run(())>{t("Cancel")}</button>
+                    {existing.is_some().then(|| {
+                        let id = app.id.clone();
+                        view! {
+                            <button type="button" class="button danger" disabled=move || busy.get() on:click=move |_| {
+                                let id = id.clone();
+                                busy.set(true);
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    match api::json::<AdminApps>("POST", &format!("/api/admin/apps/{id}/source"), &serde_json::Value::Null).await {
+                                        Ok(view) => { on_close.run(()); on_done.run(Ok(view)); }
+                                        Err(err) => { busy.set(false); error.set(err); }
+                                    }
+                                });
+                            }>{t("Remove source")}</button>
+                        }
+                    })}
+                    <button type="submit" class="button primary" disabled=move || busy.get()>{t("Save")}</button>
+                </footer>
+            </form>
+        </Dialog>
+    }
+}
+
 fn event_target<T: wasm_bindgen::JsCast>(ev: &web_sys::Event) -> Option<T> {
     ev.target().and_then(|t| t.dyn_into::<T>().ok())
+}
+
+fn isolation_label(mode: &str) -> String {
+    match mode {
+        "regular" => t("Regular (same origin)").to_string(),
+        "domain" => t("Separate domain").to_string(),
+        _ => t("Sandboxed iframe").to_string(),
+    }
+}
+
+#[component]
+fn IsolationPicker(
+    mode: RwSignal<String>,
+    confirm_regular: RwSignal<bool>,
+    apps_origin: Option<String>,
+    disabled: bool,
+) -> impl IntoView {
+    let domain_ok = apps_origin.is_some();
+    let hint = apps_origin.clone().unwrap_or_default();
+    view! {
+        <fieldset class="grant-list isolation-picker" disabled=disabled>
+            <legend>{t("Isolation")}</legend>
+            <p class="muted">{t("Choose how this app is kept apart from the rest of artcraftCloud. You can change this later. Sandboxed iframe is the default.")}</p>
+            <label class="check">
+                <input type="radio" name="isolation" value="sandbox" prop:checked=move || mode.get() == "sandbox" on:change=move |_| mode.set("sandbox".into()) disabled=disabled />
+                <span><strong>{t("Sandboxed iframe")}</strong><span class="muted">{t("Same site, opaque origin. No lasting localStorage, IndexedDB or cookies — settings go through the host bridge. Cannot use the signed-in session. No extra hostname.")}</span></span>
+            </label>
+            <label class="check confirm-risk">
+                <input type="radio" name="isolation" value="regular" prop:checked=move || mode.get() == "regular" on:change=move |_| mode.set("regular".into()) disabled=disabled />
+                <span><strong>{t("Regular (same origin)")}</strong><span class="muted">{t("Same origin as an official app: full browser storage (localStorage, IndexedDB, cookies). The app can act as the signed-in user. High risk — only for software you fully trust. Capability tokens are still issued for the opened file.")}</span></span>
+            </label>
+            <Show when=move || mode.get() == "regular">
+                <p class="form-error" role="alert">{t("Danger: a regular sideloaded app can call the API with your session and keep data in the browser. Tick the extra confirmation below.")}</p>
+                <label class="check confirm-risk"><input type="checkbox" prop:checked=move || confirm_regular.get() on:change=move |ev| confirm_regular.set(event_target_checked(&ev)) disabled=disabled /><span>{t("I understand this app can act as the signed-in user and I still want regular isolation.")}</span></label>
+            </Show>
+            <label class="check">
+                <input type="radio" name="isolation" value="domain" prop:checked=move || mode.get() == "domain" on:change=move |_| mode.set("domain".into()) disabled=disabled || !domain_ok />
+                <span><strong>{t("Separate domain")}</strong><span class="muted">{t("Served from ARTCRAFT_APPS_URL, with its own real origin and working browser storage. Cannot use the signed-in session. Needs a second hostname and certificate.")}</span></span>
+            </label>
+            <Show when=move || !domain_ok>
+                <p class="muted">{t("Separate domain is unavailable until ARTCRAFT_APPS_URL is set to a second hostname for this same server (for example https://apps.your-domain). In Helm, set appsUrl and ingress.appsHost, then reload this page.")}</p>
+            </Show>
+            <Show when=move || domain_ok>
+                <p class="muted">{tf("Apps origin is {origin}.", &[("origin", &hint)])}</p>
+            </Show>
+            <table class="isolation-compare">
+                <caption class="muted">{t("How the modes compare")}</caption>
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>{t("Sandboxed iframe")}</th>
+                        <th>{t("Regular (same origin)")}</th>
+                        <th>{t("Separate domain")}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <th>{t("Browser storage")}</th>
+                        <td>{t("None — settings go through the bridge")}</td>
+                        <td>{t("Full (localStorage, IndexedDB, cookies)")}</td>
+                        <td>{t("Own origin (localStorage, IndexedDB, cookies on the apps host)")}</td>
+                    </tr>
+                    <tr>
+                        <th>{t("Signed-in session")}</th>
+                        <td>{t("No")}</td>
+                        <td>{t("Yes — the app can act as the signed-in user")}</td>
+                        <td>{t("No")}</td>
+                    </tr>
+                    <tr>
+                        <th>{t("Setup")}</th>
+                        <td>{t("None (default)")}</td>
+                        <td>{t("None, plus the extra confirmation")}</td>
+                        <td>{t("ARTCRAFT_APPS_URL and a second hostname")}</td>
+                    </tr>
+                    <tr>
+                        <th>{t("Risk")}</th>
+                        <td>{t("Low — opaque origin")}</td>
+                        <td>{t("High — treat this like giving the app your login")}</td>
+                        <td>{t("Low — no session, own origin")}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </fieldset>
+    }
+}
+
+#[component]
+fn IsolationDialog(
+    app: AdminApp,
+    apps_origin: Option<String>,
+    on_done: Callback<Result<AdminApps, String>>,
+    on_close: Callback<()>,
+) -> impl IntoView {
+    let id = app.id.clone();
+    let current = if app.isolation.is_empty() {
+        "sandbox".into()
+    } else {
+        app.isolation.clone()
+    };
+    let mode = RwSignal::new(current);
+    let confirm_regular = RwSignal::new(false);
+    let error = RwSignal::new(String::new());
+    let busy = RwSignal::new(false);
+    view! {
+        <Dialog title=tf("Isolation for {app}", &[("app", &app.title)]) on_close=on_close>
+            <form class="dialog-body" on:submit=move |ev| {
+                ev.prevent_default();
+                if busy.get_untracked() { return; }
+                let isolation = mode.get_untracked();
+                let body = serde_json::json!({ "isolation": isolation, "confirm_regular": confirm_regular.get_untracked() });
+                let id = id.clone();
+                busy.set(true);
+                wasm_bindgen_futures::spawn_local(async move {
+                    match api::json::<AdminApps>("PUT", &format!("/api/admin/apps/{id}/settings"), &body).await {
+                        Ok(view) => { on_close.run(()); on_done.run(Ok(view)); }
+                        Err(err) => { busy.set(false); error.set(err); }
+                    }
+                });
+            }>
+                <IsolationPicker mode=mode confirm_regular=confirm_regular apps_origin=apps_origin.clone() disabled=false />
+                <Show when=move || !error.get().is_empty()><p class="form-error" role="alert">{move || error.get()}</p></Show>
+                <footer>
+                    <button type="button" class="button" on:click=move |_| on_close.run(())>{t("Cancel")}</button>
+                    <button type="submit" class="button primary" disabled=move || busy.get()>{t("Save")}</button>
+                </footer>
+            </form>
+        </Dialog>
+    }
 }

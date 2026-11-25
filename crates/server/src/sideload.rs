@@ -383,9 +383,35 @@ async fn manifest_versions(app_id: &str, url: &str) -> Result<Vec<SourceVersion>
     Ok(out)
 }
 
+/// Canonical isolation mode stored on a sideload (`sandbox`, `regular` or `domain`).
+pub fn isolation_of(meta: &crate::manifest::SideloadMeta) -> String {
+    artcraft_cloud_types::normalize_isolation_name(&meta.isolation)
+        .unwrap_or(artcraft_cloud_types::ISOLATION_SANDBOX)
+        .to_string()
+}
+
+pub fn isolation_of_row(row: &crate::manifest::InstalledApp) -> Option<String> {
+    row.sideload.as_ref().map(isolation_of)
+}
+
+/// Validate an isolation choice. `regular` needs an extra confirmation; `domain` needs `ARTCRAFT_APPS_URL`.
+pub fn normalize_isolation(value: Option<&str>, apps_url: bool, confirm_regular: bool) -> Result<String, String> {
+    let raw = value.unwrap_or(artcraft_cloud_types::ISOLATION_SANDBOX);
+    let mode = artcraft_cloud_types::normalize_isolation_name(raw).ok_or_else(|| {
+        format!("unknown isolation mode ({raw}); use sandbox, regular or domain")
+    })?;
+    if mode == artcraft_cloud_types::ISOLATION_REGULAR && !confirm_regular {
+        return Err("regular isolation lets the app use the signed-in session; confirm that before choosing it".into());
+    }
+    if mode == artcraft_cloud_types::ISOLATION_DOMAIN && !apps_url {
+        return Err("separate-domain isolation needs ARTCRAFT_APPS_URL (a second hostname for this same server, for example https://apps.your-domain)".into());
+    }
+    Ok(mode.to_string())
+}
+
 /// Build sideload metadata from validated fields.
 #[allow(clippy::too_many_arguments)]
-pub fn meta(name: &str, publisher: &str, blurb: &str, bridge: bool, extensions: Vec<String>, grants: Vec<String>, claim_defaults: bool, source: Option<SideloadSource>) -> Result<SideloadMeta, String> {
+pub fn meta(name: &str, publisher: &str, blurb: &str, bridge: bool, extensions: Vec<String>, grants: Vec<String>, claim_defaults: bool, source: Option<SideloadSource>, isolation: String) -> Result<SideloadMeta, String> {
     let name = name.trim();
     if name.is_empty() || name.len() > 80 {
         return Err("give the app a name (at most 80 characters)".into());
@@ -411,6 +437,7 @@ pub fn meta(name: &str, publisher: &str, blurb: &str, bridge: bool, extensions: 
         claim_defaults,
         source,
         offered: None,
+        isolation,
     })
 }
 

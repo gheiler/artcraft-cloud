@@ -76,10 +76,39 @@ extern "C" {
     fn cancel(target: &JsValue);
 }
 
+enum PickTarget {
+    SameOrigin(JsValue),
+    Isolated(u32),
+}
+
+type IsolatedReply = Box<dyn Fn(u32, Option<Vec<(String, Vec<u8>)>>)>;
+
 thread_local! {
-    static TARGETS: RefCell<HashMap<u32, JsValue>> = RefCell::new(HashMap::new());
+    static TARGETS: RefCell<HashMap<u32, PickTarget>> = RefCell::new(HashMap::new());
     static NEXT: Cell<u32> = const { Cell::new(1) };
     static HANDLER: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
+    static ISOLATED_REPLY: RefCell<Option<IsolatedReply>> =
+        const { RefCell::new(None) };
+}
+
+/// Register how files chosen for an isolated iframe are sent back (a postMessage from the shell).
+pub fn set_isolated_reply(reply: impl Fn(u32, Option<Vec<(String, Vec<u8>)>>) + 'static) {
+    ISOLATED_REPLY.with(|slot| *slot.borrow_mut() = Some(Box::new(reply)));
+}
+
+/// Remember a pick requested by an isolated app (`request_id` is the app's own correlation id).
+pub fn remember_isolated(request_id: u32) -> u32 {
+    let id = NEXT.with(|n| {
+        let id = n.get();
+        n.set(id.wrapping_add(1));
+        id
+    });
+    TARGETS.with(|targets| {
+        targets
+            .borrow_mut()
+            .insert(id, PickTarget::Isolated(request_id))
+    });
+    id
 }
 
 /// Wrap the pickers of an app frame's window. `on_pick(id, accept, multiple)` opens the dialog.
@@ -95,7 +124,11 @@ pub fn install(window: &JsValue, on_pick: impl Fn(u32, String, bool) + 'static) 
                     n.set(id.wrapping_add(1));
                     id
                 });
-                TARGETS.with(|targets| targets.borrow_mut().insert(id, target));
+                TARGETS.with(|targets| {
+                    targets
+                        .borrow_mut()
+                        .insert(id, PickTarget::SameOrigin(target))
+                });
                 on_pick(id, accept, multiple);
             },
         );
@@ -111,21 +144,42 @@ pub fn answer(id: u32, files: Vec<(String, Vec<u8>)>) {
     let Some(target) = TARGETS.with(|targets| targets.borrow_mut().remove(&id)) else {
         return;
     };
-    let names = js_sys::Array::new();
-    let buffers = js_sys::Array::new();
-    let types = js_sys::Array::new();
-    for (name, bytes) in files {
-        types.push(&JsValue::from_str(mime_of(&name)));
-        names.push(&JsValue::from_str(&name));
-        buffers.push(&js_sys::Uint8Array::from(bytes.as_slice()));
+    match target {
+        PickTarget::Isolated(request_id) => {
+            ISOLATED_REPLY.with(|slot| {
+                if let Some(reply) = slot.borrow().as_ref() {
+                    reply(request_id, Some(files));
+                }
+            });
+        }
+        PickTarget::SameOrigin(target) => {
+            let names = js_sys::Array::new();
+            let buffers = js_sys::Array::new();
+            let types = js_sys::Array::new();
+            for (name, bytes) in files {
+                types.push(&JsValue::from_str(mime_of(&name)));
+                names.push(&JsValue::from_str(&name));
+                buffers.push(&js_sys::Uint8Array::from(bytes.as_slice()));
+            }
+            deliver(&target, names, buffers, types);
+        }
     }
-    deliver(&target, names, buffers, types);
 }
 
 /// Tell the app its picker was dismissed.
 pub fn dismiss(id: u32) {
-    if let Some(target) = TARGETS.with(|targets| targets.borrow_mut().remove(&id)) {
-        cancel(&target);
+    let Some(target) = TARGETS.with(|targets| targets.borrow_mut().remove(&id)) else {
+        return;
+    };
+    match target {
+        PickTarget::Isolated(request_id) => {
+            ISOLATED_REPLY.with(|slot| {
+                if let Some(reply) = slot.borrow().as_ref() {
+                    reply(request_id, None);
+                }
+            });
+        }
+        PickTarget::SameOrigin(target) => cancel(&target),
     }
 }
 

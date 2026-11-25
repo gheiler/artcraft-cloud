@@ -2,6 +2,7 @@
 //! the static Crafting App builds.
 
 pub mod apps;
+mod capability;
 mod config;
 mod db;
 mod error;

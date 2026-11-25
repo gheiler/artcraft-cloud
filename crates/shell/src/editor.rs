@@ -11,6 +11,7 @@ use web_sys::{HtmlIFrameElement, MessageEvent};
 
 use crate::api::{self, PutFail};
 use crate::icons::{app_icon, icon, Icon};
+use crate::picker;
 use crate::route::Route;
 use crate::settings;
 use crate::ui::{ui, Modal};
@@ -46,6 +47,8 @@ pub struct Editor {
     pub banner: RwSignal<String>,
     /// A drive file the app's next file picker offers first.
     pub suggested: RwSignal<Option<String>>,
+    pub capability: RwSignal<Option<String>>,
+    pub app_settings: RwSignal<serde_json::Map<String, serde_json::Value>>,
     pub autosave_off: RwSignal<Vec<String>>,
     /// When the document became dirty, and when the shell last asked the app to save (ms).
     pub dirty_since: StoredValue<f64>,
@@ -105,6 +108,8 @@ impl Editor {
             save_as: RwSignal::new(None),
             banner: RwSignal::new(String::new()),
             suggested: RwSignal::new(None),
+            capability: RwSignal::new(None),
+            app_settings: RwSignal::new(serde_json::Map::new()),
             autosave_off: RwSignal::new(Vec::new()),
             dirty_since: StoredValue::new(0.0),
             last_try: StoredValue::new(0.0),
@@ -148,7 +153,50 @@ impl Editor {
                 settings::leave();
                 let _ = editor.open.try_set(false);
             }
-            let own_author = settings::restore(&spec.app, user).await;
+            let mode = isolation_of(&spec.app);
+            let unverified = app_by_id(&spec.app).is_some_and(|item| item.unverified);
+            let own_author = if mode == "sandbox" {
+                let saved = crate::api::settings(&spec.app).await.unwrap_or_default();
+                let _ = editor.app_settings.try_set(saved);
+                false
+            } else if mode == "domain" {
+                let _ = editor.app_settings.try_set(serde_json::Map::new());
+                false
+            } else {
+                settings::restore(&spec.app, user).await
+            };
+            if unverified {
+                let body = if let Some(path) = spec.path.as_ref().filter(|p| !p.is_empty()) {
+                    serde_json::json!({ "path": path })
+                } else {
+                    serde_json::json!({ "create": true })
+                };
+                match crate::api::json::<serde_json::Value>(
+                    "POST",
+                    &format!("/api/apps/{}/capability", spec.app),
+                    &body,
+                )
+                .await
+                {
+                    Ok(cap) => {
+                        let token = cap
+                            .get("token")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string);
+                        let _ = editor.capability.try_set(token);
+                    }
+                    Err(err) => {
+                        let _ = editor.capability.try_set(None);
+                        web_sys::console::warn_1(
+                            &format!("artcraftCloud: could not issue a capability token: {err}")
+                                .into(),
+                        );
+                    }
+                }
+            } else {
+                let _ = editor.capability.try_set(None);
+                let _ = editor.app_settings.try_set(serde_json::Map::new());
+            }
             let title = app_by_id(&spec.app)
                 .map(|app| app.title)
                 .unwrap_or(t("App"))
@@ -313,8 +361,8 @@ pub fn install(editor: Editor) {
         let ev_origin = event.origin();
         let app = editor.app.get_untracked();
         let allowed = ev_origin == origin
-            || (app_by_id(&app).is_some_and(|item| item.isolated)
-                && ev_origin == frame_origin(&app));
+            || (is_sandboxed(&app) && ev_origin == "null")
+            || (uses_apps_host(&app) && ev_origin == frame_origin(&app));
         if !allowed {
             return;
         }
@@ -344,6 +392,7 @@ pub fn install(editor: Editor) {
                 let _ = editor.dirty.try_set(dirty);
             }
             "save" => on_save(editor, &data),
+            "pick" => on_pick(editor, &data),
             "failed" => {
                 let _ = editor.status.try_set(
                     string_field(&data, "error")
@@ -351,6 +400,8 @@ pub fn install(editor: Editor) {
                 );
             }
             "handoff" => on_handoff(editor, &data, &frame),
+            "settings-set" => on_settings_set(editor, &data),
+            "settings-remove" => on_settings_remove(editor, &data),
             _ => {}
         }
         set_title(editor);
@@ -374,6 +425,10 @@ pub fn install(editor: Editor) {
         1000,
     );
     tick.forget();
+
+    picker::set_isolated_reply(move |request_id, files| {
+        reply_isolated(editor, request_id, files);
+    });
 }
 
 fn now_ms() -> f64 {
@@ -458,16 +513,23 @@ fn on_ready(editor: Editor, frame: &HtmlIFrameElement) {
     if editor.sent.get_untracked() {
         return;
     }
-    post(
-        frame,
-        &editor.app.get_untracked(),
-        "host",
-        &[
-            ("version", JsValue::from_str(HOST_CONTRACT_VERSION)),
-            ("handoff", JsValue::TRUE),
-        ],
-        None,
-    );
+    let app = editor.app.get_untracked();
+    let mut host_fields = vec![
+        ("version", JsValue::from_str(HOST_CONTRACT_VERSION)),
+        ("handoff", JsValue::TRUE),
+    ];
+    if let Some(token) = editor.capability.get_untracked() {
+        host_fields.push(("token", JsValue::from_str(&token)));
+    }
+    let settings = editor.app_settings.get_untracked();
+    if !settings.is_empty() {
+        if let Ok(value) =
+            js_sys::JSON::parse(&serde_json::to_string(&settings).unwrap_or_else(|_| "{}".into()))
+        {
+            host_fields.push(("settings", value));
+        }
+    }
+    post(frame, &app, "host", &host_fields, None);
     if let Some(bytes) = editor.bytes.try_update(|slot| slot.take()).flatten() {
         let name = editor.name.get_untracked();
         let buffer = bytes_to_buffer(&bytes);
@@ -495,6 +557,12 @@ fn on_save(editor: Editor, data: &JsValue) {
             .try_set(t("The app sent a save with no bytes.").into());
         return;
     };
+    if !has_grant(&editor.app.get_untracked(), "document") {
+        let _ = editor
+            .status
+            .try_set(t("This app is not allowed to save files.").into());
+        return;
+    }
     if editor.read_only.get_untracked() {
         let _ = editor
             .status
@@ -511,6 +579,7 @@ fn on_save(editor: Editor, data: &JsValue) {
         });
     } else if save_as || current.is_none() {
         let _ = editor.save_as.try_set(Some((name, bytes, true)));
+        ui().open_modal(Modal::SaveAs);
     } else {
         let bytes = Rc::new(bytes);
         let target_name = name;
@@ -691,8 +760,35 @@ fn apps_origin() -> Option<String> {
         .with_untracked(|user| user.as_ref().and_then(|u| u.apps_origin.clone()))
 }
 
-fn frame_origin(app: &str) -> String {
+fn isolation_of(app: &str) -> String {
+    let stored = app_by_id(app)
+        .map(|item| item.isolation.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(mode) = stored {
+        return mode;
+    }
     if app_by_id(app).is_some_and(|item| item.isolated) {
+        "sandbox".into()
+    } else {
+        String::new()
+    }
+}
+
+fn is_sandboxed(app: &str) -> bool {
+    isolation_of(app) == "sandbox"
+}
+
+fn uses_apps_host(app: &str) -> bool {
+    isolation_of(app) == "domain"
+}
+
+fn is_cross_origin(app: &str) -> bool {
+    let mode = isolation_of(app);
+    mode == "sandbox" || mode == "domain"
+}
+
+fn frame_origin(app: &str) -> String {
+    if uses_apps_host(app) {
         if let Some(origin) = apps_origin() {
             return origin;
         }
@@ -700,6 +796,142 @@ fn frame_origin(app: &str) -> String {
     web_sys::window()
         .and_then(|w| w.location().origin().ok())
         .unwrap_or_default()
+}
+
+fn grants_for(app: &str) -> Vec<String> {
+    let grants = ui().apps.with_untracked(|list| {
+        list.iter()
+            .find(|item| item.id == app)
+            .map(|item| item.grants.clone())
+            .unwrap_or_default()
+    });
+    if grants.is_empty() && !app_by_id(app).is_some_and(|item| item.unverified) {
+        vec![
+            "document".into(),
+            "drive".into(),
+            "clipboard".into(),
+            "fullscreen".into(),
+        ]
+    } else {
+        grants
+    }
+}
+
+fn has_grant(app: &str, grant: &str) -> bool {
+    grants_for(app).iter().any(|item| item == grant)
+}
+
+fn u32_field(data: &JsValue, key: &str) -> Option<u32> {
+    js_sys::Reflect::get(data, &JsValue::from_str(key))
+        .ok()?
+        .as_f64()
+        .map(|n| n as u32)
+}
+
+fn on_pick(editor: Editor, data: &JsValue) {
+    let app = editor.app.get_untracked();
+    let request_id = u32_field(data, "id").unwrap_or(0);
+    if !has_grant(&app, "drive") {
+        reply_isolated(editor, request_id, None);
+        let _ = editor
+            .status
+            .try_set(t("This app is not allowed to open other files.").into());
+        return;
+    }
+    let accept = string_field(data, "accept").unwrap_or_default();
+    let multiple = bool_field(data, "multiple").unwrap_or(false);
+    let id = picker::remember_isolated(request_id);
+    ui().open_modal(Modal::Pick {
+        id,
+        accept,
+        multiple,
+    });
+}
+
+fn reply_isolated(editor: Editor, request_id: u32, files: Option<Vec<(String, Vec<u8>)>>) {
+    let Some(frame) = current_frame(editor) else {
+        return;
+    };
+    let app = editor.app.get_untracked();
+    let Some(window) = frame.content_window() else {
+        return;
+    };
+    let origin = if is_sandboxed(&app) {
+        "*".to_string()
+    } else {
+        frame_origin(&app)
+    };
+    let message = js_sys::Object::new();
+    let kind = if files.is_some() {
+        "picked"
+    } else {
+        "pick-cancel"
+    };
+    let _ = js_sys::Reflect::set(
+        &message,
+        &JsValue::from_str("type"),
+        &JsValue::from_str(&format!("{app}:{kind}")),
+    );
+    let _ = js_sys::Reflect::set(
+        &message,
+        &JsValue::from_str("id"),
+        &JsValue::from_f64(request_id as f64),
+    );
+    if let Some(files) = files {
+        let list = js_sys::Array::new();
+        let transfer = js_sys::Array::new();
+        for (name, bytes) in files {
+            let file = js_sys::Object::new();
+            let buffer = bytes_to_buffer(&bytes);
+            let _ =
+                js_sys::Reflect::set(&file, &JsValue::from_str("name"), &JsValue::from_str(&name));
+            let _ = js_sys::Reflect::set(
+                &file,
+                &JsValue::from_str("type"),
+                &JsValue::from_str(picker::mime_of(&name)),
+            );
+            let _ = js_sys::Reflect::set(&file, &JsValue::from_str("bytes"), &buffer);
+            list.push(&file);
+            transfer.push(&buffer);
+        }
+        let _ = js_sys::Reflect::set(&message, &JsValue::from_str("files"), &list);
+        let _ = window.post_message_with_transfer(&message, &origin, &transfer);
+    } else {
+        let _ = window.post_message(&message, &origin);
+    }
+}
+
+fn on_settings_set(editor: Editor, data: &JsValue) {
+    let Some(key) = string_field(data, "key") else {
+        return;
+    };
+    let value = string_field(data, "value").unwrap_or_default();
+    editor.app_settings.update(|map| {
+        map.insert(key, serde_json::Value::String(value));
+    });
+    flush_app_settings(editor);
+}
+
+fn on_settings_remove(editor: Editor, data: &JsValue) {
+    let Some(key) = string_field(data, "key") else {
+        return;
+    };
+    editor.app_settings.update(|map| {
+        map.remove(&key);
+    });
+    flush_app_settings(editor);
+}
+
+fn flush_app_settings(editor: Editor) {
+    let app = editor.app.get_untracked();
+    let map = editor.app_settings.get_untracked();
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(err) = crate::api::put_settings(&app, &map).await {
+            web_sys::console::warn_1(
+                &format!("artcraftCloud: could not save {app} options: {err}").into(),
+            );
+        }
+    });
 }
 
 pub fn iframe_allow(app: &str) -> String {
@@ -743,7 +975,7 @@ pub fn iframe_src(app: &str, author: &str, own_author: bool) -> String {
         }
         url
     };
-    if app_by_id(app).is_some_and(|item| item.isolated) {
+    if uses_apps_host(app) {
         if let Some(origin) = apps_origin() {
             return format!("{origin}{path}");
         }
@@ -761,7 +993,13 @@ fn post(
     let Some(window) = frame.content_window() else {
         return;
     };
-    let origin = frame_origin(app);
+    // Sandboxed iframes (no allow-same-origin) have an opaque origin; the only legal
+    // targetOrigin is "*". The message still goes only to this iframe's window.
+    let origin = if is_sandboxed(app) {
+        "*".to_string()
+    } else {
+        frame_origin(app)
+    };
     if origin.is_empty() {
         return;
     }
@@ -835,7 +1073,6 @@ pub fn EditorFrame() -> impl IntoView {
             String::new()
         }
     };
-    let save_name = RwSignal::new(String::new());
     let pill_collapsed = RwSignal::new(crate::ui::local_flag(PILL_KEY));
     let pill_pos = RwSignal::new(saved_pill_position());
     let dragging = StoredValue::new(None::<(f64, f64, f64, f64)>);
@@ -844,7 +1081,7 @@ pub fn EditorFrame() -> impl IntoView {
             return;
         };
         editor.frame.set_value(Some(frame.clone()));
-        if app_by_id(&editor.app.get_untracked()).is_some_and(|item| item.isolated) {
+        if is_cross_origin(&editor.app.get_untracked()) {
             return;
         }
         let Some(window) = frame.content_window() else {
@@ -951,31 +1188,16 @@ pub fn EditorFrame() -> impl IntoView {
                             <button type="button" class="button primary" on:click=move |_| save_conflict(editor)>{t("Save a copy")}</button>
                         </div>
                     </Show>
-                    <Show when=move || editor.save_as.get().is_some()>
-                        <form class="note save-as" on:submit=move |ev| {
-                            ev.prevent_default();
-                            confirm_save_as(editor, save_name.get_untracked());
-                        }>
-                            <label>
-                                {move || {
-                                    let folder = editor.folder.get();
-                                    let folder = if folder.is_empty() { t("My files").to_string() } else { folder };
-                                    tf("Save into {folder}", &[("folder", &folder)])
-                                }}" "
-                                <input class="field" prop:value=move || {
-                                    if save_name.get().is_empty() {
-                                        editor.save_as.with_untracked(|slot| slot.as_ref().map(|(name, _, _)| name.clone()).unwrap_or_default())
-                                    } else {
-                                        save_name.get()
-                                    }
-                                } on:input=move |ev| save_name.set(event_target_value(&ev)) />
-                            </label>
-                            <button type="submit" class="button primary">{t("Save")}</button>
-                            <button type="button" class="button" on:click=move |_| editor.save_as.set(None)>{t("Cancel")}</button>
-                        </form>
-                    </Show>
                 </div>
-                <iframe src=src on:load=on_frame_load allow=move || iframe_allow(&editor.app.get()) title=move || editor.title.get()></iframe>
+                {move || {
+                    let allow = iframe_allow(&editor.app.get());
+                    let title = editor.title.get();
+                    if is_sandboxed(&editor.app.get()) {
+                        view! { <iframe src=src() sandbox="allow-scripts allow-forms allow-modals allow-downloads" on:load=on_frame_load allow=allow title=title></iframe> }.into_any()
+                    } else {
+                        view! { <iframe src=src() on:load=on_frame_load allow=allow title=title></iframe> }.into_any()
+                    }
+                }}
             </section>
         </Show>
     }
@@ -1047,10 +1269,13 @@ fn save_conflict(editor: Editor) {
     });
 }
 
-fn confirm_save_as(editor: Editor, typed: String) {
+pub fn confirm_save_as(editor: Editor, typed: String, folder: Option<String>) {
     let Some((fallback, bytes, rebind)) = editor.save_as.get_untracked() else {
         return;
     };
+    if let Some(folder) = folder {
+        let _ = editor.folder.try_set(folder);
+    }
     let name = if typed.trim().is_empty() {
         fallback
     } else {

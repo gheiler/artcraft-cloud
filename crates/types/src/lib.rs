@@ -9,6 +9,28 @@ pub mod registry;
 /// Contract version of `craft-web-host`. Unknown versions are treated as this one.
 pub const HOST_CONTRACT_VERSION: &str = "1";
 
+/// Default isolation for a sideloaded app: same-host sandboxed iframe (opaque origin).
+pub const ISOLATION_SANDBOX: &str = "sandbox";
+/// Same origin as the shell: full browser storage; the app can use the signed-in session.
+pub const ISOLATION_REGULAR: &str = "regular";
+/// Served from `ARTCRAFT_APPS_URL`: a real origin with storage, and no session access.
+pub const ISOLATION_DOMAIN: &str = "domain";
+
+/// Map a user-facing or stored isolation value to the canonical name.
+pub fn normalize_isolation_name(value: &str) -> Option<&'static str> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "sandbox" | "sandboxed" | "iframe" => Some(ISOLATION_SANDBOX),
+        "regular" | "same-origin" | "same" => Some(ISOLATION_REGULAR),
+        "domain" | "separate" | "apps" | "separate-domain" => Some(ISOLATION_DOMAIN),
+        _ => None,
+    }
+}
+
+/// Sandboxed iframe or separate domain: not the shell's origin.
+pub fn isolation_is_isolated(mode: &str) -> bool {
+    matches!(normalize_isolation_name(mode), Some(ISOLATION_SANDBOX | ISOLATION_DOMAIN))
+}
+
 /// A Crafting App as the shell keeps it: built from `/api/catalog` (the registry's apps that are
 /// installed and enabled), with strings that live as long as the page.
 #[derive(Debug, Clone, Copy)]
@@ -30,6 +52,8 @@ pub struct CraftApp {
     pub unverified: bool,
     /// Served from the apps origin, not the shell's origin.
     pub isolated: bool,
+    /// `sandbox`, `regular` or `domain` for a sideload; empty for official apps.
+    pub isolation: &'static str,
 }
 
 impl CraftApp {
@@ -50,6 +74,7 @@ impl CraftApp {
             bridge: app.bridge,
             unverified: app.unverified,
             isolated: app.isolated,
+            isolation: leak(&app.isolation),
         }
     }
 }
@@ -418,9 +443,12 @@ pub struct AppStatus {
     /// This build is not on the signed app registry.
     #[serde(default)]
     pub unverified: bool,
-    /// Served from the apps origin (no session cookie).
+    /// Served from the apps origin (no session cookie), or in a sandboxed iframe.
     #[serde(default)]
     pub isolated: bool,
+    /// `sandbox`, `regular` or `domain` for a sideload; empty for official apps.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub isolation: String,
     /// Suffixes this app is the default handler for.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub defaults: Vec<String>,
@@ -517,6 +545,9 @@ pub struct AdminApp {
     pub claim_defaults: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub defaults: Vec<String>,
+    /// `sandbox`, `regular` or `domain`. Empty for official apps.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub isolation: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -583,6 +614,12 @@ pub struct AppSettingsRequest {
     /// The admin confirmed a file-type conflict (or overwriting an official app).
     #[serde(default)]
     pub confirm_conflicts: Option<bool>,
+    /// Isolation mode for a sideload: `sandbox`, `regular` or `domain`.
+    #[serde(default)]
+    pub isolation: Option<String>,
+    /// Extra confirmation required to choose or switch to `regular` isolation.
+    #[serde(default)]
+    pub confirm_regular: Option<bool>,
 }
 
 /// A source the server can poll for new versions of a sideloaded app.
@@ -639,6 +676,12 @@ pub struct SideloadRequest {
     pub claim_defaults: bool,
     #[serde(default)]
     pub source: Option<AppSource>,
+    /// Isolation mode: `sandbox` (default), `regular` or `domain`.
+    #[serde(default)]
+    pub isolation: String,
+    /// Extra confirmation required when `isolation` is `regular`.
+    #[serde(default)]
+    pub confirm_regular: bool,
 }
 
 /// A file type another app already opens.

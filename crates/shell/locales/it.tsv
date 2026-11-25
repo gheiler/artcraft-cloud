@@ -1,8 +1,10 @@
 # artcraftCloud shell, it: English<TAB>translation. Keep {placeholders}.
 (your own registry keys)	(chiavi del registro proprie)
+A GitHub owner/repo with the usual release zips, or an https URL to a manifest.	Un owner/repo GitHub con i consueti zip di rilascio, oppure un URL https a un manifest.
 API key	Chiave API
 API key (recommended)	Chiave API (consigliata)
 API key created and stored. The admin password was not kept.	Chiave API creata e salvata. La password di amministratore non è stata conservata.
+ARTCRAFT_APPS_URL and a second hostname	ARTCRAFT_APPS_URL e un secondo nome host
 Account	Account
 Accounts	Account
 Action	Azione
@@ -19,7 +21,9 @@ Admin	Amministratore
 Admin account	Account amministratore
 Admin account (fallback)	Account amministratore (alternativa)
 All	Tutti
+Allow the app to enter full screen.	Consenti all’app di entrare a schermo intero.
 Allowed	Consentita
+Always included for a host-bridge app: edit and save the file that was opened, and create a new file through the shell's save dialog.	Sempre incluso per un’app con ponte host: modifica e salva il file aperto e crea un nuovo file tramite la finestra di salvataggio dell’interfaccia.
 An API key from Stalwart (Account › Credentials › API Keys) is recommended. An admin login also works, and can make the key for you.	È consigliata una chiave API di Stalwart (Account › Credenziali › Chiavi API). Funziona anche un accesso amministratore, che può creare la chiave per te.
 Animations	Animazioni
 Anyone with the link	Chiunque abbia il link
@@ -32,6 +36,7 @@ Appearance	Aspetto
 Applies to	Si applica a
 Apps	App
 Apps come from the artcraftCloud app registry, a signed list of apps and the versions that are safe to run. Add or update an app here; there is no need to update this server.	Le app provengono dal registro delle app di artcraftCloud, un elenco firmato di app e delle versioni sicure. Aggiungi o aggiorna un’app qui; non serve aggiornare questo server.
+Apps origin is {origin}.	L’origine delle app è {origin}.
 Ask your administrator	Chiedi al tuo amministratore
 At least 10 characters. Your other sessions are signed out.	Almeno 10 caratteri. Le altre sessioni verranno disconnesse.
 Audit log	Registro di controllo
@@ -41,6 +46,7 @@ Autosaving…	Salvataggio automatico…
 Available	Disponibili
 Back to your files	Torna ai tuoi file
 Blocked	Bloccata
+Browser storage	Archiviazione del browser
 Can edit	Può modificare
 Can view	Può visualizzare
 Cancel	Annulla
@@ -51,17 +57,23 @@ Check for versions	Cerca versioni
 Check now	Controlla ora
 Checking signatures and checksums…	Verifica di firme e checksum…
 Checking…	Verifica…
+Checksum from the app's source	Checksum dell’origine dell’app
 Checksum from the registry	Checksum dal registro
 Choose a file	Scegli un file
+Choose a folder, then name the file. The app cannot see the rest of your drive.	Scegli una cartella e poi assegna un nome al file. L’app non può vedere il resto del tuo spazio file.
+Choose how this app is kept apart from the rest of artcraftCloud. You can change this later. Sandboxed iframe is the default.	Scegli come tenere questa app distinta dal resto di artcraftCloud. Puoi cambiarlo in seguito. L’iframe in sandbox è l’impostazione predefinita.
+Clipboard	Appunti
 Close	Chiudi
 Collapse	Comprimi
 Collapse or expand	Comprimi o espandi
 Collapse sidebar	Comprimi la barra laterale
+Comma-separated suffixes this app should open, for example md,txt. Not taken from the zip.	Suffissi separati da virgola che questa app deve aprire, ad esempio md,txt. Non vengono presi dallo zip.
+Comma-separated suffixes, for example md,txt.	Suffissi separati da virgola, ad esempio md,txt.
 Confirm new password	Conferma nuova password
 Connect a Stalwart mail server. People whose email address is on one of its domains can get a mailbox there. MailCraft opens it without asking for a password, and other mail apps sign in with the address and the artcraftCloud password.	Collega un server di posta Stalwart. Le persone il cui indirizzo è su uno dei suoi domini possono avere lì una casella. MailCraft la apre senza chiedere la password, e le altre app di posta accedono con l'indirizzo e la password di artcraftCloud.
 Connect a mail server first.	Collega prima un server di posta.
 Connected.	Connesso.
-Continue anyway?	Continuare comunque?
+Continue anyway	Continua comunque
 Copied.	Copiato.
 Copy	Copia
 Copy built into this artcraftCloud	Copia integrata in questo artcraftCloud
@@ -77,6 +89,7 @@ Create link	Crea link
 Create the mailbox {address} on the mail server	Crea la casella {address} sul server di posta
 Current password	Password attuale
 Danger zone	Zona pericolosa
+Danger: a regular sideloaded app can call the API with your session and keep data in the browser. Tick the extra confirmation below.	Pericolo: un’app caricata in locale in modalità regolare può chiamare l’API con la tua sessione e conservare dati nel browser. Seleziona la conferma aggiuntiva qui sotto.
 Dark	Scuro
 Delete forever	Elimina definitivamente
 Delete forever?	Eliminare definitivamente?
@@ -102,6 +115,7 @@ Downloading…	Download in corso…
 Downloading… {percent}%	Download… {percent}%
 Drag to move	Trascina per spostare
 Each app's default	Predefinito di ogni app
+Edit and save the file that was opened, and create a new file through the shell's save dialog (you pick the folder and name).	Modifica e salva il file aperto e crea un nuovo file tramite la finestra di salvataggio dell’interfaccia (scegli tu cartella e nome).
 Email	Email
 Email (optional)	Email (facoltativa)
 Email address	Indirizzo email
@@ -112,6 +126,7 @@ Empty the trash?	Svuotare il cestino?
 Empty trash	Svuota cestino
 Enable	Attiva
 Enabled	Attivata
+Enter a GitHub owner/repo or an https manifest URL.	Inserisci un owner/repo GitHub o un URL https di un manifest.
 Every app in the registry is installed.	Tutte le app del registro sono installate.
 Everything in the trash is deleted for good. This cannot be undone.	Tutto ciò che è nel cestino verrà eliminato definitivamente. L'operazione non può essere annullata.
 Expand	Espandi
@@ -120,8 +135,9 @@ Expires	Scade
 Fades and smooth scrolling in the apps.	Dissolvenze e scorrimento fluido nelle app.
 Failed.	Non riuscito.
 Fetched from the registry	Scaricato dal registro
+File name	Nome del file
 File types	Tipi di file
-File types this app should open (comma-separated suffixes, for example md,txt).	Tipi di file che questa app deve aprire (suffissi separati da virgola, ad esempio md,txt).
+File types for {app}	Tipi di file per {app}
 File types…	Tipi di file…
 Files	File
 Filter by app	Filtra per app
@@ -129,9 +145,13 @@ Folder	Cartella
 Folder name	Nome della cartella
 For rulers, margins and sizes.	Per righelli, margini e dimensioni.
 From this device…	Da questo dispositivo…
+Full (localStorage, IndexedDB, cookies)	Completo (localStorage, IndexedDB, cookie)
 Full name (optional)	Nome completo (facoltativo)
+Full screen	Schermo intero
 GitHub releases	Release di GitHub
 Give someone an email address in People. When its domain is on this server, artcraftCloud creates the mailbox with the person's artcraftCloud password, so they can use other mail apps too, and changes it whenever they change theirs. MailCraft gets in with a separate app password that this server keeps sealed. Disabling a person suspends the mailbox, so no mail app can sign in or send until they are enabled again, while mail sent to them still arrives; removing a mailbox unlinks it unless you choose to delete it.	Assegna a qualcuno un indirizzo email in Persone. Se il suo dominio è su questo server, artcraftCloud crea la casella con la password artcraftCloud della persona, così può usare anche altre app di posta, e la cambia ogni volta che la persona cambia la sua. MailCraft accede con una password per app separata che questo server conserva sigillata. Disattivare una persona sospende la casella: nessuna app di posta può accedere o inviare finché non viene riattivata, mentre la posta indirizzata a lei continua ad arrivare. Rimuovere una casella la scollega, a meno che tu non scelga di eliminarla.
+Grants for {app}	Autorizzazioni per {app}
+Grants…	Autorizzazioni…
 Group {group}	Gruppo {group}
 Group · 1 member	Gruppo · 1 membro
 Group · {count} members	Gruppo · {count} membri
@@ -139,6 +159,10 @@ Groups	Gruppi
 Handed off from the previous app.	Passato dall'app precedente.
 Has a mailbox on the mail server	Ha una casella sul server di posta
 Hide	Nascondi
+High — treat this like giving the app your login	Alto — consideralo come dare all’app il tuo accesso
+Host bridge	Ponte host
+How the modes compare	Confronto delle modalità
+I understand this app can act as the signed-in user and I still want regular isolation.	Capisco che questa app può agire come l’utente connesso e voglio comunque l’isolamento regolare.
 I understand this build is not on the artcraftCloud trust list and I trust the file I am adding.	Capisco che questa build non è nell’elenco di fiducia di artcraftCloud e mi fido del file che sto aggiungendo.
 In use	In uso
 Inches	Pollici
@@ -146,13 +170,17 @@ Incoming (IMAP)	In entrata (IMAP)
 Incompatible	Incompatibile
 Initials	Iniziali
 Install	Installa
-Install an app that is not on the artcraftCloud trust list. It runs on a separate origin and cannot use the signed-in session. Only add software you trust.	Installa un’app che non è nell’elenco di fiducia di artcraftCloud. Viene eseguita su un’origine distinta e non può usare la sessione dell’utente. Aggiungi solo software di cui ti fidi.
+Install an app that is not on the artcraftCloud trust list. It runs in a sandbox on this site and cannot use the signed-in session. Only add software you trust.	Installa un’app che non è nell’elenco di fiducia di artcraftCloud. Viene eseguita in un sandbox su questo sito e non può usare la sessione di accesso. Aggiungi solo software di cui ti fidi.
 Install new allowed versions on its own (checked every 6 hours)	Installa da sola le nuove versioni consentite (controllo ogni 6 ore)
 Install unverified app	Installa app non verificata
 Installed	Installate
 Installed by hand	Installata a mano
 Installing…	Installazione…
 Interface language	Lingua dell'interfaccia
+Isolation	Isolamento
+Isolation changed	Isolamento modificato
+Isolation for {app}	Isolamento di {app}
+Isolation…	Isolamento…
 Language	Lingua
 Last check	Ultimo controllo
 Last fetched	Ultimo scaricamento
@@ -163,6 +191,9 @@ Link created and copied.	Link creato e copiato.
 Link permission	Permesso del link
 Links	Link
 Loading	Caricamento
+Low — no session, own origin	Basso — nessuna sessione, origine propria
+Low — opaque origin	Basso — origine opaca
+Lower-case letters, numbers and dashes. This becomes the folder name under /apps.	Lettere minuscole, numeri e trattini. Diventa il nome della cartella sotto /apps.
 Mail	Posta
 Mail host for other apps	Server di posta per altre app
 Mail server	Server di posta
@@ -175,7 +206,7 @@ Mailbox {address} created.	Casella {address} creata.
 Mailboxes	Caselle
 Make admin	Rendi amministratore
 Make it the default app for these file types, even if an official app already opens them	Impostala come app predefinita per questi tipi di file, anche se un’app ufficiale li apre già
-Make this the default app for these types if an official app already opens them?	Impostarla come app predefinita per questi tipi se un’app ufficiale li apre già?
+Make this the default app for these types if an official app already opens them	Impostala come app predefinita per questi tipi anche se un’app ufficiale li apre già
 Make user	Rendi utente
 Manifest URL	URL del manifest
 Measurement units	Unità di misura
@@ -199,6 +230,7 @@ New name	Nuovo nome
 New password	Nuova password
 New password for {username}	Nuova password per {username}
 New {app} document	Nuovo documento {app}
+No	No
 No app installs, updates or removals have been recorded yet.	Non è ancora stata registrata alcuna installazione, aggiornamento o rimozione di app.
 No app opens this kind of file by its name. Pick one, or download it.	Nessuna app apre questo tipo di file in base al nome. Scegline una o scaricalo.
 No app takes this from the drive yet.	Nessuna app lo prende ancora dal drive.
@@ -209,7 +241,10 @@ No installed app opens {name}.	Nessuna app installata apre {name}.
 No mail server is connected, so only the address is kept.	Nessun server di posta collegato, quindi viene salvato solo l'indirizzo.
 No matching files in this folder.	Nessun file corrispondente in questa cartella.
 No registry	Nessun registro
+None (default)	Nessuna (predefinito)
 None (zip only)	Nessuna (solo zip)
+None — settings go through the bridge	Nessuna — le impostazioni passano dal ponte
+None, plus the extra confirmation	Nessuna, più la conferma aggiuntiva
 Not connected.	Non connesso.
 Not in the registry	Non nel registro
 Not installed	Non installata
@@ -233,9 +268,12 @@ Open with	Apri con
 Open with…	Apri con…
 Open {app}	Apri {app}
 Open {name} with	Apri {name} con
+Opened document	Documento aperto
 Opening…	Apertura…
+Other files on the drive	Altri file nello spazio
 Other mail apps	Altre app di posta
 Outgoing (SMTP)	In uscita (SMTP)
+Own origin (localStorage, IndexedDB, cookies on the apps host)	Origine propria (localStorage, IndexedDB, cookie sull’host delle app)
 Password	Password
 Password (10+ characters)	Password (10+ caratteri)
 Password (at least 10 characters)	Password (almeno 10 caratteri)
@@ -255,37 +293,48 @@ Points	Punti
 Publish these at your DNS provider so mail reaches this server and is trusted by others.	Pubblicali presso il tuo provider DNS perché la posta arrivi a questo server e sia considerata affidabile.
 Publisher	Editore
 Purpose	Scopo
+Read from and write to the clipboard while the app is open.	Leggi e scrivi negli appunti mentre l’app è aperta.
 Recommended	Consigliata
+Regular (same origin)	Regolare (stessa origine)
 Remove	Rimuovi
 Remove access	Rimuovi accesso
 Remove from group	Rimuovi dal gruppo
+Remove source	Rimuovi origine
 Remove {app} from this server? Documents stay in the drive; it is not installed again until you add it.	Rimuovere {app} da questo server? I documenti restano nello spazio file; non viene reinstallata finché non la aggiungi.
 Removed	Rimossa
 Rename	Rinomina
 Rename {current}	Rinomina {current}
 Reset password	Reimposta password
 Restore	Ripristina
+Risk	Rischio
 Role	Ruolo
 Roll back to {version}	Torna a {version}
 Roll {app} back to {version}?	Riportare {app} a {version}?
 Rolled back	Ripristinata
 Same as the browser	Come il browser
 Same as the system	Come il sistema
+Same origin as an official app: full browser storage (localStorage, IndexedDB, cookies). The app can act as the signed-in user. High risk — only for software you fully trust. Capability tokens are still issued for the opened file.	Stessa origine di un’app ufficiale: archiviazione completa del browser (localStorage, IndexedDB, cookie). L’app può agire come l’utente connesso. Rischio alto — solo per software di cui ti fidi pienamente. Vengono comunque emessi token di capacità per il file aperto.
+Same site, opaque origin. No lasting localStorage, IndexedDB or cookies — settings go through the host bridge. Cannot use the signed-in session. No extra hostname.	Stesso sito, origine opaca. Nessun localStorage, IndexedDB o cookie duraturi — le impostazioni passano dal ponte host. Non può usare la sessione di accesso. Nessun nome host aggiuntivo.
+Sandboxed iframe	Iframe in sandbox
 Save	Salva
 Save a copy	Salva una copia
 Save and create mailbox	Salva e crea la casella
+Save as	Salva con nome
 Save changes to the drive a few seconds after you stop typing	Salva le modifiche nel drive pochi secondi dopo che smetti di scrivere
-Save into {folder}	Salva in {folder}
 Saved copy of an earlier fetch	Copia salvata di uno scaricamento precedente
 Saved {candidate}.	{candidate} salvato.
 Saved.	Salvato.
 Saved. Each app uses it the next time it opens.	Salvato. Ogni app lo userà alla prossima apertura.
 Security	Sicurezza
+Separate domain	Dominio separato
+Separate domain is unavailable until ARTCRAFT_APPS_URL is set to a second hostname for this same server (for example https://apps.your-domain). In Helm, set appsUrl and ingress.appsHost, then reload this page.	Il dominio separato non è disponibile finché ARTCRAFT_APPS_URL non è impostato su un secondo nome host per questo stesso server (ad esempio https://apps.tuo-dominio). In Helm, imposta appsUrl e ingress.appsHost, poi ricarica questa pagina.
+Served from ARTCRAFT_APPS_URL, with its own real origin and working browser storage. Cannot use the signed-in session. Needs a second hostname and certificate.	Servita da ARTCRAFT_APPS_URL, con una propria origine reale e archiviazione del browser funzionante. Non può usare la sessione di accesso. Serve un secondo nome host e un certificato.
 Server	Server
 Server address	Indirizzo del server
 Set password	Imposta password
 Settings	Impostazioni
 Settings changed	Impostazioni modificate
+Setup	Configurazione
 Share	Condividi
 Share {name}	Condividi {name}
 Shared	Condivisi
@@ -295,12 +344,12 @@ Shared link	Link condiviso
 Shared with me	Condivisi con me
 Shown next to your comments.	Mostrate accanto ai tuoi commenti.
 Shown on comments, tracked changes and document properties.	Mostrato su commenti, revisioni e proprietà del documento.
-Sideloaded apps need ARTCRAFT_APPS_URL (a second hostname for this same server, for example http://apps.localhost:8080 or https://apps.your-domain).	Le app caricate in locale richiedono ARTCRAFT_APPS_URL (un secondo nome host per questo stesso server, ad esempio http://apps.localhost:8080 o https://apps.your-domain).
 Sign in	Accedi
 Sign in with	Accedi con
 Sign out	Esci
 Signature	Firma
 Signed by the publisher	Firmata dall’editore
+Signed-in session	Sessione di accesso
 Size	Dimensione
 Someone else changed this file.	Qualcun altro ha modificato questo file.
 Someone else changed this file. Save a copy to keep your version.	Qualcun altro ha modificato questo file. Salva una copia per mantenere la tua versione.
@@ -308,6 +357,8 @@ Source	Origine
 Source URL or owner/repo	URL dell’origine o owner/repo
 Source changed	Origine modificata
 Source code	Codice sorgente
+Source for {app}	Origine di {app}
+Source…	Origine…
 Stalwart's web address as this server reaches it, e.g. http://stalwart:8080 with the compose mail profile.	L'indirizzo web di Stalwart come lo raggiunge questo server, ad es. http://stalwart:8080 con il profilo compose mail.
 Starting…	Avvio…
 Status	Stato
@@ -329,6 +380,9 @@ The account was disabled, but the mail server did not suspend the mailbox yet ({
 The account was enabled and its mailbox restored.	L'account è stato attivato e la sua casella ripristinata.
 The account was enabled, but the mail server did not restore the mailbox yet ({error}). artcraftCloud retries every few minutes.	L'account è stato attivato, ma il server di posta non ha ancora ripristinato la casella ({error}). artcraftCloud riprova ogni pochi minuti.
 The admin password is then kept on this server (encrypted). An API key can be revoked on its own without changing the admin password.	La password di amministratore viene allora conservata su questo server (cifrata). Una chiave API si può revocare da sola senza cambiare la password di amministratore.
+The app can open or insert other files you pick in the shell's file dialog (File ▸ Open, a picture…). It still cannot use your signed-in session. Only grant this if you trust the app with any file you might choose.	L’app può aprire o inserire altri file che scegli nella finestra dei file dell’interfaccia (File ▸ Apri, un’immagine…). Non può comunque usare la sessione di accesso. Concedilo solo se ti fidi dell’app con qualsiasi file che potresti scegliere.
+The app can open or insert other files you pick in the shell's file dialog. Only grant this if you trust the app with any file you might choose.	L’app può aprire o inserire altri file che scegli nella finestra dei file dell’interfaccia. Concedilo solo se ti fidi dell’app con qualsiasi file che potresti scegliere.
+The app opens and saves the document you chose, and can create a new file only where you pick in the save dialog. It does not get the rest of your drive unless you also grant that below.	L’app apre e salva il documento che hai scelto e può creare un nuovo file solo dove lo indichi nella finestra di salvataggio. Non ottiene il resto dello spazio a meno che tu non lo conceda anche sotto.
 The app registry is up to date.	Il registro delle app è aggiornato.
 The app sent a save with no bytes.	L'app ha inviato un salvataggio vuoto.
 The current password is not right.	La password attuale non è corretta.
@@ -345,9 +399,11 @@ The registry could not be fetched: {error}	Impossibile scaricare il registro: {e
 The trash is empty.	Il cestino è vuoto.
 Their last password change did not reach the mail server. artcraftCloud retries every few minutes and at their next sign-in.	L'ultimo cambio password non ha raggiunto il server di posta. artcraftCloud riprova ogni pochi minuti e al prossimo accesso.
 Theme	Tema
+These limits apply on top of origin isolation. The app still cannot use the signed-in session. Mail and calendar access cannot be granted.	Questi limiti si aggiungono all’isolamento dell’origine. L’app non può comunque usare la sessione di accesso. L’accesso a posta e calendario non può essere concesso.
 These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.	Queste impostazioni ti seguono su ogni browser. Una modifica viene scritta nelle opzioni di ogni app e ha effetto alla prossima apertura.
 They cannot sign in to the mailbox from any app (IMAP, SMTP, MailCraft) and cannot send mail. Mail sent to them is still delivered. Enabling the person restores it.	Nessuna app (IMAP, SMTP, MailCraft) può accedere alla casella e non si può inviare posta. La posta indirizzata alla persona viene comunque consegnata. Riattivare la persona ripristina tutto.
-This app speaks the host bridge (opens and saves the document)	Questa app usa il ponte con l’host (apre e salva il documento)
+This app is not allowed to open other files.	Questa app non è autorizzata ad aprire altri file.
+This app is not allowed to save files.	Questa app non è autorizzata a salvare file.
 This cannot be undone.	L'operazione non può essere annullata.
 This deletes {address} and all of its mail on the mail server. It cannot be undone. Type the address to confirm.	Questo elimina {address} e tutta la sua posta sul server. Non si può annullare. Digita l'indirizzo per confermare.
 This file type is already used.	Questo tipo di file è già in uso.
@@ -355,6 +411,8 @@ This link has a password	Questo link ha una password
 This link has expired.	Questo link è scaduto.
 This server was started with ARTCRAFT_MAIL_URL={url}.	Questo server è stato avviato con ARTCRAFT_MAIL_URL={url}.
 Tick the box to confirm you understand this app is not on the trust list.	Seleziona la casella per confermare di capire che questa app non è nell’elenco di fiducia.
+Tick “continue anyway” below if you still want to install, then try again.	Seleziona “Continua comunque” qui sotto se vuoi comunque installare, poi riprova.
+Tick “continue anyway” below if you still want to save.	Seleziona “Continua comunque” qui sotto se vuoi comunque salvare.
 Toggle sidebar	Mostra o nascondi la barra laterale
 Too many tries. Wait a few minutes and try again.	Troppi tentativi. Attendi qualche minuto e riprova.
 Trash	Cestino
@@ -386,8 +444,10 @@ Versions from the connected source. Updates stay off until you turn auto-update 
 Versions…	Versioni…
 View only — the file was not stored.	Sola lettura: il file non è stato salvato.
 What people enter as IMAP and SMTP server in other mail apps. Leave empty to use the MX host of their domain.	Ciò che le persone inseriscono come server IMAP e SMTP nelle altre app di posta. Lascia vuoto per usare l'host MX del loro dominio.
+What this app may do	Cosa può fare questa app
 When	Quando
 Who	Chi
+Yes — the app can act as the signed-in user	Sì — l’app può agire come l’utente connesso
 You can restore it from the trash later.	Potrai ripristinarlo dal cestino in seguito.
 You have not shared anything yet.	Non hai ancora condiviso nulla.
 Your artcraftCloud password	La tua password artcraftCloud
@@ -413,7 +473,9 @@ serial {serial}	seriale {serial}
 {app} is back on {version}.	{app} è tornata a {version}.
 {app} is still downloading	{app} è ancora in download
 {app} versions	Versioni di {app}
-{app} was added by the administrator and is not on the artcraftCloud trust list. It runs on a separate origin and can only open the document you choose here.	{app} è stata aggiunta dall’amministratore e non è nell’elenco di fiducia di artcraftCloud. Viene eseguita su un’origine distinta e può aprire solo il documento che scegli qui.
+{app} was added by the administrator and is not on the artcraftCloud trust list. It runs in a sandbox on this site and cannot use your signed-in session. It can edit the document you open here, and it can create a new file only where you choose in the save dialog.	{app} è stata aggiunta dall’amministratore e non è nell’elenco di fiducia di artcraftCloud. Viene eseguita in un sandbox su questo sito e non può usare la tua sessione di accesso. Può modificare il documento che apri qui e creare un nuovo file solo dove lo indichi nella finestra di salvataggio.
+{app} was added by the administrator and is not on the artcraftCloud trust list. It runs on a separate domain with its own browser storage, and it cannot use your signed-in session. It can edit the document you open here, and it can create a new file only where you choose in the save dialog.	{app} è stata aggiunta dall’amministratore e non è nell’elenco di fiducia di artcraftCloud. Viene eseguita su un dominio separato con una propria archiviazione del browser e non può usare la tua sessione di accesso. Può modificare il documento che apri qui e creare un nuovo file solo dove lo indichi nella finestra di salvataggio.
+{app} was added by the administrator and is not on the artcraftCloud trust list. It runs on this site like an official app: it has full browser storage and can act as your signed-in user. Only open it if you trust this software.	{app} è stata aggiunta dall’amministratore e non è nell’elenco di fiducia di artcraftCloud. Viene eseguita su questo sito come un’app ufficiale: ha un’archiviazione completa del browser e può agire come il tuo utente connesso. Aprilo solo se ti fidi di questo software.
 {app} {version} is blocked by the app registry ({reason}). It was disabled because no allowed earlier version is on this server.	{app} {version} è bloccata dal registro delle app ({reason}). È stata disattivata perché su questo server non c’è una versione precedente consentita.
 {app} {version} is blocked by the app registry ({reason}). It was rolled back to {to} automatically.	{app} {version} è bloccata dal registro delle app ({reason}). È stata riportata automaticamente a {to}.
 {app} {version} is blocked by the app registry ({reason}). Update it or roll it back.	{app} {version} è bloccata dal registro delle app ({reason}). Aggiornala o torna alla versione precedente.

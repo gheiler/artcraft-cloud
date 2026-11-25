@@ -5,8 +5,8 @@ image:
 
 # Public https URL, e.g. https://office.example.com. Turns on Secure cookies.
 publicUrl: ""
-# Origin isolated (sideloaded) apps are served from, e.g. https://apps.office.example.com.
-# Required to install a sideloaded app. Point DNS and TLS at the same service (see ingress.appsHost).
+# Optional extra origin for sideloaded apps, e.g. https://apps.office.example.com.
+# Empty: they stay on the main host, sandboxed. If set, also point ingress.appsHost at the same service.
 appsUrl: ""
 
 admin:
@@ -69,7 +69,7 @@ ingress:
   enabled: false
   className: ""
   host: office.example.com
-  # Second hostname for sideloaded apps (no session cookie). Empty: sideload is refused until appsUrl is set.
+  # Optional second hostname for sideloaded apps (no session cookie). Empty: same-host sandbox only.
   # Typical value: apps.office.example.com. TLS can reuse ingress.tls.secretName if the certificate includes this name.
   appsHost: ""
   annotations: {}

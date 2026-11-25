@@ -11,6 +11,7 @@ use axum::Json;
 use artcraft_cloud_types::registry::{compare_versions, RegistryApp, Verdict};
 use artcraft_cloud_types::{AdminApp, AdminApps, AdminVersion, AppAlert, AppInstallRequest, AppJob, AppSettingsRequest, AppSource, AppStatus, SideloadRequest, TypeConflict};
 
+use super::blocking;
 use super::session::AuthUser;
 use super::users::require_super;
 use crate::apps;
@@ -49,7 +50,7 @@ fn official_grants(app: &RegistryApp) -> Vec<String> {
     grants
 }
 
-fn status_of(state: &AppState, manifest: &crate::manifest::Manifest, app: &RegistryApp, row: Option<&InstalledApp>, full: bool, acks: Option<&[String]>) -> AppStatus {
+fn status_of(_state: &AppState, manifest: &crate::manifest::Manifest, app: &RegistryApp, row: Option<&InstalledApp>, full: bool, acks: Option<&[String]>) -> AppStatus {
     let unverified = row.is_some_and(|r| r.is_sideload());
     let extensions = if unverified {
         // Official types win once the registry lists this id.
@@ -59,6 +60,11 @@ fn status_of(state: &AppState, manifest: &crate::manifest::Manifest, app: &Regis
     };
     let defaults = extensions.iter().filter(|ext| manifest.defaults.get(*ext).map(String::as_str) == Some(app.id.as_str()) || (!manifest.defaults.contains_key(*ext) && row.is_none_or(|r| !r.is_sideload()))).cloned().collect();
     let grants = row.and_then(|r| r.sideload.as_ref()).map(|m| m.grants.clone()).unwrap_or_else(|| official_grants(app));
+    let isolation = if unverified {
+        row.and_then(|r| r.sideload.as_ref()).map(crate::sideload::isolation_of).unwrap_or_else(|| artcraft_cloud_types::ISOLATION_SANDBOX.to_string())
+    } else {
+        String::new()
+    };
     AppStatus {
         id: app.id.clone(),
         title: app.title.clone(),
@@ -73,7 +79,8 @@ fn status_of(state: &AppState, manifest: &crate::manifest::Manifest, app: &Regis
         author_query: app.author_query,
         chrome_query: app.chrome_query,
         unverified,
-        isolated: unverified && state.config.apps_origin().is_some(),
+        isolated: unverified && artcraft_cloud_types::isolation_is_isolated(&isolation),
+        isolation,
         defaults,
         grants,
         needs_ack: full && unverified && acks.is_none_or(|a| !a.iter().any(|id| id == &app.id)),
@@ -89,6 +96,7 @@ fn sideload_status(state: &AppState, manifest: &crate::manifest::Manifest, id: &
         return None;
     }
     let defaults = meta.extensions.iter().filter(|ext| manifest.defaults.get(*ext).map(String::as_str) == Some(id)).cloned().collect();
+    let isolation = crate::sideload::isolation_of(meta);
     Some(AppStatus {
         id: id.to_string(),
         title: meta.name.clone(),
@@ -103,7 +111,8 @@ fn sideload_status(state: &AppState, manifest: &crate::manifest::Manifest, id: &
         author_query: false,
         chrome_query: false,
         unverified: true,
-        isolated: state.config.apps_origin().is_some(),
+        isolated: artcraft_cloud_types::isolation_is_isolated(&isolation),
+        isolation,
         defaults,
         grants: meta.grants.clone(),
         needs_ack: full && acks.is_none_or(|a| !a.iter().any(|ack| ack == id)),
@@ -125,7 +134,9 @@ pub(crate) fn catalog(state: &AppState, full: bool, acks: Option<&[String]>) -> 
                 out.push(status_of(state, &manifest, app, row, full, acks));
                 if let Some(status) = out.last_mut() {
                     status.unverified = true;
-                    status.isolated = state.config.apps_origin().is_some();
+                    let isolation = row.and_then(|r| r.sideload.as_ref()).map(crate::sideload::isolation_of).unwrap_or_else(|| artcraft_cloud_types::ISOLATION_SANDBOX.to_string());
+                    status.isolated = artcraft_cloud_types::isolation_is_isolated(&isolation);
+                    status.isolation = isolation;
                     status.needs_ack = full && acks.is_none_or(|a| !a.iter().any(|id| id == &app.id));
                 }
                 continue;
@@ -339,6 +350,7 @@ pub(crate) fn admin_view(state: &AppState) -> AdminApps {
             official_available: row.is_some_and(|r| r.is_sideload()) && app.is_some(),
             claim_defaults: row.and_then(|r| r.sideload.as_ref()).is_some_and(|m| m.claim_defaults),
             defaults: row.and_then(|r| r.sideload.as_ref()).map(|m| m.extensions.iter().filter(|ext| manifest.defaults.get(*ext).map(String::as_str) == Some(id.as_str())).cloned().collect()).unwrap_or_default(),
+            isolation: row.and_then(|r| r.sideload.as_ref()).map(crate::sideload::isolation_of).unwrap_or_default(),
         });
         // A source check can offer a version the registry does not list.
         if let Some(offered) = row.and_then(|r| r.sideload.as_ref()).and_then(|m| m.offered.as_ref()) {
@@ -353,7 +365,7 @@ pub(crate) fn admin_view(state: &AppState) -> AdminApps {
                         reason: None,
                         installable: true,
                         recommended: last.update.as_deref() == Some(offered.version.as_str()),
-                        signed: if offered.signed.is_empty() { "none".into() } else { offered.signed.clone() },
+                        signed: match offered.signed.as_str() { "" | "none" => "source".into(), other => other.to_string() },
                     });
                 }
             }
@@ -521,13 +533,16 @@ pub async fn admin_dismiss(State(state): State<AppState>, AuthUser(user): AuthUs
 fn apply_settings(state: &AppState, user: &crate::db::Account, id: &str, body: AppSettingsRequest) -> Result<(), ApiError> {
     let before = read_manifest(&state.config.data_dir).apps.get(id).cloned();
     apps::set_settings(&state.config.data_dir, id, body.auto_update, body.disabled, false).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
-    if body.extensions.is_some() || body.grants.is_some() || body.claim_defaults.is_some() {
+    let mut isolation_detail = None;
+    let mut isolation_only = false;
+    if body.extensions.is_some() || body.grants.is_some() || body.claim_defaults.is_some() || body.isolation.is_some() {
         let manifest = read_manifest(&state.config.data_dir);
         let row = manifest.apps.get(id).ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "that app is not installed"))?;
         if !row.is_sideload() {
-            return Err(ApiError::new(StatusCode::BAD_REQUEST, "file types and grants can only be changed on a sideloaded app"));
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "file types, grants and isolation can only be changed on a sideloaded app"));
         }
         let meta = row.sideload.as_ref().ok_or_else(|| ApiError::new(StatusCode::BAD_REQUEST, "not a sideloaded app"))?;
+        let current_isolation = crate::sideload::isolation_of(meta);
         let extensions = match &body.extensions {
             Some(list) => crate::sideload::normalize_extensions(list).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?,
             None => meta.extensions.clone(),
@@ -537,9 +552,18 @@ fn apply_settings(state: &AppState, user: &crate::db::Account, id: &str, body: A
             None => meta.grants.clone(),
         };
         let claim = body.claim_defaults.unwrap_or(meta.claim_defaults);
+        let isolation = match &body.isolation {
+            Some(value) => {
+                let confirm = body.confirm_regular == Some(true) || current_isolation == artcraft_cloud_types::ISOLATION_REGULAR;
+                let mode = crate::sideload::normalize_isolation(Some(value), state.config.apps_origin().is_some(), confirm).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
+                isolation_detail = Some(format!("isolation={mode}"));
+                Some(mode)
+            }
+            None => None,
+        };
         let registry = state.registry.current().map(|l| l.registry.clone());
         let conflicts = crate::sideload::type_conflicts(&read_manifest(&state.config.data_dir), registry.as_ref(), id, &extensions, claim);
-        if !conflicts.is_empty() && body.confirm_conflicts != Some(true) {
+        if body.extensions.is_some() && !conflicts.is_empty() && body.confirm_conflicts != Some(true) {
             let official = conflicts.iter().any(|c| c.official);
             let message = if official {
                 "this file type is already opened by an official app; confirm and, to make this the default, tick that option"
@@ -548,17 +572,21 @@ fn apply_settings(state: &AppState, user: &crate::db::Account, id: &str, body: A
             };
             return Err(ApiError::with_conflicts(StatusCode::CONFLICT, message, "type_conflict", conflicts));
         }
-        apps::set_sideload_meta(&state.config.data_dir, id, body.extensions.map(|_| extensions), body.grants.map(|_| grants), body.claim_defaults, registry.as_ref()).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
+        let only_isolation = isolation_detail.is_some() && body.extensions.is_none() && body.grants.is_none() && body.claim_defaults.is_none() && body.auto_update.is_none();
+        apps::set_sideload_meta(&state.config.data_dir, id, body.extensions.map(|_| extensions), body.grants.map(|_| grants), body.claim_defaults, isolation, registry.as_ref()).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
+        isolation_only = only_isolation;
     }
     let action = if body.disabled == Some(true) {
         "disable"
     } else if body.disabled == Some(false) {
         "enable"
+    } else if isolation_only {
+        "isolation"
     } else {
         "settings"
     };
     let after = read_manifest(&state.config.data_dir).apps.get(id).cloned();
-    audit(state, &user.username, action, id, after.as_ref().map(|r| r.version.as_str()), after.as_ref().map(|r| r.sha256.as_str()), None, None);
+    audit(state, &user.username, action, id, after.as_ref().map(|r| r.version.as_str()), after.as_ref().map(|r| r.sha256.as_str()), None, isolation_detail.as_deref());
     let _ = before;
     Ok(())
 }
@@ -615,12 +643,6 @@ async fn start_source_install(state: AppState, actor: &str, id: String, version:
 /// `POST /api/admin/apps/sideload`: upload a zip or install the first version from a source.
 pub async fn admin_sideload(State(state): State<AppState>, AuthUser(user): AuthUser, multipart: axum::extract::Multipart) -> Result<Json<AdminApps>, ApiError> {
     require_super(&user)?;
-    if state.config.apps_origin().is_none() {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "sideloaded apps need a separate origin so they cannot use the signed-in session. Set ARTCRAFT_APPS_URL (for example http://apps.localhost:8080 or https://apps.your-domain) and point DNS and TLS at this same server.",
-        ));
-    }
     let (req, zip_path) = read_sideload_upload(&state, multipart).await?;
     if !req.confirm {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "confirm that this build is not on the artcraftCloud trust list"));
@@ -629,6 +651,12 @@ pub async fn admin_sideload(State(state): State<AppState>, AuthUser(user): AuthU
     let version = crate::sideload::normalize_version(&req.version).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
     let extensions = crate::sideload::normalize_extensions(&req.extensions).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
     let grants = crate::sideload::normalize_grants(&req.grants, req.bridge).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
+    let isolation = crate::sideload::normalize_isolation(
+        Some(req.isolation.as_str()).filter(|s| !s.is_empty()),
+        state.config.apps_origin().is_some(),
+        req.confirm_regular,
+    )
+    .map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
     let source = crate::sideload::normalize_source(req.source.as_ref()).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
     let registry = state.registry.current().map(|l| l.registry.clone());
     let manifest = read_manifest(&state.config.data_dir);
@@ -653,7 +681,7 @@ pub async fn admin_sideload(State(state): State<AppState>, AuthUser(user): AuthU
         };
         return Err(ApiError::with_conflicts(StatusCode::CONFLICT, message, "type_conflict", conflicts));
     }
-    let meta = crate::sideload::meta(&req.name, &req.publisher, &req.blurb, req.bridge, extensions, grants, req.claim_defaults, source.clone()).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
+    let meta = crate::sideload::meta(&req.name, &req.publisher, &req.blurb, req.bridge, extensions, grants, req.claim_defaults, source.clone(), isolation.clone()).map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
     let zip = match zip_path {
         Some(path) => path,
         None => {
@@ -675,7 +703,7 @@ pub async fn admin_sideload(State(state): State<AppState>, AuthUser(user): AuthU
     .map_err(|err| ApiError::new(StatusCode::BAD_REQUEST, err))?;
     let _ = tokio::fs::remove_file(&zip).await;
     let src = source.as_ref().map(|s| format!("{}:{}", s.kind, s.url));
-    audit(&state, &user.username, "install", &id, Some(&version), Some(&sha), src.as_deref(), Some("sideload"));
+    audit(&state, &user.username, "install", &id, Some(&version), Some(&sha), src.as_deref(), Some(&format!("sideload,isolation={isolation}")));
     Ok(Json(admin_view(&state)))
 }
 
@@ -771,6 +799,43 @@ pub async fn ack_unverified(State(state): State<AppState>, AuthUser(user): AuthU
     }
     state.db.ack_unverified_app(user.id, &id).map_err(ApiError::from)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /api/apps/{id}/capability`: the shell issues a short-lived token for a sideloaded app.
+pub async fn issue_capability(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<String>,
+    Json(body): Json<crate::capability::IssueRequest>,
+) -> Result<Json<crate::capability::IssueResponse>, ApiError> {
+    if !artcraft_cloud_types::registry::valid_id(&id) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "bad app id"));
+    }
+    let manifest = read_manifest(&state.config.data_dir);
+    let Some(row) = manifest.apps.get(&id) else {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "app is not installed"));
+    };
+    if row.disabled.is_some() {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "app is disabled"));
+    }
+    let path = if body.create && body.path.is_none() {
+        None
+    } else {
+        let raw = body.path.as_deref().unwrap_or("").trim();
+        if raw.is_empty() {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "give the opened file path, or ask for a create-only token"));
+        }
+        let rel = crate::paths::RelPath::parse(raw).map_err(ApiError::from)?;
+        if rel.is_root() {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "give the opened file path, or ask for a create-only token"));
+        }
+        let store = state.store.clone();
+        let owner = user.id;
+        let rel2 = rel.clone();
+        blocking(move || store.open_path(owner, &rel2)).await?;
+        Some(rel.as_str().to_string())
+    };
+    Ok(Json(state.capabilities.issue(user.id, &id, path)))
 }
 
 async fn check_sideload_sources(state: &AppState) {

@@ -185,12 +185,11 @@ pub struct SideloadArgs {
     pub confirm_conflicts: bool,
     pub github: Option<String>,
     pub manifest: Option<String>,
+    pub isolation: String,
+    pub confirm_regular: bool,
 }
 
 pub async fn sideload(config: &Config, args: SideloadArgs) -> Result<(), String> {
-    if config.apps_origin().is_none() {
-        return Err("sideloaded apps need ARTCRAFT_APPS_URL (a second hostname for this same server, for example http://apps.localhost:8080)".into());
-    }
     if !args.confirm {
         return Err("pass --confirm to acknowledge that this build is not on the artcraftCloud trust list".into());
     }
@@ -198,6 +197,11 @@ pub async fn sideload(config: &Config, args: SideloadArgs) -> Result<(), String>
     let version = artcraft_cloud_server::sideload::normalize_version(&args.version)?;
     let extensions = artcraft_cloud_server::sideload::normalize_extensions(&args.ext)?;
     let grants = artcraft_cloud_server::sideload::normalize_grants(&[], args.bridge)?;
+    let isolation = artcraft_cloud_server::sideload::normalize_isolation(
+        Some(args.isolation.as_str()).filter(|s| !s.is_empty()),
+        config.apps_origin().is_some(),
+        args.confirm_regular,
+    )?;
     let source = match (args.github.as_ref(), args.manifest.as_ref()) {
         (Some(repo), None) => artcraft_cloud_server::sideload::normalize_source(Some(&artcraft_cloud_types::AppSource { kind: "github".into(), url: repo.clone() }))?,
         (None, Some(url)) => artcraft_cloud_server::sideload::normalize_source(Some(&artcraft_cloud_types::AppSource { kind: "manifest".into(), url: url.clone() }))?,
@@ -215,7 +219,7 @@ pub async fn sideload(config: &Config, args: SideloadArgs) -> Result<(), String>
         let list: Vec<String> = conflicts.iter().map(|c| format!("{} ({})", c.ext, c.title)).collect();
         return Err(format!("file type already in use: {}; pass --confirm-conflicts to continue", list.join(", ")));
     }
-    let meta = artcraft_cloud_server::sideload::meta(&args.name, &args.publisher, &args.blurb, args.bridge, extensions, grants, args.claim_defaults, source)?;
+    let meta = artcraft_cloud_server::sideload::meta(&args.name, &args.publisher, &args.blurb, args.bridge, extensions, grants, args.claim_defaults, source, isolation.clone())?;
     let zip = match args.zip {
         Some(path) => path,
         None => return Err("pass a zip path, or use the Apps page to install the first version from a source".into()),
@@ -224,8 +228,8 @@ pub async fn sideload(config: &Config, args: SideloadArgs) -> Result<(), String>
         return Err(format!("{} is not a file", zip.display()));
     }
     let sha = apps::install_sideload(&config.data_dir, &id, &version, &zip, meta, registry)?;
-    let _ = log_audit(config, "install", &id, Some(&version), Some(&sha), Some("sideload"));
-    println!("{id} {version} sideloaded (sha256 {sha}, unverified)");
+    let _ = log_audit(config, "install", &id, Some(&version), Some(&sha), Some(&format!("sideload,isolation={isolation}")));
+    println!("{id} {version} sideloaded (sha256 {sha}, unverified, isolation {isolation})");
     Ok(())
 }
 
@@ -270,7 +274,7 @@ pub fn set_types(config: &Config, app: &str, ext: Vec<String>, claim_defaults: b
         let list: Vec<String> = conflicts.iter().map(|c| format!("{} ({})", c.ext, c.title)).collect();
         return Err(format!("file type already in use: {}; pass --confirm-conflicts to continue", list.join(", ")));
     }
-    apps::set_sideload_meta(&config.data_dir, app, Some(extensions), None, Some(claim_defaults), registry)?;
+    apps::set_sideload_meta(&config.data_dir, app, Some(extensions), None, Some(claim_defaults), None, registry)?;
     let _ = log_audit(config, "settings", app, None, None, Some("types"));
     println!("{app}: file types saved");
     Ok(())
@@ -281,9 +285,23 @@ pub fn set_grants(config: &Config, app: &str, grants: Vec<String>) -> Result<(),
     let bridge = row.sideload.as_ref().map(|m| m.bridge).unwrap_or(false);
     let grants = artcraft_cloud_server::sideload::normalize_grants(&grants, bridge)?;
     let loaded = store(config).current();
-    apps::set_sideload_meta(&config.data_dir, app, None, Some(grants), None, loaded.as_ref().map(|l| &l.registry))?;
+    apps::set_sideload_meta(&config.data_dir, app, None, Some(grants), None, None, loaded.as_ref().map(|l| &l.registry))?;
     let _ = log_audit(config, "settings", app, None, None, Some("grants"));
     println!("{app}: grants saved");
+    Ok(())
+}
+
+pub fn set_isolation(config: &Config, app: &str, isolation: &str, confirm_regular: bool) -> Result<(), String> {
+    let row = read_manifest(&config.data_dir).apps.get(app).cloned().ok_or_else(|| format!("{app} is not installed"))?;
+    if !row.is_sideload() {
+        return Err(format!("{app} is not a sideloaded app"));
+    }
+    let current = row.sideload.as_ref().map(artcraft_cloud_server::sideload::isolation_of).unwrap_or_else(|| "sandbox".into());
+    let confirm = confirm_regular || current == "regular";
+    let mode = artcraft_cloud_server::sideload::normalize_isolation(Some(isolation), config.apps_origin().is_some(), confirm)?;
+    apps::set_sideload_meta(&config.data_dir, app, None, None, None, Some(mode.clone()), None)?;
+    let _ = log_audit(config, "isolation", app, None, None, Some(&format!("isolation={mode}")));
+    println!("{app}: isolation set to {mode}");
     Ok(())
 }
 

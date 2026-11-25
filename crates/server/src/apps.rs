@@ -548,6 +548,7 @@ pub fn set_sideload_meta(
     extensions: Option<Vec<String>>,
     grants: Option<Vec<String>>,
     claim_defaults: Option<bool>,
+    isolation: Option<String>,
     registry: Option<&Registry>,
 ) -> Result<(), String> {
     with_lock(data, || {
@@ -562,6 +563,9 @@ pub fn set_sideload_meta(
         }
         if let Some(claim) = claim_defaults {
             meta.claim_defaults = claim;
+        }
+        if let Some(isolation) = isolation {
+            meta.isolation = isolation;
         }
         sideload::rebuild_defaults(&mut manifest, registry);
         write_manifest(data, &manifest)
