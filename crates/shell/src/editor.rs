@@ -74,6 +74,15 @@ const AUTOSAVE_AFTER_MS: f64 = 2500.0;
 const AUTOSAVE_EVERY_MS: f64 = 8000.0;
 const AUTOSAVE_KEY: &str = "autosave_off";
 
+std::thread_local! {
+    static PENDING_LAUNCH: std::cell::RefCell<Option<Launch>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Continue opening after the person accepted the unverified-app warning.
+pub fn take_pending_launch() -> Option<Launch> {
+    PENDING_LAUNCH.with(|slot| slot.borrow_mut().take())
+}
+
 impl Editor {
     pub fn new() -> Self {
         Self {
@@ -105,6 +114,30 @@ impl Editor {
 
     /// Restore the user's options for the app, then start it with the document.
     pub fn launch(&self, spec: Launch) {
+        let needs = crate::ui::ui().apps.with_untracked(|list| {
+            list.iter()
+                .any(|a| a.id == spec.app && a.unverified && a.needs_ack)
+        });
+        if needs {
+            PENDING_LAUNCH.with(|slot| *slot.borrow_mut() = Some(spec.clone()));
+            let title = crate::ui::ui()
+                .apps
+                .with_untracked(|list| {
+                    list.iter()
+                        .find(|a| a.id == spec.app)
+                        .map(|a| a.title.clone())
+                })
+                .unwrap_or_else(|| spec.app.clone());
+            crate::ui::ui().open_modal(crate::ui::Modal::Unverified {
+                app: spec.app.clone(),
+                title,
+            });
+            return;
+        }
+        self.launch_now(spec);
+    }
+
+    pub fn launch_now(&self, spec: Launch) {
         let editor = *self;
         let user = ui()
             .user
@@ -277,7 +310,12 @@ pub fn install(editor: Editor) {
     };
     let origin = window.location().origin().unwrap_or_default();
     let on_message = Closure::wrap(Box::new(move |event: MessageEvent| {
-        if event.origin() != origin {
+        let ev_origin = event.origin();
+        let app = editor.app.get_untracked();
+        let allowed = ev_origin == origin
+            || (app_by_id(&app).is_some_and(|item| item.isolated)
+                && ev_origin == frame_origin(&app));
+        if !allowed {
             return;
         }
         let Some(frame) = current_frame(editor) else {
@@ -648,23 +686,69 @@ pub fn parent_folder(path: &str) -> String {
     }
 }
 
+fn apps_origin() -> Option<String> {
+    ui().user
+        .with_untracked(|user| user.as_ref().and_then(|u| u.apps_origin.clone()))
+}
+
+fn frame_origin(app: &str) -> String {
+    if app_by_id(app).is_some_and(|item| item.isolated) {
+        if let Some(origin) = apps_origin() {
+            return origin;
+        }
+    }
+    web_sys::window()
+        .and_then(|w| w.location().origin().ok())
+        .unwrap_or_default()
+}
+
+pub fn iframe_allow(app: &str) -> String {
+    let grants = ui().apps.with_untracked(|list| {
+        list.iter()
+            .find(|a| a.id == app)
+            .map(|a| a.grants.clone())
+            .unwrap_or_default()
+    });
+    let grants = if grants.is_empty() && !app_by_id(app).is_some_and(|a| a.unverified) {
+        vec!["clipboard".into(), "fullscreen".into()]
+    } else {
+        grants
+    };
+    let mut parts = Vec::new();
+    if grants.iter().any(|g| g == "fullscreen") {
+        parts.push("fullscreen");
+    }
+    if grants.iter().any(|g| g == "clipboard") {
+        parts.push("clipboard-read");
+        parts.push("clipboard-write");
+    }
+    parts.join("; ")
+}
+
 pub fn iframe_src(app: &str, author: &str, own_author: bool) -> String {
-    if app_by_id(app).is_some_and(|item| !item.bridge) {
+    let path = if app_by_id(app).is_some_and(|item| !item.bridge) {
         // No host bridge (MailCraft): the app runs on its own, with nothing handed over.
-        return format!("/apps/{app}/index.html");
+        format!("/apps/{app}/index.html")
+    } else {
+        let mut url = format!("/apps/{app}/index.html?host=parent");
+        if !own_author
+            && !author.trim().is_empty()
+            && app_by_id(app).is_some_and(|item| item.author_query)
+        {
+            url.push_str("&author=");
+            url.push_str(&api::enc(author.trim()));
+        }
+        if app_by_id(app).is_some_and(|item| item.chrome_query) {
+            url.push_str("&chrome=nofiletab");
+        }
+        url
+    };
+    if app_by_id(app).is_some_and(|item| item.isolated) {
+        if let Some(origin) = apps_origin() {
+            return format!("{origin}{path}");
+        }
     }
-    let mut url = format!("/apps/{app}/index.html?host=parent");
-    if !own_author
-        && !author.trim().is_empty()
-        && app_by_id(app).is_some_and(|item| item.author_query)
-    {
-        url.push_str("&author=");
-        url.push_str(&api::enc(author.trim()));
-    }
-    if app_by_id(app).is_some_and(|item| item.chrome_query) {
-        url.push_str("&chrome=nofiletab");
-    }
-    url
+    path
 }
 
 fn post(
@@ -677,12 +761,10 @@ fn post(
     let Some(window) = frame.content_window() else {
         return;
     };
-    let Ok(origin) = web_sys::window()
-        .and_then(|w| w.location().origin().ok())
-        .ok_or(())
-    else {
+    let origin = frame_origin(app);
+    if origin.is_empty() {
         return;
-    };
+    }
     let message = js_sys::Object::new();
     let _ = js_sys::Reflect::set(
         &message,
@@ -762,6 +844,9 @@ pub fn EditorFrame() -> impl IntoView {
             return;
         };
         editor.frame.set_value(Some(frame.clone()));
+        if app_by_id(&editor.app.get_untracked()).is_some_and(|item| item.isolated) {
+            return;
+        }
         let Some(window) = frame.content_window() else {
             return;
         };
@@ -785,6 +870,7 @@ pub fn EditorFrame() -> impl IntoView {
                         <div class="doc-name">
                             <strong>{move || editor.name.get()}</strong>
                             <span class="muted">{move || editor.title.get()}</span>
+                            {move || app_by_id(&editor.app.get()).is_some_and(|a| a.unverified).then(|| view! { <span class="badge danger">{t("Unverified")}</span> })}
                         </div>
                         <Show when=move || editor.dirty.get()><span class="dot" title=t("Unsaved changes")></span></Show>
                         <p class="status">{move || editor.status.get()}</p>
@@ -889,7 +975,7 @@ pub fn EditorFrame() -> impl IntoView {
                         </form>
                     </Show>
                 </div>
-                <iframe src=src on:load=on_frame_load allow="fullscreen; clipboard-read; clipboard-write" title=move || editor.title.get()></iframe>
+                <iframe src=src on:load=on_frame_load allow=move || iframe_allow(&editor.app.get()) title=move || editor.title.get()></iframe>
             </section>
         </Show>
     }

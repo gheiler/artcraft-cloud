@@ -45,6 +45,7 @@ pub fn Modals() -> impl IntoView {
             Modal::OpenWith { path, share } => view! { <OpenWithDialog path=path share=share /> }.into_any(),
             Modal::Pick { id, accept, multiple } => view! { <PickDialog id=id accept=accept multiple=multiple /> }.into_any(),
             Modal::UserEmail { id, username } => view! { <crate::mail::UserEmailDialog id=id username=username /> }.into_any(),
+            Modal::Unverified { app, title } => view! { <UnverifiedDialog app=app title=title /> }.into_any(),
             Modal::ResetPassword { id, username } => view! { <NameDialog title=tf("New password for {username}", &[("username", &username)]) label=t("Password (at least 10 characters)").into() initial=String::new() confirm=t("Set password").into() password=true
                 on_ok=Callback::new(move |password: String| reset_password(id, password)) /> }.into_any(),
         })
@@ -768,6 +769,35 @@ fn PickDialog(id: u32, accept: String, multiple: bool) -> impl IntoView {
                         picker::dismiss(id);
                         ui.close_modal();
                     }>{t("Cancel")}</button>
+                </footer>
+            </div>
+        </Dialog>
+    }
+}
+
+#[component]
+fn UnverifiedDialog(app: String, title: String) -> impl IntoView {
+    let ui = ui();
+    let app_id = app.clone();
+    view! {
+        <Dialog title=t("Unverified app").to_string() on_close=Callback::new(move |_| ui.close_modal())>
+            <div class="dialog-body">
+                <p>{tf("{app} was added by the administrator and is not on the artcraftCloud trust list. It runs on a separate origin and can only open the document you choose here.", &[("app", &title)])}</p>
+                <footer>
+                    <button type="button" class="button" on:click=move |_| ui.close_modal()>{t("Cancel")}</button>
+                    <button type="button" class="button primary" on:click=move |_| {
+                        let id = app_id.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let _ = crate::api::post_empty(&format!("/api/apps/{id}/ack")).await;
+                            if let Ok(list) = crate::api::apps().await {
+                                crate::catalog::adopt(crate::ui::ui(), list);
+                            }
+                            crate::ui::ui().close_modal();
+                            if let Some(spec) = crate::editor::take_pending_launch() {
+                                crate::ui::ui().editor.launch_now(spec);
+                            }
+                        });
+                    }>{t("Open anyway")}</button>
                 </footer>
             </div>
         </Dialog>

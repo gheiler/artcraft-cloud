@@ -5,6 +5,7 @@ API key (recommended)	API-Schlüssel (empfohlen)
 API key created and stored. The admin password was not kept.	API-Schlüssel erstellt und gespeichert. Das Admin-Passwort wurde nicht aufbewahrt.
 Account	Konto
 Accounts	Konten
+Action	Aktion
 Actions	Aktionen
 Active	Aktiv
 Add	Hinzufügen
@@ -25,6 +26,7 @@ Anyone with the link	Alle mit dem Link
 Anyone with the link can edit	Alle mit dem Link können bearbeiten
 Anyone with the link can view	Alle mit dem Link können ansehen
 App	App
+App id	App-ID
 App registry	App-Registry
 Appearance	Darstellung
 Applies to	Gilt für
@@ -32,6 +34,7 @@ Apps	Apps
 Apps come from the artcraftCloud app registry, a signed list of apps and the versions that are safe to run. Add or update an app here; there is no need to update this server.	Apps stammen aus der artcraftCloud-App-Registry, einer signierten Liste von Apps und den Versionen, die sicher laufen. Fügen Sie hier Apps hinzu oder aktualisieren Sie sie; dieser Server muss dafür nicht aktualisiert werden.
 Ask your administrator	Fragen Sie Ihre Administration
 At least 10 characters. Your other sessions are signed out.	Mindestens 10 Zeichen. Ihre anderen Sitzungen werden abgemeldet.
+Audit log	Prüfprotokoll
 Auto-update	Automatisch aktualisieren
 Autosave	Automatisch speichern
 Autosaving…	Wird automatisch gespeichert …
@@ -44,6 +47,7 @@ Cancel	Abbrechen
 Centimeters	Zentimeter
 Change password	Passwort ändern
 Changing {app}	{app} wird geändert
+Check for versions	Nach Versionen suchen
 Check now	Jetzt prüfen
 Checking signatures and checksums…	Signaturen und Prüfsummen werden geprüft…
 Checking…	Wird geprüft…
@@ -57,12 +61,14 @@ Confirm new password	Neues Passwort bestätigen
 Connect a Stalwart mail server. People whose email address is on one of its domains can get a mailbox there. MailCraft opens it without asking for a password, and other mail apps sign in with the address and the artcraftCloud password.	Verbinden Sie einen Stalwart-Mailserver. Personen, deren E-Mail-Adresse auf einer seiner Domains liegt, können dort ein Postfach erhalten. MailCraft öffnet es ohne Passwortabfrage, und andere Mail-Apps melden sich mit der Adresse und dem artcraftCloud-Passwort an.
 Connect a mail server first.	Verbinden Sie zuerst einen Mailserver.
 Connected.	Verbunden.
+Continue anyway?	Trotzdem fortfahren?
 Copied.	Kopiert.
 Copy	Kopieren
 Copy built into this artcraftCloud	In dieses artcraftCloud eingebaute Kopie
 Copy here	Hierher kopieren
 Copy {name}	{name} kopieren
 Could not find a free name.	Kein freier Name gefunden.
+Could not save file types.	Dateitypen konnten nicht gespeichert werden.
 Could not save the settings: {error}	Die Einstellungen konnten nicht gespeichert werden: {error}
 Create	Erstellen
 Create a mailbox for this address on the mail server	Für diese Adresse ein Postfach auf dem Mailserver anlegen
@@ -70,6 +76,7 @@ Create group	Gruppe erstellen
 Create link	Link erstellen
 Create the mailbox {address} on the mail server	Postfach {address} auf dem Mailserver anlegen
 Current password	Aktuelles Passwort
+Danger zone	Gefahrenzone
 Dark	Dunkel
 Delete forever	Endgültig löschen
 Delete forever?	Endgültig löschen?
@@ -77,6 +84,8 @@ Delete group	Gruppe löschen
 Delete link	Link löschen
 Delete mailbox and mail	Postfach und E-Mails löschen
 Delete mailbox…	Postfach löschen …
+Description	Beschreibung
+Details	Details
 Disable	Deaktivieren
 Disabled	Deaktiviert
 Discard changes	Änderungen verwerfen
@@ -102,6 +111,7 @@ Email saved.	E-Mail gespeichert.
 Empty the trash?	Papierkorb leeren?
 Empty trash	Papierkorb leeren
 Enable	Aktivieren
+Enabled	Aktiviert
 Every app in the registry is installed.	Alle Apps der Registry sind installiert.
 Everything in the trash is deleted for good. This cannot be undone.	Alles im Papierkorb wird endgültig gelöscht. Das lässt sich nicht rückgängig machen.
 Expand	Ausklappen
@@ -110,6 +120,9 @@ Expires	Läuft ab
 Fades and smooth scrolling in the apps.	Überblendungen und sanftes Scrollen in den Apps.
 Failed.	Fehlgeschlagen.
 Fetched from the registry	Aus der Registry geladen
+File types	Dateitypen
+File types this app should open (comma-separated suffixes, for example md,txt).	Dateitypen, die diese App öffnen soll (durch Kommas getrennte Endungen, z. B. md,txt).
+File types…	Dateitypen…
 Files	Dateien
 Filter by app	Nach App filtern
 Folder	Ordner
@@ -117,6 +130,7 @@ Folder name	Ordnername
 For rulers, margins and sizes.	Für Lineale, Ränder und Größen.
 From this device…	Von diesem Gerät …
 Full name (optional)	Vollständiger Name (optional)
+GitHub releases	GitHub-Releases
 Give someone an email address in People. When its domain is on this server, artcraftCloud creates the mailbox with the person's artcraftCloud password, so they can use other mail apps too, and changes it whenever they change theirs. MailCraft gets in with a separate app password that this server keeps sealed. Disabling a person suspends the mailbox, so no mail app can sign in or send until they are enabled again, while mail sent to them still arrives; removing a mailbox unlinks it unless you choose to delete it.	Gib jemandem unter „Personen“ eine E-Mail-Adresse. Liegt ihre Domain auf diesem Server, legt artcraftCloud das Postfach mit dem artcraftCloud-Passwort der Person an, damit sie auch andere Mail-Apps nutzen kann, und ändert es, wann immer sie ihres ändert. MailCraft meldet sich mit einem eigenen App-Passwort an, das dieser Server versiegelt aufbewahrt. Wird eine Person deaktiviert, wird das Postfach gesperrt: Keine Mail-App kann sich anmelden oder senden, bis sie wieder aktiviert ist, während Mail an sie weiter ankommt. Ein Postfach zu entfernen hebt nur die Verknüpfung auf, außer du entscheidest dich, es zu löschen.
 Group {group}	Gruppe {group}
 Group · 1 member	Gruppe · 1 Mitglied
@@ -125,13 +139,16 @@ Groups	Gruppen
 Handed off from the previous app.	Von der vorherigen App übergeben.
 Has a mailbox on the mail server	Hat ein Postfach auf dem Mailserver
 Hide	Ausblenden
+I understand this build is not on the artcraftCloud trust list and I trust the file I am adding.	Ich verstehe, dass dieser Build nicht auf der artcraftCloud-Vertrauensliste steht, und ich vertraue der Datei, die ich hinzufüge.
 In use	In Verwendung
 Inches	Zoll
 Incoming (IMAP)	Eingehend (IMAP)
 Incompatible	Inkompatibel
 Initials	Initialen
 Install	Installieren
+Install an app that is not on the artcraftCloud trust list. It runs on a separate origin and cannot use the signed-in session. Only add software you trust.	Installieren Sie eine App, die nicht auf der artcraftCloud-Vertrauensliste steht. Sie läuft auf einem eigenen Ursprung und kann die angemeldete Sitzung nicht verwenden. Fügen Sie nur Software hinzu, der Sie vertrauen.
 Install new allowed versions on its own (checked every 6 hours)	Neue erlaubte Versionen selbst installieren (Prüfung alle 6 Stunden)
+Install unverified app	Ungeprüfte App installieren
 Installed	Installiert
 Installed by hand	Manuell installiert
 Installing…	Wird installiert…
@@ -157,7 +174,10 @@ Mailbox unlinked. It is still on the mail server.	Postfach getrennt. Es ist weit
 Mailbox {address} created.	Postfach {address} angelegt.
 Mailboxes	Postfächer
 Make admin	Zum Admin machen
+Make it the default app for these file types, even if an official app already opens them	Diese App als Standard für diese Dateitypen festlegen, auch wenn eine offizielle App sie bereits öffnet
+Make this the default app for these types if an official app already opens them?	Diese App als Standard für diese Typen festlegen, obwohl eine offizielle App sie bereits öffnet?
 Make user	Zum Benutzer machen
+Manifest URL	Manifest-URL
 Measurement units	Maßeinheiten
 Member	Mitglied
 Millimeters	Millimeter
@@ -179,6 +199,7 @@ New name	Neuer Name
 New password	Neues Passwort
 New password for {username}	Neues Passwort für {username}
 New {app} document	Neues {app}-Dokument
+No app installs, updates or removals have been recorded yet.	Es wurden noch keine App-Installationen, -Updates oder -Entfernungen aufgezeichnet.
 No app opens this kind of file by its name. Pick one, or download it.	Keine App öffnet diese Dateiart anhand ihres Namens. Wählen Sie eine aus oder laden Sie die Datei herunter.
 No app takes this from the drive yet.	Noch keine App übernimmt das aus dem Drive.
 No files of that kind here.	Keine Dateien dieser Art hier.
@@ -188,6 +209,7 @@ No installed app opens {name}.	Keine installierte App öffnet {name}.
 No mail server is connected, so only the address is kept.	Es ist kein Mailserver verbunden, daher wird nur die Adresse gespeichert.
 No matching files in this folder.	Keine passenden Dateien in diesem Ordner.
 No registry	Keine Registry
+None (zip only)	Keine (nur Zip)
 Not connected.	Nicht verbunden.
 Not in the registry	Nicht in der Registry
 Not installed	Nicht installiert
@@ -195,6 +217,7 @@ Not installed yet	Noch nicht installiert
 Not verified	Nicht verifiziert
 Nothing has been shared with you yet.	Mit Ihnen wurde noch nichts geteilt.
 Nothing here yet. Drop files on this page or create a document above.	Noch nichts hier. Legen Sie Dateien auf dieser Seite ab oder erstellen Sie oben ein Dokument.
+Now in the official registry	Jetzt im offiziellen Register
 Off	Aus
 On	An
 Only admins manage people.	Nur Admins verwalten Personen.
@@ -205,6 +228,7 @@ Only you.	Nur Sie.
 Open Apps	Apps öffnen
 Open MailCraft	MailCraft öffnen
 Open People	Personen öffnen
+Open anyway	Trotzdem öffnen
 Open with	Öffnen mit
 Open with…	Öffnen mit …
 Open {app}	{app} öffnen
@@ -229,12 +253,14 @@ People you add see everything in this folder.	Hinzugefügte Personen sehen alles
 Permission	Berechtigung
 Points	Punkt
 Publish these at your DNS provider so mail reaches this server and is trusted by others.	Tragen Sie diese bei Ihrem DNS-Anbieter ein, damit E-Mails diesen Server erreichen und von anderen als vertrauenswürdig gelten.
+Publisher	Herausgeber
 Purpose	Zweck
 Recommended	Empfohlen
 Remove	Entfernen
 Remove access	Zugriff entfernen
 Remove from group	Aus Gruppe entfernen
 Remove {app} from this server? Documents stay in the drive; it is not installed again until you add it.	{app} von diesem Server entfernen? Dokumente bleiben im Speicher; die App wird erst wieder installiert, wenn Sie sie hinzufügen.
+Removed	Entfernt
 Rename	Umbenennen
 Rename {current}	{current} umbenennen
 Reset password	Passwort zurücksetzen
@@ -242,6 +268,7 @@ Restore	Wiederherstellen
 Role	Rolle
 Roll back to {version}	Zurück auf {version}
 Roll {app} back to {version}?	{app} auf {version} zurücksetzen?
+Rolled back	Zurückgesetzt
 Same as the browser	Wie der Browser
 Same as the system	Wie das System
 Save	Speichern
@@ -258,6 +285,7 @@ Server	Server
 Server address	Serveradresse
 Set password	Passwort festlegen
 Settings	Einstellungen
+Settings changed	Einstellungen geändert
 Share	Teilen
 Share {name}	{name} teilen
 Shared	Geteilt
@@ -267,6 +295,7 @@ Shared link	Geteilter Link
 Shared with me	Mit mir geteilt
 Shown next to your comments.	Wird neben Ihren Kommentaren angezeigt.
 Shown on comments, tracked changes and document properties.	Erscheint bei Kommentaren, nachverfolgten Änderungen und in den Dokumenteigenschaften.
+Sideloaded apps need ARTCRAFT_APPS_URL (a second hostname for this same server, for example http://apps.localhost:8080 or https://apps.your-domain).	Seitlich geladene Apps brauchen ARTCRAFT_APPS_URL (einen zweiten Hostnamen für denselben Server, z. B. http://apps.localhost:8080 oder https://apps.your-domain).
 Sign in	Anmelden
 Sign in with	Anmelden mit
 Sign out	Abmelden
@@ -276,6 +305,8 @@ Size	Größe
 Someone else changed this file.	Jemand anderes hat diese Datei geändert.
 Someone else changed this file. Save a copy to keep your version.	Jemand anderes hat diese Datei geändert. Speichern Sie eine Kopie, um Ihre Fassung zu behalten.
 Source	Quelle
+Source URL or owner/repo	Quellen-URL oder owner/repo
+Source changed	Quelle geändert
 Source code	Quellcode
 Stalwart's web address as this server reaches it, e.g. http://stalwart:8080 with the compose mail profile.	Die Webadresse von Stalwart, wie dieser Server sie erreicht, z. B. http://stalwart:8080 mit dem Compose-Profil mail.
 Starting…	Wird gestartet…
@@ -285,6 +316,8 @@ Stored encrypted and never shown. Leave empty to keep it.	Verschlüsselt gespeic
 Stored encrypted on this server and never shown again.	Verschlüsselt auf diesem Server gespeichert und nie wieder angezeigt.
 Suggested	Vorgeschlagen
 Super admin	Super-Admin
+Switch this install to the official, trusted build from the app registry?	Diese Installation auf den offiziellen, vertrauenswürdigen Build aus der App-Registry umstellen?
+Switch to official	Auf offiziell umstellen
 System	System
 Test connection	Verbindung testen
 Testing…	Wird getestet …
@@ -314,11 +347,14 @@ Their last password change did not reach the mail server. artcraftCloud retries 
 Theme	Design
 These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.	Diese Einstellungen gelten für Sie in jedem Browser. Eine Änderung wird in die Optionen jeder App geschrieben und wirkt beim nächsten Öffnen der App.
 They cannot sign in to the mailbox from any app (IMAP, SMTP, MailCraft) and cannot send mail. Mail sent to them is still delivered. Enabling the person restores it.	Keine App (IMAP, SMTP, MailCraft) kann sich am Postfach anmelden, und es kann keine Mail gesendet werden. Mail an die Person wird weiter zugestellt. Wird die Person aktiviert, ist alles wiederhergestellt.
+This app speaks the host bridge (opens and saves the document)	Diese App spricht die Host-Brücke (öffnet und speichert das Dokument)
 This cannot be undone.	Das lässt sich nicht rückgängig machen.
 This deletes {address} and all of its mail on the mail server. It cannot be undone. Type the address to confirm.	Damit werden {address} und alle E-Mails darin auf dem Mailserver gelöscht. Das lässt sich nicht rückgängig machen. Geben Sie zur Bestätigung die Adresse ein.
+This file type is already used.	Dieser Dateityp ist bereits vergeben.
 This link has a password	Dieser Link hat ein Passwort
 This link has expired.	Dieser Link ist abgelaufen.
 This server was started with ARTCRAFT_MAIL_URL={url}.	Dieser Server wurde mit ARTCRAFT_MAIL_URL={url} gestartet.
+Tick the box to confirm you understand this app is not on the trust list.	Aktivieren Sie das Kästchen, um zu bestätigen, dass Sie verstehen, dass diese App nicht auf der Vertrauensliste steht.
 Toggle sidebar	Seitenleiste ein-/ausblenden
 Too many tries. Wait a few minutes and try again.	Zu viele Versuche. Warten Sie ein paar Minuten und versuchen Sie es erneut.
 Trash	Papierkorb
@@ -327,11 +363,15 @@ Unknown	Unbekannt
 Unlink mailbox	Postfach trennen
 Unlock	Entsperren
 Unsaved changes	Ungespeicherte Änderungen
+Unverified	Ungeprüft
+Unverified app	Ungeprüfte App
 Up one folder	Einen Ordner nach oben
 Update	Aktualisieren
 Update available: {version}	Update verfügbar: {version}
+Updated	Aktualisiert
 Updating {app}	{app} wird aktualisiert
 Upload	Hochladen
+Upload a zip or connect a source.	Laden Sie eine Zip-Datei hoch oder verbinden Sie eine Quelle.
 Use it	Verwenden
 Use this login once to create an API key, and store only the key (recommended)	Dieses Login einmalig zum Erstellen eines API-Schlüssels verwenden und nur den Schlüssel speichern (empfohlen)
 Used once to create the API key, then forgotten.	Wird einmal zum Erstellen des API-Schlüssels verwendet und dann verworfen.
@@ -340,10 +380,14 @@ Username	Benutzername
 Valid until	Gültig bis
 Value	Wert
 Verified	Verifiziert
+Version	Version
 Version {version}	Version {version}
+Versions from the connected source. Updates stay off until you turn auto-update on.	Versionen der verbundenen Quelle. Updates bleiben aus, bis Sie die automatische Aktualisierung einschalten.
 Versions…	Versionen…
 View only — the file was not stored.	Nur ansehen – die Datei wurde nicht gespeichert.
 What people enter as IMAP and SMTP server in other mail apps. Leave empty to use the MX host of their domain.	Was Personen in anderen Mail-Apps als IMAP- und SMTP-Server eintragen. Leer lassen, um den MX-Host ihrer Domain zu verwenden.
+When	Wann
+Who	Wer
 You can restore it from the trash later.	Sie können es später aus dem Papierkorb wiederherstellen.
 You have not shared anything yet.	Sie haben noch nichts geteilt.
 Your artcraftCloud password	Ihr artcraftCloud-Passwort
@@ -354,6 +398,7 @@ Your latest changes to this document have not been saved to the drive.	Ihre letz
 Your mailbox gets your artcraftCloud password the next time you sign in or change it. Until then other mail apps cannot sign in; MailCraft works already.	Ihr Postfach erhält Ihr artcraftCloud-Passwort, wenn Sie sich das nächste Mal anmelden oder es ändern. Bis dahin können sich andere Mail-Apps nicht anmelden; MailCraft funktioniert bereits.
 Your mailbox works in any IMAP mail app (Thunderbird, Apple Mail, Outlook, phones) with your email address and your artcraftCloud password.	Ihr Postfach funktioniert in jeder IMAP-Mail-App (Thunderbird, Apple Mail, Outlook, Smartphones) mit Ihrer E-Mail-Adresse und Ihrem artcraftCloud-Passwort.
 Your name in documents	Ihr Name in Dokumenten
+Zip file	Zip-Datei
 expired: new apps cannot be installed until it is renewed	abgelaufen: Neue Apps können erst nach der Erneuerung installiert werden
 mail password at next sign-in	Mail-Passwort bei nächster Anmeldung
 mail password not updated	Mail-Passwort nicht aktualisiert
@@ -368,6 +413,7 @@ serial {serial}	Seriennummer {serial}
 {app} is back on {version}.	{app} ist wieder auf {version}.
 {app} is still downloading	{app} wird noch heruntergeladen
 {app} versions	Versionen von {app}
+{app} was added by the administrator and is not on the artcraftCloud trust list. It runs on a separate origin and can only open the document you choose here.	{app} wurde vom Administrator hinzugefügt und steht nicht auf der artcraftCloud-Vertrauensliste. Die App läuft auf einem eigenen Ursprung und kann nur das Dokument öffnen, das Sie hier wählen.
 {app} {version} is blocked by the app registry ({reason}). It was disabled because no allowed earlier version is on this server.	{app} {version} ist von der App-Registry gesperrt ({reason}). Die App wurde deaktiviert, weil keine erlaubte frühere Version auf diesem Server liegt.
 {app} {version} is blocked by the app registry ({reason}). It was rolled back to {to} automatically.	{app} {version} ist von der App-Registry gesperrt ({reason}). Die App wurde automatisch auf {to} zurückgesetzt.
 {app} {version} is blocked by the app registry ({reason}). Update it or roll it back.	{app} {version} ist von der App-Registry gesperrt ({reason}). Aktualisieren Sie die App oder setzen Sie sie zurück.

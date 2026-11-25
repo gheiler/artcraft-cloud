@@ -2,7 +2,7 @@
 //! updating, rolling back or removing an app while the server runs. The server does the work and
 //! checks every version against the registry; this page shows it and polls running installs.
 
-use artcraft_cloud_types::{AdminApp, AdminApps, AppAlert, AppJob};
+use artcraft_cloud_types::{AdminApp, AdminApps, AppAlert, AppJob, AppSource, SideloadRequest};
 use leptos::prelude::*;
 use wasm_bindgen::{closure::Closure, JsCast};
 
@@ -317,6 +317,44 @@ pub fn AppsPage() -> impl IntoView {
         })
     };
 
+    let danger_zone = move || {
+        let origin_missing = data.with(|d| d.as_ref().is_some_and(|d| d.apps_origin.is_none()));
+        view! {
+            <section class="card settings-card danger-zone" id="danger-zone">
+                <h2>{t("Danger zone")}</h2>
+                <p class="muted">{t("Install an app that is not on the artcraftCloud trust list. It runs on a separate origin and cannot use the signed-in session. Only add software you trust.")}</p>
+                <Show when=move || origin_missing>
+                    <p class="test-result bad" role="alert">{t("Sideloaded apps need ARTCRAFT_APPS_URL (a second hostname for this same server, for example http://apps.localhost:8080 or https://apps.your-domain).")}</p>
+                </Show>
+                <SideloadForm disabled=origin_missing on_done=Callback::new(move |result: Result<AdminApps, String>| finish(result)) />
+            </section>
+        }
+    };
+    let audit_log = move || {
+        let events = data.with(|d| d.as_ref().map(|d| d.audit.clone()).unwrap_or_default());
+        view! {
+            <section class="card settings-card">
+                <h2>{t("Audit log")}</h2>
+                <Show when={ let events = events.clone(); move || !events.is_empty() } fallback=|| view! { <p class="empty">{t("No app installs, updates or removals have been recorded yet.")}</p> }>
+                    <table class="audit-log">
+                        <thead><tr><th>{t("When")}</th><th>{t("Who")}</th><th>{t("Action")}</th><th>{t("App")}</th><th>{t("Version")}</th><th>{t("Details")}</th></tr></thead>
+                        <tbody>
+                            {events.iter().map(|e| view! {
+                                <tr>
+                                    <td>{when(Some(e.at))}</td>
+                                    <td>{e.actor.clone()}</td>
+                                    <td>{audit_action(&e.action)}</td>
+                                    <td>{e.app.clone()}</td>
+                                    <td>{e.version.clone().unwrap_or_default()}</td>
+                                    <td class="muted">{e.detail.clone().or(e.source.clone()).or(e.sha256.clone().map(|s| format!("sha256 {s}")))}</td>
+                                </tr>
+                            }).collect_view()}
+                        </tbody>
+                    </table>
+                </Show>
+            </section>
+        }
+    };
     let registry_card = move || {
         data.get().map(|d| {
             let r = d.registry;
@@ -386,20 +424,61 @@ pub fn AppsPage() -> impl IntoView {
                     <strong>{app.title.clone()}" "<span class="muted">{version.clone()}</span></strong>
                     <span class="muted">{app.publisher.clone()}" · "{signature_label(app.signature.as_deref().unwrap_or(""))}</span>
                     <span class="app-row-badges">
+                        {app.unverified.then(|| view! { <span class="badge danger">{t("Unverified")}</span> })}
                         <span class="badge" class:danger=state == "blocked" || state == "incompatible">{state_label(&state)}</span>
                         {app.reason.clone().map(|r| view! { <span class="muted">{r}</span> })}
                         {disabled.then(|| view! { <span class="badge danger">{t("Disabled")}</span> })}
                         {app.update.clone().map(|v| view! { <span class="badge primary">{tf("Update available: {version}", &[("version", &v)])}</span> })}
                         {job.map(|j| view! { <span class="badge">{phase_label(&j)}</span> })}
+                        {app.official_available.then(|| view! { <span class="badge">{t("Now in the official registry")}</span> })}
                     </span>
                 </div>
                 <div class="app-row-actions">
                     <label class="check" title=t("Install new allowed versions on its own (checked every 6 hours)")>
-                        <input type="checkbox" prop:checked=app.auto_update disabled=!app.in_registry on:change=move |ev| settings(a1.id.clone(), serde_json::json!({ "auto_update": event_target_checked(&ev) })) />
+                        <input type="checkbox" prop:checked=app.auto_update disabled=!app.in_registry && app.source.is_none() on:change=move |ev| settings(a1.id.clone(), serde_json::json!({ "auto_update": event_target_checked(&ev) })) />
                         <span>{t("Auto-update")}</span>
                     </label>
                     {app.update.clone().map(|v| { let id = id.clone(); view! { <button type="button" class="button primary small" on:click=move |_| install(id.clone(), Some(v.clone()))>{t("Update")}</button> } })}
-                    {app.in_registry.then(|| view! { <button type="button" class="button small" on:click=move |_| versions_for.set(Some(a2.id.clone()))>{t("Versions…")}</button> })}
+                    {(app.in_registry || app.source.is_some()).then(|| view! { <button type="button" class="button small" on:click=move |_| versions_for.set(Some(a2.id.clone()))>{t("Versions…")}</button> })}
+                    {app.official_available.then(|| {
+                        let id = id.clone();
+                        view! { <button type="button" class="button small primary" on:click=move |_| {
+                            if confirm(t("Switch this install to the official, trusted build from the app registry?")) {
+                                install(id.clone(), None);
+                            }
+                        }>{t("Switch to official")}</button> }
+                    })}
+                    {app.unverified.then(|| {
+                        let id = id.clone();
+                        let current = app.extensions.join(", ");
+                        view! { <button type="button" class="button small" on:click=move |_| {
+                            let Some(window) = web_sys::window() else { return };
+                            let Ok(Some(value)) = window.prompt_with_message_and_default(t("File types this app should open (comma-separated suffixes, for example md,txt)."), &current) else { return };
+                            let exts: Vec<String> = value.split([',', ' ', ';']).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                            let claim = confirm(t("Make this the default app for these types if an official app already opens them?"));
+                            let mut body = serde_json::json!({ "extensions": exts, "claim_defaults": claim, "confirm_conflicts": false });
+                            let id = id.clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                let reply = api::send("PUT", &format!("/api/admin/apps/{id}/settings"), Some(&serde_json::to_vec(&body).unwrap_or_default()), Some("application/json"), None).await;
+                                match reply {
+                                    Ok(r) if r.status == 409 => {
+                                        let msg = api::error_body(&r.body).map(|e| e.error).unwrap_or_else(|| t("This file type is already used.").to_string());
+                                        if confirm(&format!("{msg}
+
+{}", t("Continue anyway?"))) {
+                                            body["confirm_conflicts"] = serde_json::json!(true);
+                                            finish(api::json::<AdminApps>("PUT", &format!("/api/admin/apps/{id}/settings"), &body).await);
+                                        }
+                                    }
+                                    Ok(r) if r.status >= 400 => ui.say(api::error_body(&r.body).map(|e| e.error).unwrap_or_else(|| t("Could not save file types.").to_string())),
+                                    Ok(r) => {
+                                        if let Ok(view) = serde_json::from_slice::<AdminApps>(&r.body) { finish(Ok(view)); }
+                                    }
+                                    Err(err) => ui.say(err),
+                                }
+                            });
+                        }>{t("File types…")}</button> }
+                    })}
                     {app.can_roll_back.then(|| view! { <button type="button" class="button small" on:click=move |_| rollback(a3.clone())>{tf("Roll back to {version}", &[("version", a3.previous.as_deref().unwrap_or(""))])}</button> })}
                     <button type="button" class="button small" disabled=state == "blocked" && disabled on:click=move |_| settings(a4.id.clone(), serde_json::json!({ "disabled": a4.disabled.is_none() }))>{if disabled { t("Enable") } else { t("Disable") }}</button>
                     <button type="button" class="button small danger" on:click=move |_| remove(a5.clone())>{t("Remove")}</button>
@@ -475,7 +554,18 @@ pub fn AppsPage() -> impl IntoView {
         Some(view! {
             <Dialog title=tf("{app} versions", &[("app", &app.title)]) wide=true on_close=close>
                 <div class="dialog-body">
-                    <p class="muted">{t("Only versions the app registry allows can be installed. Each is checked against the registry's checksum and the publisher's signature.")}</p>
+                    <div class="files-head">
+                        <p class="muted">{if app.unverified { t("Versions from the connected source. Updates stay off until you turn auto-update on.") } else { t("Only versions the app registry allows can be installed. Each is checked against the registry's checksum and the publisher's signature.") }}</p>
+                        {app.source.is_some().then(|| {
+                            let id = id.clone();
+                            view! { <button type="button" class="button small" on:click=move |_| {
+                                let id = id.clone();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    finish(api::json::<AdminApps>("POST", &format!("/api/admin/apps/{id}/check"), &serde_json::json!({})).await);
+                                });
+                            }>{t("Check for versions")}</button> }
+                        })}
+                    </div>
                     <ul class="version-list">
                         {app.versions.iter().map(|v| {
                             let current = installed.as_deref() == Some(v.version.as_str());
@@ -518,9 +608,141 @@ pub fn AppsPage() -> impl IntoView {
                     </Show>
                 </section>
                 {registry_card}
+                {danger_zone}
+                {audit_log}
             </Show>
             {job_dialog}
             {versions_dialog}
         </section>
     }
+}
+
+fn audit_action(action: &str) -> String {
+    match action {
+        "install" => t("Installed").to_string(),
+        "update" => t("Updated").to_string(),
+        "rollback" => t("Rolled back").to_string(),
+        "disable" => t("Disabled").to_string(),
+        "enable" => t("Enabled").to_string(),
+        "remove" => t("Removed").to_string(),
+        "settings" => t("Settings changed").to_string(),
+        "source" => t("Source changed").to_string(),
+        other => other.to_string(),
+    }
+}
+
+#[component]
+fn SideloadForm(disabled: bool, on_done: Callback<Result<AdminApps, String>>) -> impl IntoView {
+    let id = RwSignal::new(String::new());
+    let name = RwSignal::new(String::new());
+    let version = RwSignal::new(String::from("0.1.0"));
+    let publisher = RwSignal::new(String::new());
+    let blurb = RwSignal::new(String::new());
+    let extensions = RwSignal::new(String::new());
+    let source_kind = RwSignal::new(String::from("none"));
+    let source_url = RwSignal::new(String::new());
+    let bridge = RwSignal::new(true);
+    let confirm = RwSignal::new(false);
+    let claim = RwSignal::new(false);
+    let busy = RwSignal::new(false);
+    let file = RwSignal::new(None::<web_sys::File>);
+    let error = RwSignal::new(String::new());
+    view! {
+        <form class="sideload-form" on:submit=move |ev| {
+            ev.prevent_default();
+            if disabled || busy.get_untracked() {
+                return;
+            }
+            error.set(String::new());
+            let meta = SideloadRequest {
+                id: id.get_untracked(),
+                name: name.get_untracked(),
+                version: version.get_untracked(),
+                publisher: publisher.get_untracked(),
+                blurb: blurb.get_untracked(),
+                bridge: bridge.get_untracked(),
+                extensions: extensions.get_untracked().split([',', ' ', ';']).map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+                grants: vec!["document".into()],
+                confirm: confirm.get_untracked(),
+                confirm_conflicts: false,
+                claim_defaults: claim.get_untracked(),
+                source: match source_kind.get_untracked().as_str() {
+                    "github" | "manifest" => Some(AppSource { kind: source_kind.get_untracked(), url: source_url.get_untracked() }),
+                    _ => None,
+                },
+            };
+            if !meta.confirm {
+                error.set(t("Tick the box to confirm you understand this app is not on the trust list.").to_string());
+                return;
+            }
+            let zip = file.get_untracked();
+            if zip.is_none() && meta.source.is_none() {
+                error.set(t("Upload a zip or connect a source.").to_string());
+                return;
+            }
+            busy.set(true);
+            wasm_bindgen_futures::spawn_local(async move {
+                let send = |confirm_conflicts: bool| {
+                    let mut meta = meta.clone();
+                    meta.confirm_conflicts = confirm_conflicts;
+                    let form = web_sys::FormData::new().expect("form");
+                    let _ = form.append_with_str("meta", &serde_json::to_string(&meta).unwrap_or_default());
+                    if let Some(zip) = &zip {
+                        let _ = form.append_with_blob_and_filename("file", zip, &zip.name());
+                    }
+                    async move { crate::api::post_form::<AdminApps>("/api/admin/apps/sideload", form).await }
+                };
+                let result = send(false).await;
+                let result = match result {
+                    Err(msg) if msg.contains("already opened") || msg.contains("official") => {
+                        if web_sys::window().and_then(|w| w.confirm_with_message(&format!("{msg}\n\n{}", t("Continue anyway?"))).ok()).unwrap_or(false) {
+                            send(true).await
+                        } else {
+                            Err(msg)
+                        }
+                    }
+                    other => other,
+                };
+                busy.set(false);
+                match result {
+                    Ok(view) => on_done.run(Ok(view)),
+                    Err(err) => {
+                        error.set(err.clone());
+                        on_done.run(Err(err));
+                    }
+                }
+            });
+        }>
+            <div class="sideload-grid">
+                <label>{t("App id")}" "<input class="field" prop:value=move || id.get() on:input=move |ev| id.set(event_target_value(&ev)) placeholder="myapp" disabled=disabled /></label>
+                <label>{t("Name")}" "<input class="field" prop:value=move || name.get() on:input=move |ev| name.set(event_target_value(&ev)) disabled=disabled /></label>
+                <label>{t("Version")}" "<input class="field" prop:value=move || version.get() on:input=move |ev| version.set(event_target_value(&ev)) disabled=disabled /></label>
+                <label>{t("Publisher")}" "<input class="field" prop:value=move || publisher.get() on:input=move |ev| publisher.set(event_target_value(&ev)) disabled=disabled /></label>
+                <label class="wide">{t("Description")}" "<input class="field" prop:value=move || blurb.get() on:input=move |ev| blurb.set(event_target_value(&ev)) disabled=disabled /></label>
+                <label class="wide">{t("File types")}" "<input class="field" prop:value=move || extensions.get() on:input=move |ev| extensions.set(event_target_value(&ev)) placeholder="md, txt" disabled=disabled /></label>
+                <label>{t("Source")}" "
+                    <select class="field" prop:value=move || source_kind.get() on:change=move |ev| source_kind.set(event_target_value(&ev)) disabled=disabled>
+                        <option value="none">{t("None (zip only)")}</option>
+                        <option value="github">{t("GitHub releases")}</option>
+                        <option value="manifest">{t("Manifest URL")}</option>
+                    </select>
+                </label>
+                <label>{t("Source URL or owner/repo")}" "<input class="field" prop:value=move || source_url.get() on:input=move |ev| source_url.set(event_target_value(&ev)) disabled=disabled || source_kind.get() == "none" /></label>
+                <label class="wide">{t("Zip file")}" "<input class="field" type="file" accept=".zip,application/zip" disabled=disabled on:change=move |ev| {
+                    let input = event_target::<web_sys::HtmlInputElement>(&ev);
+                    let next = input.and_then(|el| el.files()).and_then(|list| list.get(0));
+                    file.set(next);
+                } /></label>
+            </div>
+            <label class="check"><input type="checkbox" prop:checked=move || bridge.get() on:change=move |ev| bridge.set(event_target_checked(&ev)) disabled=disabled /><span>{t("This app speaks the host bridge (opens and saves the document)")}</span></label>
+            <label class="check"><input type="checkbox" prop:checked=move || claim.get() on:change=move |ev| claim.set(event_target_checked(&ev)) disabled=disabled /><span>{t("Make it the default app for these file types, even if an official app already opens them")}</span></label>
+            <label class="check confirm-risk"><input type="checkbox" prop:checked=move || confirm.get() on:change=move |ev| confirm.set(event_target_checked(&ev)) disabled=disabled /><span>{t("I understand this build is not on the artcraftCloud trust list and I trust the file I am adding.")}</span></label>
+            <Show when=move || !error.get().is_empty()><p class="test-result bad" role="alert">{move || error.get()}</p></Show>
+            <button type="submit" class="button danger-fill" disabled=move || disabled || busy.get()>{move || if busy.get() { t("Installing…") } else { t("Install unverified app") }}</button>
+        </form>
+    }
+}
+
+fn event_target<T: wasm_bindgen::JsCast>(ev: &web_sys::Event) -> Option<T> {
+    ev.target().and_then(|t| t.dyn_into::<T>().ok())
 }

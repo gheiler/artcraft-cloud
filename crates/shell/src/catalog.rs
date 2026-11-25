@@ -28,20 +28,7 @@ pub fn app_for_name(name: &str) -> Option<&'static CraftApp> {
 
 /// Replace the catalog (a few kilobytes are leaked each time; it changes only after installs).
 pub fn set(list: &[AppStatus]) {
-    let apps: Vec<CraftApp> = list
-        .iter()
-        .map(|app| {
-            CraftApp::leak(
-                &app.id,
-                &app.title,
-                &app.blurb,
-                &app.extensions,
-                app.author_query,
-                app.chrome_query,
-                app.bridge,
-            )
-        })
-        .collect();
+    let apps: Vec<CraftApp> = list.iter().map(|app| CraftApp::leak(app)).collect();
     let apps: &'static [CraftApp] = Box::leak(apps.into_boxed_slice());
     APPS.with(|cell| cell.set(apps));
 }

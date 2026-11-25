@@ -5,6 +5,9 @@ image:
 
 # Public https URL, e.g. https://office.example.com. Turns on Secure cookies.
 publicUrl: ""
+# Origin isolated (sideloaded) apps are served from, e.g. https://apps.office.example.com.
+# Required to install a sideloaded app. Point DNS and TLS at the same service (see ingress.appsHost).
+appsUrl: ""
 
 admin:
   username: admin
@@ -66,12 +69,17 @@ ingress:
   enabled: false
   className: ""
   host: office.example.com
+  # Second hostname for sideloaded apps (no session cookie). Empty: sideload is refused until appsUrl is set.
+  # Typical value: apps.office.example.com. TLS can reuse ingress.tls.secretName if the certificate includes this name.
+  appsHost: ""
   annotations: {}
     # cert-manager.io/cluster-issuer: letsencrypt
   # The apps need a secure context (HTTPS) for WebGPU and the clipboard.
   tls:
     enabled: true
     secretName: artcraft-cloud-tls
+    # Optional second secret if the apps host has its own certificate. Empty: the apps host is added to secretName.
+    appsSecretName: ""
 
 resources:
   requests:

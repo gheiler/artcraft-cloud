@@ -108,9 +108,47 @@ fn decode<T: serde::de::DeserializeOwned>(reply: Reply) -> Result<T, String> {
 }
 
 fn message(body: &[u8]) -> String {
-    serde_json::from_slice::<ErrorBody>(body)
+    error_body(body)
         .map(|err| err.error)
-        .unwrap_or_else(|_| String::from_utf8_lossy(body).to_string())
+        .unwrap_or_else(|| String::from_utf8_lossy(body).to_string())
+}
+
+pub fn error_body(body: &[u8]) -> Option<ErrorBody> {
+    serde_json::from_slice::<ErrorBody>(body).ok()
+}
+
+/// Multipart POST (a sideload zip plus metadata). The browser sets the content type.
+pub async fn post_form<R: serde::de::DeserializeOwned>(
+    url: &str,
+    form: web_sys::FormData,
+) -> Result<R, String> {
+    let window = web_sys::window().ok_or("no window")?;
+    let init = RequestInit::new();
+    init.set_method("POST");
+    init.set_credentials(RequestCredentials::Include);
+    init.set_body(&form);
+    let request = Request::new_with_str_and_init(url, &init).map_err(|err| format!("{err:?}"))?;
+    request
+        .headers()
+        .set("x-requested-with", "artcraft")
+        .map_err(|err| format!("{err:?}"))?;
+    let response = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|err| format!("{err:?}"))?;
+    let response: Response = response
+        .dyn_into()
+        .map_err(|_| "not a response".to_string())?;
+    let status = response.status();
+    let buffer = JsFuture::from(response.array_buffer().map_err(|err| format!("{err:?}"))?)
+        .await
+        .map_err(|err| format!("{err:?}"))?;
+    let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+    let reply = Reply {
+        status,
+        body: bytes,
+        etag: None,
+    };
+    decode(reply)
 }
 
 pub async fn me() -> Result<User, String> {

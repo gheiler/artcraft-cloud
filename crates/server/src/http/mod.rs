@@ -8,7 +8,7 @@ pub(crate) mod users;
 
 use axum::extract::{Request, State};
 use axum::http::{header, HeaderValue, Method, StatusCode};
-use axum::middleware::{from_fn, Next};
+use axum::middleware::{from_fn, from_fn_with_state, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
@@ -81,6 +81,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api/apps/{id}/icon", get(apps::icon))
         .route("/api/admin/apps", get(apps::admin_list))
         .route("/api/admin/apps/refresh", post(apps::admin_refresh))
+        .route("/api/admin/apps/sideload", post(apps::admin_sideload))
+        .route("/api/admin/apps/{id}/source", post(apps::admin_source))
+        .route("/api/admin/apps/{id}/check", post(apps::admin_check))
+        .route("/api/apps/{id}/ack", post(apps::ack_unverified))
         .route("/api/admin/apps/{id}", axum::routing::delete(apps::admin_remove))
         .route("/api/admin/apps/{id}/install", post(apps::admin_install))
         .route("/api/admin/apps/{id}/rollback", post(apps::admin_rollback))
@@ -94,8 +98,26 @@ pub fn router(state: AppState) -> Router {
         .route("/dav/{*path}", any(crate::webdav::dav))
         .fallback(shell)
         .layer(from_fn(csrf))
+        .layer(from_fn_with_state(state.clone(), restrict_apps_host))
         .layer(axum::extract::DefaultBodyLimit::max(limit))
         .with_state(state)
+}
+
+/// The apps origin serves only app files (and health checks). It never sets a session cookie and
+/// it never answers `/api`, `/dav`, `/jmap` or `/caldav`, so a sideloaded app cannot act as the
+/// signed-in person.
+async fn restrict_apps_host(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    let host = req.headers().get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("");
+    if !state.config.is_apps_host(host) {
+        return next.run(req).await;
+    }
+    let path = req.uri().path();
+    if path == "/healthz" || path == "/readyz" || path.starts_with("/apps/") {
+        let mut response = next.run(req).await;
+        response.headers_mut().remove(header::SET_COOKIE);
+        return response;
+    }
+    ApiError::new(StatusCode::NOT_FOUND, "not found").into_response()
 }
 
 async fn csrf(req: Request, next: Next) -> Response {
@@ -138,8 +160,12 @@ async fn serve_app_at(state: &AppState, path: &str, headers: &axum::http::Header
     let Some(id) = parts.next().filter(|id| !id.is_empty()) else {
         return StatusCode::NOT_FOUND.into_response();
     };
+    let host = headers.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let on_apps = state.config.is_apps_host(host);
     let manifest = crate::manifest::read_manifest(&state.config.data_dir);
-    match manifest.apps.get(id) {
+    let row = manifest.apps.get(id);
+    let isolated = row.is_some_and(|r| r.is_sideload()) && state.config.apps_origin().is_some();
+    match row {
         // Installed apps keep being served even if the registry stops listing them; a blocked
         // version is handled by the registry check (rolled back or disabled), not here.
         Some(row) if row.disabled.is_some() => return (StatusCode::FORBIDDEN, format!("{id} is disabled by the administrator")).into_response(),
@@ -147,14 +173,33 @@ async fn serve_app_at(state: &AppState, path: &str, headers: &axum::http::Header
         None if apps::registry_app(state, id).is_none() => return StatusCode::NOT_FOUND.into_response(),
         None => {}
     }
+    if isolated && !on_apps {
+        if let Some(origin) = state.config.apps_origin() {
+            let rest = if path.is_empty() { String::new() } else { format!("/{path}") };
+            let loc = format!("{origin}/apps{rest}");
+            if let Ok(value) = HeaderValue::from_str(&loc) {
+                return (StatusCode::TEMPORARY_REDIRECT, [(header::LOCATION, value)]).into_response();
+            }
+        }
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if on_apps && !isolated {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     let Some(root) = current_dir(&state.config.data_dir, id) else {
         return (StatusCode::SERVICE_UNAVAILABLE, format!("{id} is not installed yet")).into_response();
     };
     let rest = parts.next().unwrap_or("");
-    let hook: Option<fn(&str) -> String> = match id {
-        "mailcraft" => Some(mail::inject_hook),
-        "calendarcraft" => Some(calendar::inject_hook),
-        _ => None,
+    // Mail and calendar hooks stay official-only and are never injected into a sideload, even
+    // one that reused those ids.
+    let hook: Option<fn(&str) -> String> = if isolated {
+        None
+    } else {
+        match id {
+            "mailcraft" => Some(mail::inject_hook),
+            "calendarcraft" => Some(calendar::inject_hook),
+            _ => None,
+        }
     };
     if let Some(inject) = hook.filter(|_| rest.is_empty() || rest == "index.html") {
         // MailCraft and CalendarCraft learn the user's mailbox and calendars from a script that
@@ -162,15 +207,42 @@ async fn serve_app_at(state: &AppState, path: &str, headers: &axum::http::Header
         let Ok(html) = tokio::fs::read_to_string(root.join("index.html")).await else {
             return StatusCode::NOT_FOUND.into_response();
         };
-        let mut response = ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], inject(&html)).into_response();
-        response.headers_mut().insert("content-security-policy", csp());
-        response.headers_mut().insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("SAMEORIGIN"));
-        return response;
+        return app_response(state, isolated, ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], inject(&html)).into_response());
     }
     let mut response = static_files::serve_path(&root, rest, headers, CachePolicy::Immutable).await;
+    // Isolated index pages get the parent origin so a future picker shim can postMessage to it.
+    if isolated && (rest.is_empty() || rest == "index.html") {
+        if let (Some(parent), Some(ct)) = (state.config.public_origin().or_else(|| Some("".into())), response.headers().get(header::CONTENT_TYPE)) {
+            if ct.to_str().unwrap_or("").starts_with("text/html") {
+                if let Ok(mut html) = tokio::fs::read_to_string(root.join("index.html")).await {
+                    if !parent.is_empty() {
+                        let tag = format!("<script>window.__ARTCRAFT_PARENT__={};window.__ARTCRAFT_APP__={};</script>", json_str(&parent), json_str(id));
+                        if let Some(idx) = html.to_ascii_lowercase().find("<head>") {
+                            html.insert_str(idx + 6, &tag);
+                        } else {
+                            html = tag + &html;
+                        }
+                    }
+                    response = ([(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")], html).into_response();
+                }
+            }
+        }
+    }
+    app_response(state, isolated, response)
+}
+
+fn json_str(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+fn app_response(state: &AppState, isolated: bool, mut response: Response) -> Response {
     let headers = response.headers_mut();
-    headers.insert("content-security-policy", csp());
-    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("SAMEORIGIN"));
+    headers.insert("content-security-policy", if isolated { apps_csp(state) } else { shell_csp(state) });
+    if isolated {
+        headers.remove(header::X_FRAME_OPTIONS);
+    } else {
+        headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("SAMEORIGIN"));
+    }
     response
 }
 
@@ -192,14 +264,35 @@ async fn shell(State(state): State<AppState>, req: Request) -> Response {
     let candidate = static_files::safe_join(root, rel);
     let serve_rel = if candidate.as_ref().is_some_and(|p| p.is_file()) { rel } else { "index.html" };
     let mut response = static_files::serve_path(root, serve_rel, req.headers(), CachePolicy::Html).await;
-    response.headers_mut().insert("content-security-policy", csp());
+    response.headers_mut().insert("content-security-policy", shell_csp(&state));
     response
 }
 
-fn csp() -> HeaderValue {
-    HeaderValue::from_static(
-        "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-src 'self'; object-src 'none'; base-uri 'self'",
-    )
+fn csp_base() -> &'static str {
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+}
+
+fn shell_csp(state: &AppState) -> HeaderValue {
+    let frame = match state.config.apps_origin() {
+        Some(origin) => format!("'self' {origin}"),
+        None => "'self'".into(),
+    };
+    HeaderValue::from_str(&format!("{}; frame-src {frame}", csp_base())).unwrap_or_else(|_| HeaderValue::from_static("default-src 'self'; frame-src 'self'; object-src 'none'"))
+}
+
+fn apps_csp(state: &AppState) -> HeaderValue {
+    HeaderValue::from_str(&format!("{}; frame-ancestors {}", csp_base(), frame_ancestors(state)))
+        .unwrap_or_else(|_| HeaderValue::from_static("default-src 'self'; frame-ancestors 'self'; object-src 'none'; connect-src 'self'"))
+}
+
+fn frame_ancestors(state: &AppState) -> String {
+    let port = state.config.listen.port();
+    let mut allowed = vec!["'self'".to_string(), format!("http://localhost:{port}"), format!("http://127.0.0.1:{port}")];
+    if let Some(origin) = state.config.public_origin() {
+        allowed.push(origin);
+    }
+    allowed.dedup();
+    allowed.join(" ")
 }
 
 pub fn cookie_value(header: &str, name: &str) -> Option<String> {

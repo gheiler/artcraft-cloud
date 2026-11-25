@@ -17,6 +17,8 @@ pub struct CraftApp {
     pub title: &'static str,
     pub blurb: &'static str,
     pub extensions: &'static [&'static str],
+    /// Suffixes this app is the default handler for (a subset of `extensions`).
+    pub defaults: &'static [&'static str],
     /// The app reads `?author=` for comments and tracked changes.
     pub author_query: bool,
     /// The app understands `?chrome=nofiletab` (ignored by the others).
@@ -24,21 +26,41 @@ pub struct CraftApp {
     /// The web build speaks the `craft-web-host` contract (opens and saves drive files). MailCraft
     /// does not: it is launched on its own and reaches mail over JMAP.
     pub bridge: bool,
+    /// Not on the signed app registry (a sideloaded zip or source).
+    pub unverified: bool,
+    /// Served from the apps origin, not the shell's origin.
+    pub isolated: bool,
 }
 
 impl CraftApp {
     /// Strings leaked to live as long as the page (the shell builds the catalog a few times per
     /// visit; a few kilobytes each).
-    pub fn leak(id: &str, title: &str, blurb: &str, extensions: &[String], author_query: bool, chrome_query: bool, bridge: bool) -> CraftApp {
+    pub fn leak(app: &AppStatus) -> CraftApp {
         let leak = |s: &str| -> &'static str { Box::leak(s.to_string().into_boxed_str()) };
-        let extensions: Vec<&'static str> = extensions.iter().map(|e| leak(e)).collect();
-        CraftApp { id: leak(id), title: leak(title), blurb: leak(blurb), extensions: Box::leak(extensions.into_boxed_slice()), author_query, chrome_query, bridge }
+        let extensions: Vec<&'static str> = app.extensions.iter().map(|e| leak(e)).collect();
+        let defaults: Vec<&'static str> = app.defaults.iter().map(|e| leak(e)).collect();
+        CraftApp {
+            id: leak(&app.id),
+            title: leak(&app.title),
+            blurb: leak(&app.blurb),
+            extensions: Box::leak(extensions.into_boxed_slice()),
+            defaults: Box::leak(defaults.into_boxed_slice()),
+            author_query: app.author_query,
+            chrome_query: app.chrome_query,
+            bridge: app.bridge,
+            unverified: app.unverified,
+            isolated: app.isolated,
+        }
     }
 }
 
-/// The app that opens `name` by its extension, from `apps`.
+/// The app that opens `name` by its extension, from `apps`. An app listed in `defaults` for that
+/// suffix is preferred (the default handler).
 pub fn app_for_name_in<'a>(apps: &'a [CraftApp], name: &str) -> Option<&'a CraftApp> {
     let ext = extension_of(name)?.to_ascii_lowercase();
+    if let Some(app) = apps.iter().find(|app| app.defaults.iter().any(|candidate| *candidate == ext)) {
+        return Some(app);
+    }
     apps.iter().find(|app| app.extensions.iter().any(|candidate| *candidate == ext))
 }
 
@@ -92,6 +114,9 @@ pub struct User {
     /// Why the last suspend or restore did not reach the mail server (it is retried).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mail_access_error: Option<String>,
+    /// Origin isolated apps are served from (`ARTCRAFT_APPS_URL`), when configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apps_origin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -390,6 +415,21 @@ pub struct AppStatus {
     pub author_query: bool,
     #[serde(default)]
     pub chrome_query: bool,
+    /// This build is not on the signed app registry.
+    #[serde(default)]
+    pub unverified: bool,
+    /// Served from the apps origin (no session cookie).
+    #[serde(default)]
+    pub isolated: bool,
+    /// Suffixes this app is the default handler for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defaults: Vec<String>,
+    /// Capability grants (`document`, `drive`, `mail`, `calendar`, `clipboard`, `fullscreen`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<String>,
+    /// The person has not yet accepted the first-open warning for this unverified app.
+    #[serde(default)]
+    pub needs_ack: bool,
 }
 
 /// `GET /api/admin/apps` (super admin): the registry, every app in it and what is installed.
@@ -401,6 +441,12 @@ pub struct AdminApps {
     pub apps: Vec<AdminApp>,
     /// Installed versions the registry blocks, and what was done about them.
     pub alerts: Vec<AppAlert>,
+    /// Recent install, update, disable and remove actions (newest first).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audit: Vec<AuditEvent>,
+    /// Origin isolated apps are served from, when configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apps_origin: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -452,6 +498,25 @@ pub struct AdminApp {
     pub update: Option<String>,
     pub versions: Vec<AdminVersion>,
     pub job: Option<AppJob>,
+    /// Not on the signed registry (a zip or a connected source).
+    #[serde(default)]
+    pub unverified: bool,
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub grants: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<AppSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    /// The official registry now lists this sideloaded id; offer to switch.
+    #[serde(default)]
+    pub official_available: bool,
+    /// This sideload is allowed to be the default handler even when it collides with an official app.
+    #[serde(default)]
+    pub claim_defaults: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defaults: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -507,6 +572,82 @@ pub struct AppSettingsRequest {
     /// `true` disables the app (hidden, not served); `false` enables it again.
     #[serde(default)]
     pub disabled: Option<bool>,
+    /// File types the sideloaded app should open (lower-case suffixes without a dot).
+    #[serde(default)]
+    pub extensions: Option<Vec<String>>,
+    #[serde(default)]
+    pub grants: Option<Vec<String>>,
+    /// Make this app the default handler for its types even if an official app already claims them.
+    #[serde(default)]
+    pub claim_defaults: Option<bool>,
+    /// The admin confirmed a file-type conflict (or overwriting an official app).
+    #[serde(default)]
+    pub confirm_conflicts: Option<bool>,
+}
+
+/// A source the server can poll for new versions of a sideloaded app.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AppSource {
+    /// `github` or `manifest`.
+    pub kind: String,
+    /// GitHub `owner/repo` or the https manifest URL.
+    pub url: String,
+}
+
+/// One row of the app-management audit log.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AuditEvent {
+    pub id: i64,
+    pub at: i64,
+    pub actor: String,
+    /// `install`, `update`, `rollback`, `disable`, `enable`, `remove`, `settings` or `source`.
+    pub action: String,
+    pub app: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// Metadata for a Danger-zone zip or source install (the zip is a separate part).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SideloadRequest {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub publisher: String,
+    #[serde(default)]
+    pub blurb: String,
+    #[serde(default)]
+    pub bridge: bool,
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    #[serde(default)]
+    pub grants: Vec<String>,
+    /// The admin confirmed the unverified-app warning.
+    #[serde(default)]
+    pub confirm: bool,
+    #[serde(default)]
+    pub confirm_conflicts: bool,
+    #[serde(default)]
+    pub claim_defaults: bool,
+    #[serde(default)]
+    pub source: Option<AppSource>,
+}
+
+/// A file type another app already opens.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TypeConflict {
+    pub ext: String,
+    pub app: String,
+    pub title: String,
+    pub official: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -514,6 +655,10 @@ pub struct ErrorBody {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub etag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conflicts: Vec<TypeConflict>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -548,7 +693,23 @@ mod tests {
 
     #[test]
     fn names_pick_the_app() {
-        let apps: Vec<CraftApp> = snapshot().apps.iter().map(|a| CraftApp::leak(&a.id, &a.title, &a.blurb, &a.extensions, a.author_query, a.chrome_query, a.bridge)).collect();
+        let apps: Vec<CraftApp> = snapshot()
+            .apps
+            .iter()
+            .map(|a| {
+                CraftApp::leak(&AppStatus {
+                    id: a.id.clone(),
+                    title: a.title.clone(),
+                    blurb: a.blurb.clone(),
+                    extensions: a.extensions.clone(),
+                    defaults: a.extensions.clone(),
+                    author_query: a.author_query,
+                    chrome_query: a.chrome_query,
+                    bridge: a.bridge,
+                    ..AppStatus::default()
+                })
+            })
+            .collect();
         let app_for_name = |name: &str| app_for_name_in(&apps, name).map(|a| a.id);
         assert_eq!(app_for_name("Notes.DOCX"), Some("wordcraft"));
         assert_eq!(app_for_name("sheet.xlsx"), Some("gridcraft"));

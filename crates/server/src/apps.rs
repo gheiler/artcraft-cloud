@@ -18,7 +18,8 @@ use fs2::FileExt;
 use sha2::{Digest, Sha256};
 use zip::ZipArchive;
 
-use crate::manifest::{read_manifest, version_dir, write_manifest, InstalledApp};
+use crate::manifest::{read_manifest, version_dir, write_manifest, InstalledApp, SideloadMeta};
+use crate::sideload;
 use crate::registry::{cloud_version, Loaded, USER_AGENT};
 
 const MAX_UNPACKED: u64 = 800 * 1024 * 1024;
@@ -77,7 +78,12 @@ pub async fn install(data: &Path, loaded: &Loaded, app_id: &str, version: Option
     let v = choose(app, version)?;
     let manifest = read_manifest(data);
     if let Some(row) = manifest.apps.get(app_id) {
-        if row.version == v.version && version_dir(data, app_id, &v.version).join("index.html").is_file() && row.disabled.is_none() {
+        if row.version == v.version
+            && version_dir(data, app_id, &v.version).join("index.html").is_file()
+            && row.disabled.is_none()
+            && row.sideload.is_none()
+            && row.sha256.eq_ignore_ascii_case(&v.sha256)
+        {
             return Ok((v.version.clone(), row.signature.clone()));
         }
     }
@@ -87,6 +93,9 @@ pub async fn install(data: &Path, loaded: &Loaded, app_id: &str, version: Option
     fs::create_dir_all(&scratch).map_err(|err| err.to_string())?;
     let result = install_in(&client, data, app, v, &scratch, progress).await;
     let _ = fs::remove_dir_all(&scratch);
+    if result.is_ok() {
+        refresh_defaults(data, Some(registry));
+    }
     result.map(|signature| (v.version.clone(), signature))
 }
 
@@ -113,7 +122,7 @@ async fn install_in(client: &reqwest::Client, data: &Path, app: &RegistryApp, v:
     }
     progress("installing", None);
     let (data2, id, version, bridge, zip2, sig2) = (data.to_path_buf(), app.id.clone(), v.version.clone(), app.bridge, zip_path.clone(), signature.clone());
-    tokio::task::spawn_blocking(move || install_zip(&data2, &id, bridge, &version, &zip2, &actual, &sig2)).await.map_err(|err| err.to_string())??;
+    tokio::task::spawn_blocking(move || install_zip_ex(&data2, &id, bridge, &version, &zip2, &actual, &sig2, None, false)).await.map_err(|err| err.to_string())??;
     if let (Some(dir), None) = (&cache, &cached) {
         if let Err(err) = store_in_cache(dir, &app.id, &v.asset, &zip_path) {
             tracing::warn!(app = app.id, "app cache: {err}");
@@ -188,6 +197,18 @@ pub async fn auto_update(data: &Path, loaded: &Loaded) -> Vec<String> {
         if !row.auto_update || row.disabled.is_some() {
             continue;
         }
+        if row.is_sideload() {
+            if loaded.registry.app(&id).is_some() {
+                // Official wins: do not keep pulling a source once the registry lists this id.
+                continue;
+            }
+            match update_from_source(data, &id, None, Some(&loaded.registry), no_progress()).await {
+                Ok((version, _)) => log.push(format!("{id} updated to {version} from its source")),
+                Err(err) if err.contains("already") || err.contains("no newer") => {}
+                Err(err) => log.push(format!("{id}: {err}")),
+            }
+            continue;
+        }
         let Some(app) = loaded.registry.app(&id) else { continue };
         let Some(target) = app.target(cloud_version()) else { continue };
         if compare_versions(&target.version, &row.version) != std::cmp::Ordering::Greater {
@@ -216,8 +237,15 @@ pub fn enforce(data: &Path, registry: &Registry, action: BlockAction) -> Vec<Str
         let mut manifest = read_manifest(data);
         let mut changed = false;
         for (id, row) in manifest.apps.iter_mut() {
-            let Some(app) = registry.app(id) else { continue };
-            let Verdict::Blocked { reason, security } = app.verdict(&row.version, cloud) else { continue };
+            if row.is_sideload() && registry.app(id).is_some() && row.notice.is_none() {
+                row.notice = Some(sideload::official_notice(id));
+                changed = true;
+            }
+            let blocked = match registry.app(id).map(|app| app.verdict(&row.version, cloud)) {
+                Some(Verdict::Blocked { reason, security }) => Some((reason, security)),
+                _ => sideload::blocked_by_registry(registry, id, &row.version, &row.sha256).map(|reason| (reason, true)),
+            };
+            let Some((reason, security)) = blocked else { continue };
             let act = match action {
                 BlockAction::Warn => false,
                 BlockAction::Security => security,
@@ -226,7 +254,7 @@ pub fn enforce(data: &Path, registry: &Registry, action: BlockAction) -> Vec<Str
             if !act || row.disabled.is_some() {
                 continue;
             }
-            let previous_ok = row.previous.as_deref().filter(|prev| app.verdict(prev, cloud).allowed() && version_dir(data, id, prev).join("index.html").is_file()).map(String::from);
+            let previous_ok = row.previous.as_deref().filter(|prev| registry.app(id).is_some_and(|app| app.verdict(prev, cloud).allowed()) && version_dir(data, id, prev).join("index.html").is_file()).map(String::from);
             let blocked = row.version.clone();
             match previous_ok {
                 Some(prev) => {
@@ -244,6 +272,7 @@ pub fn enforce(data: &Path, registry: &Registry, action: BlockAction) -> Vec<Str
             changed = true;
         }
         if changed {
+            sideload::rebuild_defaults(&mut manifest, Some(registry));
             write_manifest(data, &manifest)?;
         }
         Ok(())
@@ -336,6 +365,23 @@ pub fn install_local(data: &Path, app_id: &str, bridge: bool, version: &str, zip
 }
 
 pub fn install_zip(data: &Path, app_id: &str, bridge: bool, version: &str, zip_path: &Path, sha256: &str, signature: &str) -> Result<(), String> {
+    install_zip_ex(data, app_id, bridge, version, zip_path, sha256, signature, None, true)
+}
+
+/// `sideload` replaces any previous sideload metadata; `keep_sideload` keeps it when `sideload` is
+/// none (a source update). Official registry installs pass `keep_sideload = false`.
+#[allow(clippy::too_many_arguments)]
+pub fn install_zip_ex(
+    data: &Path,
+    app_id: &str,
+    bridge: bool,
+    version: &str,
+    zip_path: &Path,
+    sha256: &str,
+    signature: &str,
+    sideload: Option<SideloadMeta>,
+    keep_sideload: bool,
+) -> Result<(), String> {
     if !artcraft_cloud_types::registry::valid_id(app_id) || !artcraft_cloud_types::registry::valid_version(version) {
         return Err(format!("bad app id or version {app_id} {version}"));
     }
@@ -348,6 +394,7 @@ pub fn install_zip(data: &Path, app_id: &str, bridge: bool, version: &str, zip_p
     } else {
         archive_names_are_safe(zip_path)?;
     }
+    let size = fs::metadata(zip_path).map(|m| m.len()).unwrap_or(0);
     with_lock(data, || {
         let staging = data.join("apps").join(format!(".incoming-{app_id}-{version}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&staging);
@@ -377,6 +424,7 @@ pub fn install_zip(data: &Path, app_id: &str, bridge: bool, version: &str, zip_p
                 Some(row.version.clone())
             }
         });
+        let sideload = sideload.or_else(|| if keep_sideload { old.as_ref().and_then(|row| row.sideload.clone()) } else { None });
         manifest.removed.retain(|id| id != app_id);
         manifest.apps.insert(
             app_id.to_string(),
@@ -389,10 +437,141 @@ pub fn install_zip(data: &Path, app_id: &str, bridge: bool, version: &str, zip_p
                 disabled: None,
                 auto_update: old.as_ref().is_some_and(|row| row.auto_update),
                 notice: None,
+                sideload,
+                size,
             },
         );
+        sideload::rebuild_defaults(&mut manifest, None);
         write_manifest(data, &manifest)
     })
+}
+
+/// A Danger-zone zip already on disk, with metadata the admin typed.
+pub fn install_sideload(data: &Path, app_id: &str, version: &str, zip_path: &Path, meta: SideloadMeta, registry: Option<&Registry>) -> Result<String, String> {
+    let sha256 = file_sha256(zip_path)?;
+    if let Some(registry) = registry {
+        if let Some(reason) = sideload::blocked_by_registry(registry, app_id, version, &sha256) {
+            return Err(format!("{app_id} {version} is blocked by the app registry: {reason}"));
+        }
+    }
+    install_zip_ex(data, app_id, meta.bridge, version, zip_path, &sha256, "local", Some(meta), false)?;
+    if let Some(registry) = registry {
+        refresh_defaults(data, Some(registry));
+    }
+    Ok(sha256)
+}
+
+/// Recompute default file-type handlers from the registry and the sideloads on disk.
+pub fn refresh_defaults(data: &Path, registry: Option<&Registry>) {
+    let _ = with_lock(data, || {
+        let mut manifest = read_manifest(data);
+        sideload::rebuild_defaults(&mut manifest, registry);
+        write_manifest(data, &manifest)
+    });
+}
+
+/// Pull a newer (or chosen) version from a connected source and install it.
+pub async fn update_from_source(data: &Path, app_id: &str, version: Option<&str>, registry: Option<&Registry>, progress: Progress) -> Result<(String, String), String> {
+    let row = read_manifest(data).apps.get(app_id).cloned().ok_or_else(|| format!("{app_id} is not installed"))?;
+    let meta = row.sideload.clone().ok_or_else(|| format!("{app_id} is not a sideloaded app"))?;
+    let source = meta.source.clone().ok_or_else(|| format!("{app_id} has no source to check"))?;
+    progress("verifying", None);
+    let found = sideload::check_source(app_id, &source).await?;
+    let target = match version {
+        Some(want) => found.iter().find(|v| v.version == want).ok_or_else(|| format!("{app_id} {want} is not on the source"))?,
+        None => sideload::newest(&found).ok_or_else(|| format!("{app_id} source listed no versions"))?,
+    };
+    if compare_versions(&target.version, &row.version) != std::cmp::Ordering::Greater && version.is_none() {
+        record_offered(data, app_id, sideload::offered_from(target))?;
+        return Err(format!("{app_id} has no newer version on its source (latest is {})", target.version));
+    }
+    if target.version == row.version && target.sha256.eq_ignore_ascii_case(&row.sha256) {
+        record_offered(data, app_id, sideload::offered_from(target))?;
+        return Err(format!("{app_id} {} is already installed", target.version));
+    }
+    if let Some(registry) = registry {
+        if let Some(reason) = sideload::blocked_by_registry(registry, app_id, &target.version, &target.sha256) {
+            return Err(format!("{app_id} {} is blocked by the app registry: {reason}", target.version));
+        }
+    }
+    let client = reqwest::Client::builder().user_agent(USER_AGENT).build().map_err(|err| err.to_string())?;
+    let scratch = data.join("tmp").join(format!("sideload-{app_id}-{}-{}", target.version, std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    fs::create_dir_all(&scratch).map_err(|err| err.to_string())?;
+    let zip_path = scratch.join(format!("{app_id}-web-{}.zip", target.version));
+    progress("downloading", Some(0));
+    let result = download(&client, &target.url, &zip_path, Some(&progress)).await;
+    if result.is_ok() {
+        progress("installing", None);
+        let (data2, id, ver, zip2, _sha, meta2) = (data.to_path_buf(), app_id.to_string(), target.version.clone(), zip_path.clone(), target.sha256.clone(), meta.clone());
+        let inst = tokio::task::spawn_blocking(move || install_sideload(&data2, &id, &ver, &zip2, meta2, None)).await.map_err(|err| err.to_string())?;
+        if let Err(err) = inst {
+            let _ = fs::remove_dir_all(&scratch);
+            return Err(err);
+        }
+        // Re-pin the source and offered version (install_sideload writes the meta it was given).
+        let offered = sideload::offered_from(target);
+        let _ = record_offered(data, app_id, offered);
+        refresh_defaults(data, registry);
+    }
+    let _ = fs::remove_dir_all(&scratch);
+    result?;
+    Ok((target.version.clone(), target.sha256.clone()))
+}
+
+/// Record the last source check, even when no update is installed.
+pub fn record_offered(data: &Path, app_id: &str, offered: crate::manifest::OfferedVersion) -> Result<(), String> {
+    with_lock(data, || {
+        let mut manifest = read_manifest(data);
+        let row = manifest.apps.get_mut(app_id).ok_or_else(|| format!("{app_id} is not installed"))?;
+        if let Some(meta) = row.sideload.as_mut() {
+            meta.offered = Some(offered);
+        }
+        write_manifest(data, &manifest)
+    })
+}
+
+pub fn set_sideload_source(data: &Path, app_id: &str, source: Option<crate::manifest::SideloadSource>) -> Result<(), String> {
+    with_lock(data, || {
+        let mut manifest = read_manifest(data);
+        let row = manifest.apps.get_mut(app_id).ok_or_else(|| format!("{app_id} is not installed"))?;
+        let meta = row.sideload.as_mut().ok_or_else(|| format!("{app_id} is not a sideloaded app"))?;
+        meta.source = source;
+        meta.offered = None;
+        write_manifest(data, &manifest)
+    })
+}
+
+pub fn set_sideload_meta(
+    data: &Path,
+    app_id: &str,
+    extensions: Option<Vec<String>>,
+    grants: Option<Vec<String>>,
+    claim_defaults: Option<bool>,
+    registry: Option<&Registry>,
+) -> Result<(), String> {
+    with_lock(data, || {
+        let mut manifest = read_manifest(data);
+        let row = manifest.apps.get_mut(app_id).ok_or_else(|| format!("{app_id} is not installed"))?;
+        let meta = row.sideload.as_mut().ok_or_else(|| format!("{app_id} is not a sideloaded app"))?;
+        if let Some(ext) = extensions {
+            meta.extensions = ext;
+        }
+        if let Some(grants) = grants {
+            meta.grants = grants;
+        }
+        if let Some(claim) = claim_defaults {
+            meta.claim_defaults = claim;
+        }
+        sideload::rebuild_defaults(&mut manifest, registry);
+        write_manifest(data, &manifest)
+    })
+}
+
+pub fn looks_like_ed25519(sig: &str) -> bool {
+    use base64::Engine;
+    let raw = base64::engine::general_purpose::STANDARD.decode(sig.trim()).ok();
+    raw.is_some_and(|b| b.len() == 64)
 }
 
 /// `ARTCRAFT_APP_CACHE`: a directory of downloaded web build archives, shared by data volumes

@@ -31,6 +31,10 @@ spec:
           env:
             - name: ARTCRAFT_PUBLIC_URL
               value: {{ .Values.publicUrl | quote }}
+            {{- with .Values.appsUrl }}
+            - name: ARTCRAFT_APPS_URL
+              value: {{ . | quote }}
+            {{- end }}
             - name: ARTCRAFT_ADMIN_USER
               value: {{ .Values.admin.username | quote }}
             - name: ARTCRAFT_MAX_UPLOAD_MB

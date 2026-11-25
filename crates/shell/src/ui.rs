@@ -57,6 +57,11 @@ pub enum Modal {
         id: i64,
         username: String,
     },
+    /// First open of a sideloaded app: warn ordinary users, then ack and continue.
+    Unverified {
+        app: String,
+        title: String,
+    },
 }
 
 #[derive(Clone, Copy)]

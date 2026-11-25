@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use artcraft_cloud_types::ErrorBody;
+use artcraft_cloud_types::{ErrorBody, TypeConflict};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -33,11 +33,17 @@ pub struct ApiError {
     pub status: StatusCode,
     pub message: String,
     pub etag: Option<String>,
+    pub code: Option<String>,
+    pub conflicts: Vec<TypeConflict>,
 }
 
 impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        Self { status, message: message.into(), etag: None }
+        Self { status, message: message.into(), etag: None, code: None, conflicts: Vec::new() }
+    }
+
+    pub fn with_conflicts(status: StatusCode, message: impl Into<String>, code: &str, conflicts: Vec<TypeConflict>) -> Self {
+        Self { status, message: message.into(), etag: None, code: Some(code.into()), conflicts }
     }
 
     pub fn unauthorized() -> Self {
@@ -54,6 +60,8 @@ impl From<Error> for ApiError {
                 status: StatusCode::CONFLICT,
                 message: "etag conflict".into(),
                 etag: Some(etag),
+                code: None,
+                conflicts: Vec::new(),
             },
             Error::Forbidden => Self::new(StatusCode::FORBIDDEN, "forbidden"),
             Error::BadPath => Self::new(StatusCode::BAD_REQUEST, "invalid path"),
@@ -76,7 +84,7 @@ impl From<Error> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let status = self.status;
-        let body = Json(ErrorBody { error: self.message, etag: self.etag });
+        let body = Json(ErrorBody { error: self.message, etag: self.etag, code: self.code, conflicts: self.conflicts });
         (status, body).into_response()
     }
 }

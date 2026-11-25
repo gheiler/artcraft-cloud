@@ -539,3 +539,22 @@ select.field { padding-right: var(--space-8); }
 .progress-bar { height: 100%; background: var(--primary-strong); transition: width .3s ease; }
 .progress.indeterminate .progress-bar { animation: progress-slide 1.2s ease-in-out infinite; }
 @keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+
+.badge.danger { background: var(--danger-soft); color: var(--danger); }
+.badge.primary { background: var(--primary-soft, #3b82f622); color: var(--primary-strong, #2563eb); }
+.card-title .badge { margin-left: 0.4rem; vertical-align: middle; }
+.doc-name .badge { margin-left: 0.4rem; }
+.danger-zone { border-color: var(--danger); }
+.danger-zone h2 { color: var(--danger); }
+.sideload-form { display: flex; flex-direction: column; gap: 0.75rem; }
+.sideload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 1rem; }
+.sideload-grid .wide { grid-column: 1 / -1; }
+.sideload-form .check { display: flex; gap: 0.5rem; align-items: flex-start; }
+.sideload-form .confirm-risk { font-weight: var(--weight-semibold); }
+.audit-log { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.audit-log th, .audit-log td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border, #ddd); vertical-align: top; }
+.audit-log code, .audit-log td:last-child { word-break: break-all; }
+@media (max-width: 720px) {
+    .sideload-grid { grid-template-columns: 1fr; }
+    .sideload-grid .wide { grid-column: auto; }
+}
