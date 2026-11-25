@@ -314,7 +314,8 @@ cargo clippy -p artcraft-cloud-shell --target wasm32-unknown-unknown -- -D warni
 ```
 
 The look follows the SnowUI design system (colour, type, radius and spacing tokens taken from its Figma
-file) with purple as the primary colour. Browser checks: `tests/e2e/`.
+file) with purple as the primary colour. The mark is a four-facet beveled cloud (light and dark
+versions, plus a simplified 16px favicon) in [`assets/brand/`](assets/brand/). Browser checks: `tests/e2e/`.
 
 ## License
 

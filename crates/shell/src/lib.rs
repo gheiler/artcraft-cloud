@@ -18,7 +18,7 @@ use crate::i18n::t;
 use catalog::app_by_id;
 use drive::{open_file, Drive};
 use editor::{install, EditorFrame, Launch, SaveKind};
-use icons::{icon, Icon};
+use icons::{icon, logo_mark, Icon};
 use leptos::prelude::*;
 use modal::Modals;
 use people::People;
@@ -238,7 +238,7 @@ fn Login() -> impl IntoView {
                     }
                 });
             }>
-                <div class="brand big"><span class="logo-mark"></span><span>"artcraft"<b>"Cloud"</b></span></div>
+                <div class="brand big">{logo_mark()}<span>"artcraft"<b>"Cloud"</b></span></div>
                 <p class="muted">{t("Your files, in the Crafting Apps.")}</p>
                 <label class="stack"><span>{t("Username")}</span><input class="field" prop:value=move || username.get() on:input=move |ev| username.set(event_target_value(&ev)) autocomplete="username" /></label>
                 <label class="stack"><span>{t("Password")}</span><input class="field" type="password" prop:value=move || password.get() on:input=move |ev| password.set(event_target_value(&ev)) autocomplete="current-password" /></label>
@@ -274,7 +274,7 @@ fn Workspace() -> impl IntoView {
         <Show when=signed_in>
             <aside class="sidebar" aria-label=t("Navigation")>
                 <div class="sidebar-head">
-                    <div class="brand"><span class="logo-mark"></span><span class="nav-label">"artcraft"<b>"Cloud"</b></span></div>
+                    <div class="brand">{logo_mark()}<span class="nav-label">"artcraft"<b>"Cloud"</b></span></div>
                     <button type="button" class="icon-button" title=move || if ui.sidebar_collapsed.get() { t("Expand sidebar") } else { t("Collapse sidebar") }
                         aria-label=t("Toggle sidebar") on:click=move |_| ui.toggle_sidebar()>{icon(Icon::Sidebar)}</button>
                 </div>

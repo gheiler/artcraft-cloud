@@ -122,6 +122,18 @@ pub fn app_icon_src(app: &str) -> String {
     format!("/api/apps/{app}/icon")
 }
 
+/// The artcraftCloud mark (the lobe-facet cloud). Fills follow the theme in `style.css`.
+pub fn logo_mark() -> impl IntoView {
+    view! {
+        <svg class="logo-mark" viewBox="0 0 64 64" width="24" height="24" aria-hidden="true">
+            <path class="facet-a" d="M11 26 L13.24 26 L18.17 36.61 L4 37.5 L4 33 Z"></path>
+            <path class="facet-b" d="M22 15 L35 15 L39 19.67 L35.03 35.56 L23.53 36.27 L17.49 23.27 Z"></path>
+            <path class="facet-c" d="M43.58 22 L49 22 L60 33 L60 34 L40.27 35.23 Z"></path>
+            <path class="facet-d" d="M4 44 L4 42.5 L60 39 L60 44 L54 50 L10 50 Z"></path>
+        </svg>
+    }
+}
+
 pub fn app_icon(app: &str, class: &'static str) -> impl IntoView {
     view! { <img class=class src=app_icon_src(app) alt="" width="20" height="20" loading="lazy" /> }
 }
