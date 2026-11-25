@@ -34,18 +34,24 @@ CalendarCraft › Settings › Accounts adds a CalDAV account (iCloud, Fastmail,
 only talk to this origin (CSP `connect-src 'self'`), so those requests go through
 `/api/calendar/remote`:
 
-- the target is `x-calendar-url`, the credential `x-calendar-auth` (sent on as `Authorization`);
-- signed-in people only, CalendarCraft's own requests only, the same methods as `/caldav/`;
+- the target is `x-calendar-url`;
+- the password is stored with `PUT /api/calendar/remote/credentials/:account` (and removed with
+  `DELETE`), sealed in the vault under `calendar-remote:<user_id>:<account_id>`. The proxy
+  attaches it when the request has `x-calendar-account`. Older CalendarCraft builds may still
+  send `x-calendar-auth` (passed on as `Authorization`); new builds do not send the password;
+- signed-in people only, CalendarCraft's own requests only, the same methods as `/caldav/`
+  (the credentials URL is PUT/DELETE);
 - `http`/`https` only, no user name in the URL, **public addresses only** (loopback, private,
   link-local, CGNAT, multicast and reserved ranges are refused; `ARTCRAFT_CALENDAR_ALLOW_PRIVATE=1`
   for a lab), and the request goes to the address that was checked (no second lookup);
 - redirects come back to the app (which follows them through the proxy again, so each hop is
   checked); `WWW-Authenticate` is dropped; replies up to 32 MB.
 
-The passwords for those accounts stay in the browser (`calendarcraft.secrets`). The shell never
-uploads it with the app's options (`LOCAL_ONLY`, as `calendarcraft.cache`, the copy of server
-events), and removes both when another person opens CalendarCraft in the same browser or on sign-out.
-Accounts and local calendars (`calendarcraft.store`) are options and follow the person.
+Passwords for those accounts are sealed on the server (see above) and are not kept in the browser.
+The shell still treats `calendarcraft.secrets` and `calendarcraft.cache` as local-only (a leftover
+plaintext map from an older CalendarCraft is migrated into the vault and deleted on start; the
+cache is a copy of server events). Accounts and local calendars (`calendarcraft.store`) are options
+and follow the person.
 
 ## Files and settings
 
@@ -73,7 +79,8 @@ without a signature.
 
 - `cargo test -p artcraft-cloud-server mail_server` covers the hook, `/caldav/` (as the mailbox, with
   the app password, paths rewritten, methods and paths refused) and the remote proxy's refusals,
-  against the in-process fake Stalwart.
+  against the in-process fake Stalwart. `calendar_remote_credentials_are_sealed_and_not_returned`
+  covers storing a remote password (sealed, bound to the person and account, never returned).
 - `tests/e2e/calendar.js` (real Stalwart): CalendarCraft finds the calendar; an event typed in the
   app is on Stalwart (`curl` REPORT and PROPFIND as the person); an event `PUT` with `curl` shows in
   the app; a public `.ics` feed comes in through `/api/calendar/remote`; an `.ics` in the drive opens

@@ -42,6 +42,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/mail/token", post(mail::token))
         .route("/api/mail/mailcraft.js", get(mail::mailcraft_hook))
         .route("/api/calendar/calendarcraft.js", get(calendar::calendarcraft_hook))
+        .route("/api/calendar/remote/credentials/{account}", axum::routing::put(calendar::put_remote_credential).delete(calendar::delete_remote_credential))
         .route("/api/calendar/remote", any(calendar::remote_proxy))
         .route("/caldav", any(calendar::caldav_proxy))
         .route("/caldav/", any(calendar::caldav_proxy))

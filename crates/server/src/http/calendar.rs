@@ -8,17 +8,23 @@
 //! - `/api/calendar/remote` passes a request on to another calendar server (an iCloud or Fastmail
 //!   CalDAV account, a public `.ics` feed) that the browser cannot reach itself: the shell's
 //!   content security policy keeps apps on this origin, and most servers send no CORS headers.
-//!   The target is `x-calendar-url`, the credential `x-calendar-auth`. Only http(s), only public
-//!   addresses (unless `ARTCRAFT_CALENDAR_ALLOW_PRIVATE=1`), the address checked is the one
-//!   connected to, and redirects come back to the app instead of being followed.
+//!   The target is `x-calendar-url`. The password is taken from the server vault when
+//!   `x-calendar-account` names a stored credential (`PUT /api/calendar/remote/credentials/:account`);
+//!   older clients may still send `x-calendar-auth`. The password is never returned to the browser.
+//!   Only http(s), only public addresses (unless `ARTCRAFT_CALENDAR_ALLOW_PRIVATE=1`), the address
+//!   checked is the one connected to, and redirects come back to the app instead of being followed.
 //! - `/api/calendar/calendarcraft.js` is `window.calendarcraftHost` for the signed-in user,
 //!   loaded by CalendarCraft's page before the app starts (as MailCraft's hook).
 
 use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 
+use base64::Engine;
+use serde::Deserialize;
+
 use axum::body::Body;
-use axum::extract::{Request, State};
+use axum::extract::{Path, Request, State};
+use axum::Json;
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 
@@ -200,15 +206,80 @@ fn remote_error(status: StatusCode, message: &str) -> Response {
     ApiError::new(status, message).into_response()
 }
 
+
+pub fn calendar_remote_context(user_id: i64, account_id: &str) -> String {
+    format!("calendar-remote:{user_id}:{account_id}")
+}
+
+/// A calendar account id: letters, digits, `_` or `-`, 1–64 characters (e.g. `acc_a1b2`).
+pub fn valid_account_id(id: &str) -> bool {
+    let n = id.len();
+    (1..=64).contains(&n) && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') && id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RemoteCredentialBody {
+    #[serde(default)]
+    pub username: String,
+    pub password: String,
+}
+
+/// `PUT /api/calendar/remote/credentials/:account`: store a remote calendar password, sealed.
+pub async fn put_remote_credential(State(state): State<AppState>, AuthUser(user): AuthUser, Path(account): Path<String>, headers: HeaderMap, Json(body): Json<RemoteCredentialBody>) -> Result<StatusCode, ApiError> {
+    if !from_the_app(&headers) {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "missing X-Requested-With: artcraft"));
+    }
+    if !valid_account_id(&account) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "that account id is not valid"));
+    }
+    if body.password.is_empty() || body.password.len() > 4096 || body.username.len() > 256 {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "the user name or password is empty or too long"));
+    }
+    let sealed = vault::seal(&state.secret, &calendar_remote_context(user.id, &account), &body.password).map_err(ApiError::from)?;
+    state.db.set_calendar_remote_credential(user.id, &account, body.username.trim(), &sealed).map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `DELETE /api/calendar/remote/credentials/:account`.
+pub async fn delete_remote_credential(State(state): State<AppState>, AuthUser(user): AuthUser, Path(account): Path<String>, headers: HeaderMap) -> Result<StatusCode, ApiError> {
+    if !from_the_app(&headers) {
+        return Err(ApiError::new(StatusCode::FORBIDDEN, "missing X-Requested-With: artcraft"));
+    }
+    if !valid_account_id(&account) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "that account id is not valid"));
+    }
+    state.db.delete_calendar_remote_credential(user.id, &account).map_err(ApiError::from)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[allow(clippy::result_large_err)]
+fn remote_authorization(state: &AppState, user_id: i64, headers: &HeaderMap) -> Result<Option<HeaderValue>, Response> {
+    if let Some(account) = headers.get("x-calendar-account").and_then(|v| v.to_str().ok()).map(str::trim) {
+        if !valid_account_id(account) {
+            return Err(remote_error(StatusCode::BAD_REQUEST, "x-calendar-account is not a valid account id"));
+        }
+        let Some(row) = state.db.calendar_remote_credential(user_id, account).map_err(|err| ApiError::from(err).into_response())? else {
+            return Ok(None);
+        };
+        let password = vault::open(&state.secret, &calendar_remote_context(user_id, account), &row.secret).map_err(|err| ApiError::from(err).into_response())?;
+        let basic = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{}:{password}", row.username)));
+        return HeaderValue::from_str(&basic).map(Some).map_err(|_| remote_error(StatusCode::INTERNAL_SERVER_ERROR, "the stored credential could not be used"));
+    }
+    if let Some(auth) = headers.get("x-calendar-auth") {
+        return HeaderValue::from_bytes(auth.as_bytes()).map(Some).map_err(|_| remote_error(StatusCode::BAD_REQUEST, "x-calendar-auth is not a valid header"));
+    }
+    Ok(None)
+}
+
 /// `/api/calendar/remote`: one request to another calendar server, for CalendarCraft.
-pub async fn remote_proxy(State(_state): State<AppState>, AuthUser(user): AuthUser, req: Request) -> Response {
-    match remote(&user, req).await {
+pub async fn remote_proxy(State(state): State<AppState>, AuthUser(user): AuthUser, req: Request) -> Response {
+    match remote(&state, &user, req).await {
         Ok(response) | Err(response) => response,
     }
 }
 
 #[allow(clippy::result_large_err)]
-async fn remote(user: &crate::db::Account, req: Request) -> Result<Response, Response> {
+async fn remote(state: &AppState, user: &crate::db::Account, req: Request) -> Result<Response, Response> {
     if !from_the_app(req.headers()) {
         return Err(forbidden());
     }
@@ -245,8 +316,8 @@ async fn remote(user: &crate::db::Account, req: Request) -> Result<Response, Res
             upstream = upstream.header(name, value.as_bytes());
         }
     }
-    if let Some(auth) = headers.get("x-calendar-auth") {
-        upstream = upstream.header(header::AUTHORIZATION, auth.as_bytes());
+    if let Some(auth) = remote_authorization(state, user.id, &headers)? {
+        upstream = upstream.header(header::AUTHORIZATION, auth);
     }
     if !body.is_empty() {
         upstream = upstream.body(body);
@@ -356,4 +427,14 @@ mod tests {
         assert!(!allowed(&Method::from_bytes(b"MOVE").unwrap()));
         assert!(!allowed(&Method::POST));
     }
+
+    #[test]
+    fn account_ids_are_plain() {
+        assert!(valid_account_id("acc_a1b2"));
+        assert!(!valid_account_id("../x"));
+        assert!(!valid_account_id("acc/x"));
+        assert!(!valid_account_id(""));
+        assert_eq!(calendar_remote_context(3, "acc_one"), "calendar-remote:3:acc_one");
+    }
 }
+

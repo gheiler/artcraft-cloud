@@ -140,6 +140,13 @@ pub struct ShareRow {
     pub group_name: Option<String>,
 }
 
+/// A remote calendar password, sealed (`vault`), belonging to one person and one CalendarCraft account.
+#[derive(Debug, Clone)]
+pub struct CalendarRemoteCredential {
+    pub username: String,
+    pub secret: Vec<u8>,
+}
+
 impl Db {
     pub fn open(path: &Path) -> Result<Self, Error> {
         if let Some(parent) = path.parent() {
@@ -776,6 +783,38 @@ impl Db {
         })
     }
 
+
+    pub fn set_calendar_remote_credential(&self, user_id: i64, account_id: &str, username: &str, secret: &[u8]) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute(
+                "INSERT INTO calendar_remote_credentials (user_id, account_id, username, secret, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(user_id, account_id) DO UPDATE SET username = excluded.username, secret = excluded.secret, updated_at = excluded.updated_at",
+                params![user_id, account_id, username, secret, now_secs()],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn calendar_remote_credential(&self, user_id: i64, account_id: &str) -> Result<Option<CalendarRemoteCredential>, Error> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT username, secret FROM calendar_remote_credentials WHERE user_id = ?1 AND account_id = ?2",
+                params![user_id, account_id],
+                |row| Ok(CalendarRemoteCredential { username: row.get(0)?, secret: row.get(1)? }),
+            )
+            .optional()
+            .map_err(Error::from)
+        })
+    }
+
+    pub fn delete_calendar_remote_credential(&self, user_id: i64, account_id: &str) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute("DELETE FROM calendar_remote_credentials WHERE user_id = ?1 AND account_id = ?2", params![user_id, account_id])?;
+            Ok(())
+        })
+    }
+
     pub fn ping(&self) -> Result<(), Error> {
         self.with(|c| {
             c.query_row("SELECT 1", [], |_| Ok(()))?;
@@ -938,6 +977,14 @@ CREATE TABLE IF NOT EXISTS app_settings (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, app)
 );
+CREATE TABLE IF NOT EXISTS calendar_remote_credentials (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL,
+    username TEXT NOT NULL DEFAULT '',
+    secret BLOB NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, account_id)
+);
 "#;
 
 const MAILBOX_COLUMNS: &str = "user_id, address, account_id, secret, proxy_kind, proxy_id, password_sync, sync_error, pending_secret, sync_attempts, suspended, suspend_added, access_error";
@@ -993,6 +1040,14 @@ fn migrate(c: &Connection) -> Result<(), Error> {
         c.execute_batch("ALTER TABLE shares ADD COLUMN group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE")?;
     }
     c.execute_batch("CREATE INDEX IF NOT EXISTS idx_shares_group ON shares(group_id)")?;
+    c.execute_batch("CREATE TABLE IF NOT EXISTS calendar_remote_credentials (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL,
+    username TEXT NOT NULL DEFAULT '',
+    secret BLOB NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, account_id)
+)")?;
     ensure_super(c)
 }
 
@@ -1041,4 +1096,28 @@ mod migration_tests {
         assert_eq!(db.list_users().unwrap().iter().filter(|a| a.is_super).count(), 1, "opening again changes nothing");
         assert!(db.shares_out(2).unwrap().is_empty());
     }
+
+    #[test]
+    fn an_existing_install_gains_calendar_remote_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE, password_hash TEXT NOT NULL,
+                     role TEXT NOT NULL CHECK (role IN ('admin', 'user')), disabled INTEGER NOT NULL DEFAULT 0, display_name TEXT NOT NULL, created_at INTEGER NOT NULL);
+                 INSERT INTO users VALUES (1, 'ada', 'h', 'user', 0, 'Ada', 0);",
+            )
+            .unwrap();
+        }
+        let db = Db::open(&path).unwrap();
+        db.set_calendar_remote_credential(1, "acc_one", "ada", b"not-a-real-sealed-blob-but-opaque").unwrap();
+        let row = db.calendar_remote_credential(1, "acc_one").unwrap().expect("row");
+        assert_eq!(row.username, "ada");
+        assert_eq!(row.secret, b"not-a-real-sealed-blob-but-opaque");
+        assert!(db.calendar_remote_credential(1, "acc_other").unwrap().is_none());
+        db.delete_calendar_remote_credential(1, "acc_one").unwrap();
+        assert!(db.calendar_remote_credential(1, "acc_one").unwrap().is_none());
+    }
 }
+

@@ -1382,3 +1382,179 @@ async fn apps_are_added_updated_blocked_and_rolled_back_at_runtime() {
     let (status, _, _) = env.call(req).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn calendar_remote_credentials_are_sealed_and_not_returned() {
+    let env = Env::boot().await;
+    env.call(
+        Request::builder()
+            .method("POST")
+            .uri("/api/users")
+            .body(Body::from(
+                r#"{"username":"ada","password":"ada-password","role":"user"}"#,
+            ))
+            .unwrap(),
+    )
+    .await;
+    let ada = env.login("ada", "ada-password").await;
+    let ada_id = env.state.db.user_by_username("ada").unwrap().unwrap().id;
+
+    let put = |cookie: &str, account: &str, body: &str| {
+        let req = Request::builder()
+            .method("PUT")
+            .uri(format!("/api/calendar/remote/credentials/{account}"))
+            .header(header::COOKIE, cookie)
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        req
+    };
+
+    let (status, _, _) = env
+        .call(put(
+            &ada,
+            "acc_one",
+            r#"{"username":"ada@cal.example","password":"caldav-secret-99"}"#,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    // The database holds only the sealed blob.
+    let row = env
+        .state
+        .db
+        .calendar_remote_credential(ada_id, "acc_one")
+        .unwrap()
+        .expect("stored");
+    assert_eq!(row.username, "ada@cal.example");
+    assert!(
+        !row.secret.windows(16).any(|w| w == b"caldav-secret-99"),
+        "password is sealed"
+    );
+    let opened = crate::vault::open(
+        &env.state.secret,
+        &crate::http::calendar::calendar_remote_context(ada_id, "acc_one"),
+        &row.secret,
+    )
+    .unwrap();
+    assert_eq!(opened, "caldav-secret-99");
+    assert!(
+        crate::vault::open(
+            &env.state.secret,
+            &crate::http::calendar::calendar_remote_context(ada_id, "acc_other"),
+            &row.secret
+        )
+        .is_err(),
+        "bound to the account"
+    );
+    for file in ["db.sqlite", "db.sqlite-wal"] {
+        let bytes = std::fs::read(env._dir.path().join(file)).unwrap_or_default();
+        assert!(
+            !bytes.windows(16).any(|w| w == b"caldav-secret-99"),
+            "plaintext must not appear in {file}"
+        );
+    }
+
+    // Nothing is returned that would send the password back to the browser.
+    let (status, _, body) = env
+        .call(
+            Request::builder()
+                .method("GET")
+                .uri("/api/calendar/remote/credentials/acc_one")
+                .header(header::COOKIE, &ada)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
+    assert!(!String::from_utf8_lossy(&body).contains("caldav-secret-99"));
+
+    let (status, _, _) = env.call(put(&ada, "_hidden", r#"{"password":"x"}"#)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = env
+        .call(put(&ada, "acc_one", r#"{"username":"ada","password":""}"#))
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    // A request without the app header is refused.
+    let bare = env
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/calendar/remote/credentials/acc_one")
+                .header(header::COOKIE, &ada)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"password":"nope"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bare.status(), StatusCode::FORBIDDEN);
+
+    // Another person cannot read or overwrite it by id; their row is separate.
+    env.call(
+        Request::builder()
+            .method("POST")
+            .uri("/api/users")
+            .body(Body::from(
+                r#"{"username":"bob","password":"bob-password","role":"user"}"#,
+            ))
+            .unwrap(),
+    )
+    .await;
+    let bob = env.login("bob", "bob-password").await;
+    let bob_id = env.state.db.user_by_username("bob").unwrap().unwrap().id;
+    assert!(env
+        .state
+        .db
+        .calendar_remote_credential(bob_id, "acc_one")
+        .unwrap()
+        .is_none());
+    let (status, _, _) = env
+        .call(put(
+            &bob,
+            "acc_one",
+            r#"{"username":"bob","password":"bobs-own"}"#,
+        ))
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let ada_pw = crate::vault::open(
+        &env.state.secret,
+        &crate::http::calendar::calendar_remote_context(ada_id, "acc_one"),
+        &env.state
+            .db
+            .calendar_remote_credential(ada_id, "acc_one")
+            .unwrap()
+            .unwrap()
+            .secret,
+    )
+    .unwrap();
+    assert_eq!(ada_pw, "caldav-secret-99");
+
+    let (status, _, _) = env
+        .call(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/calendar/remote/credentials/acc_one")
+                .header(header::COOKIE, &ada)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(env
+        .state
+        .db
+        .calendar_remote_credential(ada_id, "acc_one")
+        .unwrap()
+        .is_none());
+    assert!(
+        env.state
+            .db
+            .calendar_remote_credential(bob_id, "acc_one")
+            .unwrap()
+            .is_some(),
+        "bob's credential is still there"
+    );
+}
