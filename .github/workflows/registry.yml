@@ -5,7 +5,8 @@ name: App registry
 # so this workflow never pushes to main:
 #   - On a pull request that touches registry/: sign the branch (so the signature
 #     is in the PR before merge).
-#   - Monthly or by hand: renew the expiry and open a pull request.
+#   - Weekly (Monday 02:00 Europe/Berlin) or by hand: renew the expiry and open a
+#     pull request (or update one that is already open).
 #   - After a merge to main: only verify; if the copy is unsigned, fail with a
 #     clear message instead of trying to push.
 # Needs the ARTCRAFT_REGISTRY_SIGNING_KEY secret (see docs/registry.md).
@@ -17,7 +18,10 @@ on:
     branches: [main]
     paths: ["registry/**"]
   schedule:
-    - cron: "17 4 1 * *"
+    # 02:00 Europe/Berlin is 01:00 UTC in winter (CET) and 00:00 UTC in summer (CEST).
+    # Both fire; the first step continues only when the Europe/Berlin hour is 02.
+    - cron: "0 0 * * 1"
+    - cron: "0 1 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -35,14 +39,34 @@ jobs:
     # `registry verify --unsigned-ok`.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
-      - uses: actions/checkout@v4
+      - id: berlin
+        name: only at 02:00 Europe/Berlin when scheduled
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          hour=$(TZ=Europe/Berlin date +%H)
+          echo "Europe/Berlin hour is $hour ($(TZ=Europe/Berlin date -Iseconds))"
+          if [ "$hour" = "02" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not 02:00 in Europe/Berlin; the other Monday cron covers the other DST offset."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.berlin.outputs.run == 'true'
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release --locked -p artcraft-cloud
+      - if: steps.berlin.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      - if: steps.berlin.outputs.run == 'true'
+        uses: Swatinem/rust-cache@v2
+      - if: steps.berlin.outputs.run == 'true'
+        run: cargo build --release --locked -p artcraft-cloud
       - name: sign, renew or verify
+        if: steps.berlin.outputs.run == 'true'
         env:
           ARTCRAFT_REGISTRY_SIGNING_KEY: ${{ secrets.ARTCRAFT_REGISTRY_SIGNING_KEY }}
           EVENT: ${{ github.event_name }}
@@ -52,7 +76,7 @@ jobs:
             exit 1
           fi
           bin=target/release/artcraft-cloud
-          git fetch -q --depth=1 origin main && git show origin/main:registry/apps.json > /tmp/before.json 2>/dev/null || rm -f /tmp/before.json
+          git fetch -q origin main && git show origin/main:registry/apps.json > /tmp/before.json 2>/dev/null || rm -f /tmp/before.json
           case "$EVENT" in
             pull_request)
               $bin registry verify > /dev/null 2>&1 || $bin registry sign
@@ -72,7 +96,7 @@ jobs:
               ;;
           esac
       - name: commit the signature on the pull request
-        if: github.event_name == 'pull_request'
+        if: steps.berlin.outputs.run == 'true' && github.event_name == 'pull_request'
         run: |
           git add registry/apps.json registry/apps.json.sig
           if git diff --cached --quiet; then
@@ -83,8 +107,8 @@ jobs:
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -m "registry: sign serial ${serial}"
           git push origin "HEAD:${{ github.head_ref }}"
-      - name: open a pull request for the renewal
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+      - name: open or update a pull request for the renewal
+        if: steps.berlin.outputs.run == 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -94,10 +118,39 @@ jobs:
             exit 0
           fi
           serial=$(sed -n 's/^  "serial": \([0-9]*\),$/\1/p' registry/apps.json)
-          branch="registry/renew-${serial}"
-          git checkout -B "$branch"
+          cp registry/apps.json /tmp/renewed-apps.json
+          cp registry/apps.json.sig /tmp/renewed-apps.json.sig
+          # Reuse an open renew PR (stable branch, or an older registry/renew-<serial> branch)
+          # instead of opening another one each week.
+          existing=$(gh pr list --base main --state open --json number,headRefName,url \
+            --jq '.[] | select(.headRefName == "registry/renew" or (.headRefName | startswith("registry/renew-"))) | "\(.number)\t\(.headRefName)\t\(.url)"' \
+            | head -1)
+          branch=registry/renew
+          if [ -n "$existing" ]; then
+            number=$(printf '%s\n' "$existing" | cut -f1)
+            branch=$(printf '%s\n' "$existing" | cut -f2)
+            url=$(printf '%s\n' "$existing" | cut -f3)
+            git fetch origin "$branch"
+            git checkout "$branch"
+            git merge --no-edit origin/main || true
+          else
+            git checkout -B "$branch"
+          fi
+          cp /tmp/renewed-apps.json registry/apps.json
+          cp /tmp/renewed-apps.json.sig registry/apps.json.sig
+          git add registry/apps.json registry/apps.json.sig
+          if git diff --cached --quiet; then
+            echo "renewal already on the branch"
+            exit 0
+          fi
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -m "registry: renew serial ${serial}"
-          git push -u origin "$branch"
-          gh pr create --base main --head "$branch" --title "registry: renew serial ${serial}" \
-            --body "Monthly (or manual) renewal of the signed app registry: a new serial and a new expiry date. main is protected, so this lands as a pull request instead of a direct push."
+          git push -u origin "HEAD:$branch"
+          if [ -n "$existing" ]; then
+            gh pr edit "$number" --title "registry: renew serial ${serial}" \
+              --body "Weekly (or manual) renewal of the signed app registry: a new serial and a new expiry date (signatures are valid for 120 days). main is protected, so this updates the pull request already open instead of opening another."
+            echo "updated $url"
+          else
+            gh pr create --base main --head "$branch" --title "registry: renew serial ${serial}" \
+              --body "Weekly (or manual) renewal of the signed app registry: a new serial and a new expiry date (signatures are valid for 120 days). main is protected, so this lands as a pull request instead of a direct push."
+          fi

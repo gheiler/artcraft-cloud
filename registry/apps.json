@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "serial": 14,
-  "issued": 1795605243,
-  "expires": 1805973243,
+  "serial": 15,
+  "issued": 1795614588,
+  "expires": 1805982588,
   "apps": [
     {
       "id": "wordcraft",
@@ -344,7 +344,7 @@
           "jF5sjrTxNhzH0nffbxO2SXoeITH3UsofUPTEu9IKPEk="
         ]
       },
-      "recommended": "0.2.1",
+      "recommended": "0.2.2",
       "versions": [
         {
           "version": "0.2.0",
@@ -361,6 +361,15 @@
           "asset": "calendarcraft-web-0.2.1.zip",
           "sha256": "6b5d7580979f80afe728bb81d307ad04c524a6d518989a966054145e10ded490",
           "size": 1518538,
+          "signed": "ed25519",
+          "status": "ok"
+        },
+        {
+          "version": "0.2.2",
+          "tag": "v0.2.2",
+          "asset": "calendarcraft-web-0.2.2.zip",
+          "sha256": "66a1c3dff2723b776c0baaa59d7a8d650d600f7a2fde2b293f975352bed91159",
+          "size": 1541026,
           "signed": "ed25519",
           "status": "ok"
         }

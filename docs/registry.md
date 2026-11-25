@@ -19,7 +19,7 @@ A fetched registry is used only when:
 
 - `apps.json.sig` is a valid ed25519 signature over the exact bytes of `apps.json`, by one of the
   trusted keys;
-- it has not expired (`expires`; the tool signs for 120 days, the workflow renews monthly) and was
+- it has not expired (`expires`; the tool signs for 120 days, the workflow renews weekly) and was
   not issued more than a day in the future;
 - its `serial` is not lower than the highest one this server ever accepted from that source (kept in
   `data/registry/state.json`), and a copy with the same serial is byte-identical. An attacker who
@@ -39,7 +39,7 @@ Installing a version (Apps page, auto-update or `apps update`):
    (`SHA256SUMS.txt.asc`, the fingerprint must be pinned; a key shipped in the release only helps
    gpg find it) or ed25519 (`SHA256SUMS.txt.sig`). The signed checksum must equal the registry's.
    A version marked `"signed": "none"` relies on the registry checksum alone; the Apps page says so
-   ("Checksum from the registry"). CalendarCraft 0.2.0 and 0.2.1 are signed with ed25519, like MailCraft.
+   ("Checksum from the registry"). CalendarCraft 0.2.0, 0.2.1 and 0.2.2 are signed with ed25519, like MailCraft.
 4. The archive must carry the host bridge (for bridge apps) and safe paths; then it is unpacked,
    precompressed and switched in atomically. The previous version stays for rollback.
 
@@ -159,8 +159,12 @@ a bypass actor), so the workflow never pushes to `main`:
 
 - On a pull request that touches `registry/`, it signs the branch so the signature is reviewed
   and merged with the change.
-- On the 1st of every month, or by hand, it renews the expiry (a new serial, still well within
-  the 120 days) and opens a pull request.
+- Weekly, Monday at 02:00 Europe/Berlin, or by hand, it renews the expiry (a new serial; a
+  signature is valid for 120 days, so a weekly renew is well within that) and opens a pull
+  request. If a renew pull request is already open, it updates that one instead of opening
+  another. GitHub Actions cron is UTC, so the workflow is scheduled at both 00:00 and 01:00
+  UTC on Monday and continues only when the Europe/Berlin hour is 02, which is correct in
+  both winter (CET) and summer (CEST).
 - After a merge to `main` it only verifies. If the copy is unsigned, the job fails and says to
   sign in the pull request, or to add the GitHub Actions app as a bypass actor on the main
   ruleset (Settings › Rules).
