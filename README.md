@@ -5,6 +5,8 @@ A self-hosted office suite made only of the [ArtCraft Crafting Apps](https://get
 files in their own folder on your server; WordCraft, GridCraft, DeckCraft and the other apps open and
 save straight into it.
 
+![artcraftCloud drive and app launcher](docs/screenshots/drive.png)
+
 - **One Rust binary** (axum + SQLite), files stored as plain folders on disk, about **8–12 MB of RAM** idle.
 - **A drive in Rust/wasm** (Leptos, no JavaScript framework): folders, upload, download, rename,
   move, copy, trash, sharing, and an app launcher.
@@ -17,7 +19,12 @@ save straight into it.
 - **WebDAV** at `/dav/` for desktop clients and, later, the apps' own cloud pages.
 - **Safe saves**: every write carries an ETag. If someone else changed the file meanwhile, the
   shell keeps theirs and offers *Save a copy* for yours.
-- **App updates** with SHA-256 and GPG signature checks, atomic switch-over and one-step rollback.
+- **App updates** from a signed trust list (`registry/apps.json`, ed25519), with SHA-256 and publisher
+  signature checks (OpenPGP or ed25519), automatic security rollbacks, atomic switch-over and one-step
+  rollback.
+- **Optional mail and calendar** with Stalwart (`v1.2.0`): MailCraft over a JMAP proxy, CalendarCraft
+  over a CalDAV proxy (plus `.ics` files and sealed remote calendar accounts), and standard
+  IMAP/SMTP/CalDAV for other apps.
 - Runs as **one container** (Docker / Podman), with **Compose**, a **Helm chart** or **one
   Kubernetes manifest**.
 
@@ -29,7 +36,7 @@ docker run -d --name artcraft-cloud -p 8080:8080 -v artcraft-data:/data \
 docker logs artcraft-cloud | grep -A2 "admin password"     # the generated admin password, shown once
 ```
 
-Open <http://localhost:8080>. The first start downloads the eight apps (about 550 MB) into the volume
+Open <http://localhost:8080>. The first start downloads the ten default apps (about 210 MB of archives) into the volume
 in the background; they show up in the launcher as each one finishes. The archives stay in the
 `artcraft-app-cache` volume, so a new data volume installs them from there (checksums still
 checked) instead of downloading them again; see [docs/build.md](docs/build.md).
@@ -91,11 +98,31 @@ against MailCraft's ed25519 release key) and opens from its card or *Settings �
 
 CalendarCraft (from [gheiler/calendarcraft](https://github.com/gheiler/calendarcraft)) opens the
 signed-in person's calendar on the mail server through `/caldav/`, `.ics` files from the drive, and
-other calendar accounts and feeds through `/api/calendar/remote`. See [docs/calendar.md](docs/calendar.md).
+other calendar accounts and feeds through `/api/calendar/remote` (passwords for remote accounts are
+sealed in the server vault, never kept in plain text in the browser). See
+[docs/calendar.md](docs/calendar.md).
 
 PhotoCraft, VectorCraft, DesignCraft and the other Crafting Apps are not included yet: their web
 builds do not speak the host bridge. `docs/upstream-gaps.md` lists what is missing upstream, with the
 existing issues and pull requests.
+
+## Screenshots
+
+| Sign in | WordCraft |
+|---|---|
+| ![Sign in](docs/screenshots/login.png) | ![WordCraft open inside artcraftCloud](docs/screenshots/app-wordcraft.png) |
+
+| CalendarCraft | Dark theme |
+|---|---|
+| ![CalendarCraft synced with Stalwart](docs/screenshots/calendarcraft.png) | ![My files in dark theme](docs/screenshots/drive-dark.png) |
+
+| Settings | People |
+|---|---|
+| ![Settings and mail client details](docs/screenshots/settings.png) | ![People, mailboxes and groups](docs/screenshots/people.png) |
+
+| Mail | Apps |
+|---|---|
+| ![Mail server and DNS records](docs/screenshots/mail.png) | ![Apps and signed trust list](docs/screenshots/apps.png) |
 
 ## Using it
 
@@ -116,7 +143,7 @@ existing issues and pull requests.
 - **Groups** are managed under *People* by admins. Sharing with a group gives every member access; a
   member who leaves loses it.
 - **Addresses.** `/files/<folder>` is a folder, `/open/<path>?app=<app>` a document, `/new/<app>` a new
-  one (it moves to `/open/…` after the first save), `/shared`, `/trash`, `/people`, `/mail`, `/settings`, `/s/<token>` a
+  one (it moves to `/open/…` after the first save), `/shared`, `/trash`, `/people`, `/mail`, `/admin/apps`, `/settings`, `/s/<token>` a
   public link. Opened from the drive, a document has a bar with a back arrow; opened from a link, it
   gets a small home button you can drag and fold away.
 - **Autosave.** On by default (switch in *Settings* for every app, and in the document bar per app,
@@ -137,7 +164,7 @@ on the server (`GET`/`PUT /api/preferences`), so it follows you between browsers
 - **Theme**: System, Light or Dark. The shell switches at once (SnowUI-Dark tokens from the SnowUI
   Figma file's dark mode; *System* follows `prefers-color-scheme`).
 - **Interface language**: *Same as the browser* or one of 44 languages, the union of what the apps
-  ship (WordCraft 29, PdfCraft 36, GridCraft 19, CADCraft 19, LightCraft 18). Each app only gets a
+  ship (WordCraft 29, PdfCraft 36, GridCraft 19, CADCraft 19, LightCraft 18, CalendarCraft 6). Each app only gets a
   language it has; the page shows which. The shell itself is translated into **English, German,
   Spanish, French, Italian and Brazilian Portuguese** (`crates/shell/locales/*.tsv`, English source
   text as the key, English fallback); for another language it shows English. A change reloads the page.
@@ -155,15 +182,15 @@ written, so an option changed later inside an app stays until Settings changes a
 starts and its options have no language (or a placeholder name such as *WordCraft User*), the shell
 fills them from Settings first, so a first start is already in your language and under your name.
 
-| Setting | WordCraft | GridCraft | PdfCraft | CADCraft | FigCraft | DeckCraft | LightCraft, FilmCraft |
-|---|---|---|---|---|---|---|---|
-| Theme | `wordcraft.ui` `theme` (system/light/dark) | `gridcraft.ui` `systemTheme` + `dark` | `pdfcraft` `theme` (System/Light/Dark) | `cadcraft.prefs` `theme` | – | – | – |
-| Language | `wordcraft.ui` `language` | `gridcraft.ui` `language` (`zh`, `pt`…) | `pdfcraft` `language` | `cadcraft.prefs` `interfaceLanguage` (`pt-BR`, `zh`…) | English only | English only | LightCraft: from the browser; FilmCraft: English only |
-| Name | `wordcraft.ui` `author` | `gridcraft.prefs` `userName` | `pdfcraft` `author` | – | `figcraft.userName` | `?author=` at launch | – |
-| Initials | `wordcraft.ui` `initials` | – | – (its initials are a signature image) | – | – | – | – |
-| Units | `wordcraft.ui` `editing.measurementUnits` | – | `pdfcraft` `units` (`centimetres`…) | `cadcraft.profile` `sysvars.MEASUREINIT` (0 imperial, 1 metric; once the profile exists) | – | – | – |
-| Animations | `wordcraft.ui` `animations` | `gridcraft.ui` `animations` (on/off only) | `pdfcraft` `animation_effects` | `cadcraft.prefs` `animations` | – | – | – |
-| Autosave | shell | shell | shell | shell | shell | shell | shell |
+| Setting | WordCraft | GridCraft | PdfCraft | CADCraft | CalendarCraft | FigCraft | DeckCraft | LightCraft, FilmCraft |
+|---|---|---|---|---|---|---|---|---|
+| Theme | `wordcraft.ui` `theme` (system/light/dark) | `gridcraft.ui` `systemTheme` + `dark` | `pdfcraft` `theme` (System/Light/Dark) | `cadcraft.prefs` `theme` | `calendarcraft.ui` `theme` | – | – | – |
+| Language | `wordcraft.ui` `language` | `gridcraft.ui` `language` (`zh`, `pt`…) | `pdfcraft` `language` | `cadcraft.prefs` `interfaceLanguage` (`pt-BR`, `zh`…) | `calendarcraft.ui` `language` | English only | English only | LightCraft: from the browser; FilmCraft: English only |
+| Name | `wordcraft.ui` `author` | `gridcraft.prefs` `userName` | `pdfcraft` `author` | – | – | `figcraft.userName` | `?author=` at launch | – |
+| Initials | `wordcraft.ui` `initials` | – | – (its initials are a signature image) | – | – | – | – | – |
+| Units | `wordcraft.ui` `editing.measurementUnits` | – | `pdfcraft` `units` (`centimetres`…) | `cadcraft.profile` `sysvars.MEASUREINIT` (0 imperial, 1 metric; once the profile exists) | – | – | – | – |
+| Animations | `wordcraft.ui` `animations` | `gridcraft.ui` `animations` (on/off only) | `pdfcraft` `animation_effects` | `cadcraft.prefs` `animations` | `calendarcraft.ui` `animations` | – | – | – |
+| Autosave | shell | shell | shell | shell | shell | shell | shell | shell |
 
 The mapping lives in `crates/types/src/prefs.rs` (`targets`); what cannot be mapped is listed in
 [docs/upstream-gaps.md](docs/upstream-gaps.md) (gaps 11, 16–20).
@@ -221,12 +248,13 @@ switch on the next request; no restart. No GitHub API calls are made, so no toke
 | `ARTCRAFT_BLOCKED_APPS` | `security` | What to do with an installed version the registry blocks: `security` rolls back or disables it when the block is for security, `all` for every block, `warn` only warns |
 | `ARTCRAFT_APP_CACHE` | `/cache` (compose) | A directory of downloaded app archives shared by data volumes; one whose SHA-256 matches the registry's checksum is installed from there instead of downloaded ([docs/build.md](docs/build.md)) |
 | `ARTCRAFT_MAIL_URL` | | Stalwart address offered on the Mail page (`http://stalwart:8080` in compose); see [docs/mail.md](docs/mail.md) |
+| `ARTCRAFT_CALENDAR_ALLOW_PRIVATE` | | `1` lets `/api/calendar/remote` reach private/loopback addresses in a local lab ([docs/calendar.md](docs/calendar.md)) |
 | `ARTCRAFT_SHELL_DIR` | `/opt/artcraft-cloud/shell` (image) | The built drive UI |
 | `ARTCRAFT_OIDC_ISSUER` | | Reserved: the server refuses to start while OIDC is not implemented, rather than fall back to passwords silently |
 
-Accounts from the command line: `artcraft-cloud user create --username ana --password '…' [--admin]`,
-`artcraft-cloud user disable ana`, `artcraft-cloud user enable ana`. The command line acts as the host
-operator, so `--admin` works there without the super admin.
+Accounts and mail from the command line: `artcraft-cloud user create --username ana --password '…' [--admin]`,
+`artcraft-cloud user disable ana`, `artcraft-cloud user enable ana`, `artcraft-cloud mail connect --url http://stalwart:8080 --admin …`,
+`artcraft-cloud mail test`. The command line acts as the host operator, so `--admin` works there without the super admin.
 
 ## Memory
 
@@ -262,7 +290,7 @@ browser ── one origin ──────────────────
 Cargo workspace (a modular monolith, one binary):
 
 - `crates/server`: HTTP API, sessions, permissions, file store, WebDAV, static app serving.
-- `crates/cli`: the `artcraft-cloud` binary: `serve`, `healthcheck`, `apps`, `user`.
+- `crates/cli`: the `artcraft-cloud` binary: `serve`, `healthcheck`, `apps`, `registry`, `user`, `mail`.
 - `crates/shell`: the drive and the app host, compiled to wasm with trunk.
 - `crates/types`: API types and the app catalog, shared by server and shell.
 
@@ -280,12 +308,14 @@ to a same-origin parent.
 - Paths are resolved inside the user's home; `..`, absolute paths and symlinks out are rejected.
   App zips are checked for path traversal before unpacking.
 - Public links are random 192-bit tokens, optionally with a password and an expiry.
-- The apps run in same-origin iframes, so they are trusted code: only install builds from ArtCraft's
-  signed releases (the updater refuses anything else).
+- The apps run in same-origin iframes, so they are trusted code: updates come from the ed25519-signed
+  app registry and check each archive's SHA-256 and pinned publisher release signature (OpenPGP or
+  ed25519).
 - The content security policy allows `wasm-unsafe-eval` and `unsafe-eval`, which the apps' wasm
   loaders need.
-- Mail: the Stalwart API key (or admin login) and each mailbox's app password are sealed in the
-  database (ChaCha20-Poly1305, key derived from `secret.key`) and never sent to a browser; a
+- Mail and calendar credentials: the Stalwart API key (or admin login), each mailbox's app password,
+  and remote CalDAV passwords are sealed in the database (ChaCha20-Poly1305, key derived from
+  `secret.key`) and never sent to a browser; a
   password change waiting for an unreachable mail server is sealed too and dropped once it lands.
   MailCraft reaches the mail server only through `/jmap/…` with 15-minute tokens; disabled people
   are refused, and their mailbox is suspended on the mail server (no app signs in or sends; mail
@@ -299,7 +329,6 @@ to a same-origin parent.
 - More apps as their web builds gain the bridge (PhotoCraft, VectorCraft, DesignCraft…).
 - Live collaboration once ArtCraft has it beyond FigCraft (`figcraft-server` could run beside us).
 - WebDAV-backed Open/Save inside the apps, a real host file picker message, read-only sessions (see `docs/upstream-gaps.md`).
-- Mail through Stalwart as an optional module (`docs/mail.md`).
 - S3-compatible storage, quotas, app passwords for WebDAV.
 
 ## Development
