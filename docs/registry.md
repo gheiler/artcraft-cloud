@@ -39,7 +39,7 @@ Installing a version (Apps page, auto-update or `apps update`):
    (`SHA256SUMS.txt.asc`, the fingerprint must be pinned; a key shipped in the release only helps
    gpg find it) or ed25519 (`SHA256SUMS.txt.sig`). The signed checksum must equal the registry's.
    A version marked `"signed": "none"` relies on the registry checksum alone; the Apps page says so
-   ("Checksum from the registry"). CalendarCraft 0.2.0 is signed with ed25519, like MailCraft.
+   ("Checksum from the registry"). CalendarCraft 0.2.0 and 0.2.1 are signed with ed25519, like MailCraft.
 4. The archive must carry the host bridge (for bridge apps) and safe paths; then it is unpacked,
    precompressed and switched in atomically. The previous version stays for rollback.
 
@@ -153,14 +153,22 @@ artcraft-cloud registry keygen --out-dir ~/registry-keys --name registry-primary
 
 ### The workflow
 
-[`.github/workflows/registry.yml`](../.github/workflows/registry.yml) runs on every push to `main`
-that touches `registry/`, on the 1st of every month and by hand. It signs an unsigned change, renews
-the signature monthly (so a registry is never older than about a month, well within its 120 days),
-verifies the result and commits `apps.json` + `apps.json.sig` to `main` as `github-actions[bot]`.
+[`.github/workflows/registry.yml`](../.github/workflows/registry.yml) signs and renews the registry.
+`main` is protected (a pull request with one approving review, squash only; GitHub Actions is not
+a bypass actor), so the workflow never pushes to `main`:
+
+- On a pull request that touches `registry/`, it signs the branch so the signature is reviewed
+  and merged with the change.
+- On the 1st of every month, or by hand, it renews the expiry (a new serial, still well within
+  the 120 days) and opens a pull request.
+- After a merge to `main` it only verifies. If the copy is unsigned, the job fails and says to
+  sign in the pull request, or to add the GitHub Actions app as a bypass actor on the main
+  ruleset (Settings › Rules).
+
 It needs the repository secret **`ARTCRAFT_REGISTRY_SIGNING_KEY`** (Settings › Secrets and
 variables › Actions › New repository secret): the base64 seed in `registry-primary.key`, one line.
-If `main` is protected against direct pushes, allow GitHub Actions to push, or sign locally before
-merging.
+You can also sign locally with `artcraft-cloud registry sign --key-file …` before opening the
+pull request.
 
 Release builds (tags) must embed a signed registry: CI fails a tag whose `apps.json.sig` does not
 match.
