@@ -1,0 +1,10 @@
+apiVersion: v2
+name: artcraft-cloud
+description: Self-hosted office suite built from the ArtCraft Crafting Apps, with your files on your own server.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/gheiler/artcraft-cloud
+sources:
+  - https://github.com/gheiler/artcraft-cloud
+keywords: [office, artcraft, webdav, self-hosted]

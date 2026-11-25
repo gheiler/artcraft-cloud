@@ -1,0 +1,151 @@
+# artcraftCloud in one file:
+#   kubectl apply -f https://raw.githubusercontent.com/gheiler/artcraft-cloud/main/deploy/kubernetes/artcraft-cloud.yaml
+#   kubectl -n artcraft-cloud logs deploy/artcraft-cloud | grep -A2 "admin password"
+#   kubectl -n artcraft-cloud port-forward svc/artcraft-cloud 8080:80
+# Generated from deploy/helm/artcraft-cloud (scripts/render-manifest.sh). For HTTPS, uncomment the Ingress
+# at the bottom and set your host: the apps need a secure context for WebGPU.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: artcraft-cloud
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: artcraft-cloud
+  name: artcraft-cloud
+  labels:
+    app.kubernetes.io/name: artcraft-cloud
+    app.kubernetes.io/instance: artcraft-cloud
+    app.kubernetes.io/version: "0.1.0"
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: artcraft-cloud
+  name: artcraft-cloud
+  labels:
+    app.kubernetes.io/name: artcraft-cloud
+    app.kubernetes.io/instance: artcraft-cloud
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: artcraft-cloud
+    app.kubernetes.io/instance: artcraft-cloud
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: artcraft-cloud
+  name: artcraft-cloud
+  labels:
+    app.kubernetes.io/name: artcraft-cloud
+    app.kubernetes.io/instance: artcraft-cloud
+    app.kubernetes.io/version: "0.1.0"
+spec:
+  replicas: 1            # SQLite + a local volume: one writer. Scale up, not out.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: artcraft-cloud
+      app.kubernetes.io/instance: artcraft-cloud
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: artcraft-cloud
+        app.kubernetes.io/instance: artcraft-cloud
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: artcraft-cloud
+          image: "ghcr.io/gheiler/artcraft-cloud:0.1.0"
+          imagePullPolicy: IfNotPresent
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ARTCRAFT_PUBLIC_URL
+              value: ""
+            - name: ARTCRAFT_ADMIN_USER
+              value: "admin"
+            - name: ARTCRAFT_MAX_UPLOAD_MB
+              value: "512"
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          resources:
+            limits:
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: artcraft-cloud
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+# ---
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: artcraft-cloud
+#   namespace: artcraft-cloud
+#   annotations:
+#     nginx.ingress.kubernetes.io/proxy-body-size: "512m"
+#     # cert-manager.io/cluster-issuer: letsencrypt
+# spec:
+#   tls:
+#     - hosts: [office.example.com]
+#       secretName: artcraft-cloud-tls
+#   rules:
+#     - host: office.example.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: artcraft-cloud
+#                 port:
+#                   name: http

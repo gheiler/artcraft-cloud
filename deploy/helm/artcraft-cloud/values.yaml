@@ -1,0 +1,85 @@
+image:
+  repository: ghcr.io/gheiler/artcraft-cloud
+  tag: ""            # defaults to the chart appVersion
+  pullPolicy: IfNotPresent
+
+# Public https URL, e.g. https://office.example.com. Turns on Secure cookies.
+publicUrl: ""
+
+admin:
+  username: admin
+  # Leave empty to have a password generated on first start (printed once in the pod log),
+  # or point existingSecret at a Secret with the key "password".
+  password: ""
+  existingSecret: ""
+
+# The app registry (docs/registry.md). Empty values keep the built-in source and keys.
+appRegistry:
+  url: ""          # a mirror of registry/apps.json (apps.json.sig beside it)
+  keys: ""         # comma-separated ed25519 public keys of a registry you sign yourself
+  blockedApps: ""  # security (default), all or warn
+maxUploadMB: 512
+# Optional Stalwart base URL offered on the Mail page (e.g. http://stalwart.mail.svc:8080). The
+# credential is entered there by the super admin and kept encrypted in the database. With
+# stalwart.enabled and this empty, the chart's own Stalwart is offered.
+mailUrl: ""
+
+# Optional Stalwart mail server (AGPL-3.0, its own pod; read docs/mail.md first).
+stalwart:
+  enabled: false
+  image:
+    repository: docker.io/stalwartlabs/stalwart
+    # Pinned on purpose; see docs/mail.md, "Upgrading Stalwart", before changing it.
+    tag: v1.2.0
+    pullPolicy: IfNotPresent
+  # Optional Secret with the key "recovery-admin" holding "admin:<long password>"; without it the
+  # first start prints a one-time admin password in the pod log.
+  recoveryAdminSecret: ""
+  persistence:
+    config: 1Gi
+    data: 10Gi
+    storageClass: ""
+  # The mail ports (25, 465, 993) need to be reachable from outside; LoadBalancer or NodePort.
+  mailService:
+    type: LoadBalancer
+    annotations: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      memory: 256Mi
+extraEnv: []
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  host: office.example.com
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt
+  # The apps need a secure context (HTTPS) for WebGPU and the clipboard.
+  tls:
+    enabled: true
+    secretName: artcraft-cloud-tls
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

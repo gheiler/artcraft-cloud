@@ -1,0 +1,9 @@
+target
+data
+.git
+crates/shell/dist
+**/*.md
+!README.md
+!docs/**
+# The image uses the Rust image's toolchain; this file would make rustup download another.
+rust-toolchain.toml

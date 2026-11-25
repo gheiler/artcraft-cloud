@@ -1,0 +1,103 @@
+name: App registry
+
+# Signs registry/apps.json with the registry key. main is protected (pull requests
+# with one approving review, no direct push, GitHub Actions is not a bypass actor),
+# so this workflow never pushes to main:
+#   - On a pull request that touches registry/: sign the branch (so the signature
+#     is in the PR before merge).
+#   - Monthly or by hand: renew the expiry and open a pull request.
+#   - After a merge to main: only verify; if the copy is unsigned, fail with a
+#     clear message instead of trying to push.
+# Needs the ARTCRAFT_REGISTRY_SIGNING_KEY secret (see docs/registry.md).
+
+on:
+  pull_request:
+    paths: ["registry/**"]
+  push:
+    branches: [main]
+    paths: ["registry/**"]
+  schedule:
+    - cron: "17 4 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: app-registry
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    # Fork pull requests do not receive repository secrets; leave them to CI's
+    # `registry verify --unsigned-ok`.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p artcraft-cloud
+      - name: sign, renew or verify
+        env:
+          ARTCRAFT_REGISTRY_SIGNING_KEY: ${{ secrets.ARTCRAFT_REGISTRY_SIGNING_KEY }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ -z "$ARTCRAFT_REGISTRY_SIGNING_KEY" ]; then
+            echo "::error::Add the ARTCRAFT_REGISTRY_SIGNING_KEY secret (Settings › Secrets and variables › Actions)."
+            exit 1
+          fi
+          bin=target/release/artcraft-cloud
+          git fetch -q --depth=1 origin main && git show origin/main:registry/apps.json > /tmp/before.json 2>/dev/null || rm -f /tmp/before.json
+          case "$EVENT" in
+            pull_request)
+              $bin registry verify > /dev/null 2>&1 || $bin registry sign
+              $bin registry verify --against /tmp/before.json
+              ;;
+            schedule|workflow_dispatch)
+              $bin registry renew
+              $bin registry verify --against /tmp/before.json
+              ;;
+            push)
+              if ! $bin registry verify --against /tmp/before.json; then
+                echo "::error::The registry on main is unsigned, stale, or its serial did not grow. This workflow cannot push to main: the branch is protected (a pull request with one approving review is required) and GitHub Actions is not a bypass actor. Sign in the pull request (\`artcraft-cloud registry sign\`, or this workflow on the PR) before merging, or add the GitHub Actions app as a bypass actor on the main ruleset (Settings › Rules)."
+                exit 1
+              fi
+              echo "registry on main already verifies"
+              exit 0
+              ;;
+          esac
+      - name: commit the signature on the pull request
+        if: github.event_name == 'pull_request'
+        run: |
+          git add registry/apps.json registry/apps.json.sig
+          if git diff --cached --quiet; then
+            echo "already signed"
+            exit 0
+          fi
+          serial=$(sed -n 's/^  "serial": \([0-9]*\),$/\1/p' registry/apps.json)
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "registry: sign serial ${serial}"
+          git push origin "HEAD:${{ github.head_ref }}"
+      - name: open a pull request for the renewal
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add registry/apps.json registry/apps.json.sig
+          if git diff --cached --quiet; then
+            echo "nothing to renew"
+            exit 0
+          fi
+          serial=$(sed -n 's/^  "serial": \([0-9]*\),$/\1/p' registry/apps.json)
+          branch="registry/renew-${serial}"
+          git checkout -B "$branch"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "registry: renew serial ${serial}"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" --title "registry: renew serial ${serial}" \
+            --body "Monthly (or manual) renewal of the signed app registry: a new serial and a new expiry date. main is protected, so this lands as a pull request instead of a direct push."

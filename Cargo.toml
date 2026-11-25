@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+members = ["crates/types", "crates/server", "crates/cli", "crates/shell"]
+default-members = ["crates/types", "crates/server", "crates/cli"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+rust-version = "1.83"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util", "sync", "net", "signal", "time"] }
+tracing = "0.1"
+
+[profile.release]
+lto = false
+codegen-units = 16
+opt-level = 3
+strip = "symbols"
+panic = "abort"

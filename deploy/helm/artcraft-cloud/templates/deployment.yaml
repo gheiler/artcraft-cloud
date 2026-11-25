@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "artcraft-cloud.fullname" . }}
+  labels: {{- include "artcraft-cloud.labels" . | nindent 4 }}
+spec:
+  replicas: 1            # SQLite + a local volume: one writer. Scale up, not out.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {{- include "artcraft-cloud.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "artcraft-cloud.selector" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: artcraft-cloud
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["serve"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ARTCRAFT_PUBLIC_URL
+              value: {{ .Values.publicUrl | quote }}
+            - name: ARTCRAFT_ADMIN_USER
+              value: {{ .Values.admin.username | quote }}
+            - name: ARTCRAFT_MAX_UPLOAD_MB
+              value: {{ .Values.maxUploadMB | quote }}
+            {{- if or .Values.admin.existingSecret .Values.admin.password }}
+            - name: ARTCRAFT_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "artcraft-cloud.secretName" . }}
+                  key: password
+            {{- end }}
+            {{- with .Values.appRegistry.url }}
+            - name: ARTCRAFT_REGISTRY_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.appRegistry.keys }}
+            - name: ARTCRAFT_REGISTRY_KEYS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.appRegistry.blockedApps }}
+            - name: ARTCRAFT_BLOCKED_APPS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.mailUrl }}
+            - name: ARTCRAFT_MAIL_URL
+              value: {{ .Values.mailUrl | quote }}
+            {{- else if .Values.stalwart.enabled }}
+            - name: ARTCRAFT_MAIL_URL
+              value: {{ printf "http://%s-stalwart:8080" (include "artcraft-cloud.fullname" .) | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "artcraft-cloud.fullname" .) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

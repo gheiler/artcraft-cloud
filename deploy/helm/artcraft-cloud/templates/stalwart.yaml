@@ -1,0 +1,97 @@
+{{- if .Values.stalwart.enabled }}
+{{- $name := printf "%s-stalwart" (include "artcraft-cloud.fullname" .) }}
+# Stalwart: its own pod and volumes, never linked into artcraftCloud. The admin UI and the
+# management API stay inside the cluster (port 8080); only the mail ports are exposed.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: stalwart
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: {{ .Chart.Name }}
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stalwart
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: stalwart
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: stalwart
+          image: "{{ .Values.stalwart.image.repository }}:{{ .Values.stalwart.image.tag }}"
+          imagePullPolicy: {{ .Values.stalwart.image.pullPolicy }}
+          {{- if .Values.stalwart.recoveryAdminSecret }}
+          env:
+            - name: STALWART_RECOVERY_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.stalwart.recoveryAdminSecret }}
+                  key: recovery-admin
+          {{- end }}
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: smtp, containerPort: 25 }
+            - { name: submissions, containerPort: 465 }
+            - { name: imaps, containerPort: 993 }
+          volumeMounts:
+            - { name: config, mountPath: /etc/stalwart }
+            - { name: data, mountPath: /var/lib/stalwart }
+          resources:
+            {{- toYaml .Values.stalwart.resources | nindent 12 }}
+  volumeClaimTemplates:
+    {{- range $volume := list "config" "data" }}
+    - metadata:
+        name: {{ $volume }}
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with $.Values.stalwart.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ index $.Values.stalwart.persistence $volume }}
+    {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    app.kubernetes.io/name: stalwart
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: stalwart
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-mail
+  labels:
+    app.kubernetes.io/name: stalwart
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  {{- with .Values.stalwart.mailService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.stalwart.mailService.type }}
+  selector:
+    app.kubernetes.io/name: stalwart
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - { name: smtp, port: 25, targetPort: smtp }
+    - { name: submissions, port: 465, targetPort: submissions }
+    - { name: imaps, port: 993, targetPort: imaps }
+{{- end }}

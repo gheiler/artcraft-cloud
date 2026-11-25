@@ -1,0 +1,378 @@
+# artcraftCloud shell, pt-br: English<TAB>translation. Keep {placeholders}.
+(your own registry keys)	(chaves de registro próprias)
+API key	Chave de API
+API key (recommended)	Chave de API (recomendado)
+API key created and stored. The admin password was not kept.	Chave de API criada e salva. A senha de administrador não foi guardada.
+Account	Conta
+Accounts	Contas
+Actions	Ações
+Active	Ativo
+Add	Adicionar
+Add a member	Adicionar um membro
+Add a person	Adicionar uma pessoa
+Add domain	Adicionar domínio
+Add people or groups	Adicionar pessoas ou grupos
+Adding {app}	Adicionando {app}
+Address to confirm	Endereço para confirmar
+Admin	Administrador
+Admin account	Conta de administrador
+Admin account (fallback)	Conta de administrador (alternativa)
+All	Todos
+Allowed	Permitida
+An API key from Stalwart (Account › Credentials › API Keys) is recommended. An admin login also works, and can make the key for you.	Recomenda-se uma chave de API do Stalwart (Conta › Credenciais › Chaves de API). Um login de administrador também funciona e pode criar a chave para você.
+Animations	Animações
+Anyone with the link	Qualquer pessoa com o link
+Anyone with the link can edit	Qualquer pessoa com o link pode editar
+Anyone with the link can view	Qualquer pessoa com o link pode ver
+App	Aplicativo
+App registry	Registro de apps
+Appearance	Aparência
+Applies to	Aplica-se a
+Apps	Apps
+Apps come from the artcraftCloud app registry, a signed list of apps and the versions that are safe to run. Add or update an app here; there is no need to update this server.	Os apps vêm do registro de apps do artcraftCloud, uma lista assinada de apps e das versões seguras. Adicione ou atualize um app aqui; não é preciso atualizar este servidor.
+Ask your administrator	Pergunte ao seu administrador
+At least 10 characters. Your other sessions are signed out.	Pelo menos 10 caracteres. Suas outras sessões serão encerradas.
+Auto-update	Atualizar automaticamente
+Autosave	Salvamento automático
+Autosaving…	Salvando automaticamente…
+Available	Disponíveis
+Back to your files	Voltar para seus arquivos
+Blocked	Bloqueada
+Can edit	Pode editar
+Can view	Pode ver
+Cancel	Cancelar
+Centimeters	Centímetros
+Change password	Alterar senha
+Changing {app}	Alterando {app}
+Check now	Verificar agora
+Checking signatures and checksums…	Verificando assinaturas e somas de verificação…
+Checking…	Verificando…
+Checksum from the registry	Soma de verificação do registro
+Choose a file	Escolha um arquivo
+Close	Fechar
+Collapse	Recolher
+Collapse or expand	Recolher ou expandir
+Collapse sidebar	Recolher a barra lateral
+Confirm new password	Confirmar nova senha
+Connect a Stalwart mail server. People whose email address is on one of its domains can get a mailbox there. MailCraft opens it without asking for a password, and other mail apps sign in with the address and the artcraftCloud password.	Conecte um servidor de e-mail Stalwart. Pessoas cujo endereço esteja em um de seus domínios podem ter uma caixa de correio lá. O MailCraft a abre sem pedir senha, e outros apps de e-mail entram com o endereço e a senha do artcraftCloud.
+Connect a mail server first.	Conecte um servidor de e-mail primeiro.
+Connected.	Conectado.
+Copied.	Copiado.
+Copy	Copiar
+Copy built into this artcraftCloud	Cópia incluída neste artcraftCloud
+Copy here	Copiar aqui
+Copy {name}	Copiar {name}
+Could not find a free name.	Não foi possível encontrar um nome livre.
+Could not save the settings: {error}	Não foi possível salvar as configurações: {error}
+Create	Criar
+Create a mailbox for this address on the mail server	Criar uma caixa de correio para este endereço no servidor de e-mail
+Create group	Criar grupo
+Create link	Criar link
+Create the mailbox {address} on the mail server	Criar a caixa de correio {address} no servidor de e-mail
+Current password	Senha atual
+Dark	Escuro
+Delete forever	Excluir para sempre
+Delete forever?	Excluir para sempre?
+Delete group	Excluir grupo
+Delete link	Excluir link
+Delete mailbox and mail	Excluir caixa de correio e e-mails
+Delete mailbox…	Excluir caixa de correio…
+Disable	Desativar
+Disabled	Desativado
+Discard changes	Descartar alterações
+Discard unsaved changes?	Descartar as alterações não salvas?
+Disconnect	Desconectar
+Disconnected. Mailboxes stay on the mail server; people keep their email addresses.	Desconectado. As caixas de correio continuam no servidor; as pessoas mantêm seus endereços.
+Dismiss	Dispensar
+Documents	Documentos
+Domains	Domínios
+Done.	Concluído.
+Download	Baixar
+Download {name}	Baixar {name}
+Downloading…	Baixando…
+Downloading… {percent}%	Baixando… {percent}%
+Drag to move	Arraste para mover
+Each app's default	Padrão de cada aplicativo
+Email	E-mail
+Email (optional)	E-mail (opcional)
+Email address	Endereço de e-mail
+Email address only	Somente endereço de e-mail
+Email for {username}	E-mail de {username}
+Email saved.	E-mail salvo.
+Empty the trash?	Esvaziar a lixeira?
+Empty trash	Esvaziar lixeira
+Enable	Ativar
+Every app in the registry is installed.	Todos os apps do registro estão instalados.
+Everything in the trash is deleted for good. This cannot be undone.	Tudo na lixeira será excluído definitivamente. Isso não pode ser desfeito.
+Expand	Expandir
+Expand sidebar	Expandir a barra lateral
+Expires	Expira
+Fades and smooth scrolling in the apps.	Transições e rolagem suave nos aplicativos.
+Failed.	Falhou.
+Fetched from the registry	Obtido do registro
+Files	Arquivos
+Filter by app	Filtrar por aplicativo
+Folder	Pasta
+Folder name	Nome da pasta
+For rulers, margins and sizes.	Para réguas, margens e tamanhos.
+From this device…	Deste dispositivo…
+Full name (optional)	Nome completo (opcional)
+Give someone an email address in People. When its domain is on this server, artcraftCloud creates the mailbox with the person's artcraftCloud password, so they can use other mail apps too, and changes it whenever they change theirs. MailCraft gets in with a separate app password that this server keeps sealed. Disabling a person suspends the mailbox, so no mail app can sign in or send until they are enabled again, while mail sent to them still arrives; removing a mailbox unlinks it unless you choose to delete it.	Dê a alguém um endereço de e-mail em Pessoas. Se o domínio estiver neste servidor, o artcraftCloud cria a caixa com a senha do artcraftCloud da pessoa, para que ela também possa usar outros apps de e-mail, e a altera sempre que a pessoa mudar a sua. O MailCraft entra com uma senha de app separada que este servidor guarda selada. Desativar uma pessoa suspende a caixa: nenhum app de e-mail consegue entrar ou enviar até que ela seja ativada de novo, enquanto o e-mail enviado a ela continua chegando. Remover uma caixa a desvincula, a menos que você escolha excluí-la.
+Group {group}	Grupo {group}
+Group · 1 member	Grupo · 1 membro
+Group · {count} members	Grupo · {count} membros
+Groups	Grupos
+Handed off from the previous app.	Recebido do aplicativo anterior.
+Has a mailbox on the mail server	Tem uma caixa de correio no servidor
+Hide	Ocultar
+In use	Em uso
+Inches	Polegadas
+Incoming (IMAP)	Entrada (IMAP)
+Incompatible	Incompatível
+Initials	Iniciais
+Install	Instalar
+Install new allowed versions on its own (checked every 6 hours)	Instalar sozinho novas versões permitidas (verificado a cada 6 horas)
+Installed	Instalados
+Installed by hand	Instalado manualmente
+Installing…	Instalando…
+Interface language	Idioma da interface
+Language	Idioma
+Last check	Última verificação
+Last fetched	Última obtenção
+Light	Claro
+Light, dark, or the same as your system.	Claro, escuro ou igual ao seu sistema.
+Link copied.	Link copiado.
+Link created and copied.	Link criado e copiado.
+Link permission	Permissão do link
+Links	Links
+Loading	Carregando
+Mail	E-mail
+Mail host for other apps	Servidor de e-mail para outros apps
+Mail server	Servidor de e-mail
+Mail server saved.	Servidor de e-mail salvo.
+MailCraft opens this mailbox for them. To change the address, unlink the mailbox first.	O MailCraft abre esta caixa para a pessoa. Para alterar o endereço, desvincule a caixa primeiro.
+Mailbox	Caixa de correio
+Mailbox deleted from the mail server.	Caixa de correio excluída do servidor.
+Mailbox unlinked. It is still on the mail server.	Caixa de correio desvinculada. Ela continua no servidor.
+Mailbox {address} created.	Caixa de correio {address} criada.
+Mailboxes	Caixas de correio
+Make admin	Tornar administrador
+Make user	Tornar usuário
+Measurement units	Unidades de medida
+Member	Membro
+Millimeters	Milímetros
+Modified	Modificado
+Move	Mover
+Move here	Mover para cá
+Move to trash	Mover para a lixeira
+Move {name}	Mover {name}
+Move {name} to the trash?	Mover {name} para a lixeira?
+Moved to the trash.	Movido para a lixeira.
+Moved.	Movido.
+My files	Meus arquivos
+Name	Nome
+Navigation	Navegação
+New document	Novo documento
+New folder	Nova pasta
+New group name	Nome do novo grupo
+New name	Novo nome
+New password	Nova senha
+New password for {username}	Nova senha para {username}
+New {app} document	Novo documento do {app}
+No app opens this kind of file by its name. Pick one, or download it.	Nenhum aplicativo abre este tipo de arquivo pelo nome. Escolha um ou baixe o arquivo.
+No app takes this from the drive yet.	Nenhum aplicativo usa isso do drive ainda.
+No files of that kind here.	Nenhum arquivo desse tipo aqui.
+No folders inside.	Nenhuma pasta dentro.
+No groups yet. Groups let you share with a team in one step.	Ainda não há grupos. Os grupos permitem compartilhar com uma equipe em um só passo.
+No installed app opens {name}.	Nenhum aplicativo instalado abre {name}.
+No mail server is connected, so only the address is kept.	Nenhum servidor de e-mail está conectado, então só o endereço é salvo.
+No matching files in this folder.	Nenhum arquivo correspondente nesta pasta.
+No registry	Sem registro
+Not connected.	Não conectado.
+Not in the registry	Fora do registro
+Not installed	Não instalado
+Not installed yet	Ainda não instalado
+Not verified	Não verificada
+Nothing has been shared with you yet.	Nada foi compartilhado com você ainda.
+Nothing here yet. Drop files on this page or create a document above.	Nada aqui ainda. Solte arquivos nesta página ou crie um documento acima.
+Off	Desativadas
+On	Ativadas
+Only admins manage people.	Somente administradores gerenciam pessoas.
+Only the super admin manages apps.	Somente o superadministrador gerencia os apps.
+Only the super admin sets up mail.	Só o superadministrador configura o e-mail.
+Only versions the app registry allows can be installed. Each is checked against the registry's checksum and the publisher's signature.	Somente versões permitidas pelo registro de apps podem ser instaladas. Cada uma é verificada com a soma de verificação do registro e a assinatura do editor.
+Only you.	Somente você.
+Open Apps	Abrir Apps
+Open MailCraft	Abrir MailCraft
+Open People	Abrir Pessoas
+Open with	Abrir com
+Open with…	Abrir com…
+Open {app}	Abrir {app}
+Open {name} with	Abrir {name} com
+Opening…	Abrindo…
+Other mail apps	Outros apps de e-mail
+Outgoing (SMTP)	Saída (SMTP)
+Password	Senha
+Password (10+ characters)	Senha (10+ caracteres)
+Password (at least 10 characters)	Senha (pelo menos 10 caracteres)
+Password (optional)	Senha (opcional)
+Password changed for artcraftCloud and the mailbox. Their sessions were signed out.	Senha alterada no artcraftCloud e na caixa de correio. As sessões da pessoa foram encerradas.
+Password changed for artcraftCloud and your mailbox. You were signed out everywhere else.	Senha alterada no artcraftCloud e na sua caixa de correio. Você foi desconectado de todos os outros lugares.
+Password changed for artcraftCloud, but not yet for your mailbox. See Other mail apps below.	Senha alterada no artcraftCloud, mas ainda não na sua caixa de correio. Veja Outros apps de e-mail abaixo.
+Password changed, but the mail server did not take it yet ({error}). Their mailbox keeps the old password until artcraftCloud's retry gets through.	Senha alterada, mas o servidor de e-mail ainda não a aceitou ({error}). A caixa de correio mantém a senha antiga até a nova tentativa do artcraftCloud dar certo.
+Password changed. Their sessions were signed out.	Senha alterada. As sessões foram encerradas.
+Password changed. You were signed out everywhere else.	Senha alterada. Você foi desconectado de todos os outros lugares.
+People	Pessoas
+People with access	Pessoas com acesso
+People you add find it under Shared.	As pessoas que você adicionar encontram em Compartilhados.
+People you add see everything in this folder.	As pessoas que você adicionar veem tudo nesta pasta.
+Permission	Permissão
+Points	Pontos
+Publish these at your DNS provider so mail reaches this server and is trusted by others.	Publique estes registros no seu provedor de DNS para que os e-mails cheguem a este servidor e sejam confiáveis para outros.
+Purpose	Finalidade
+Recommended	Recomendada
+Remove	Remover
+Remove access	Remover acesso
+Remove from group	Remover do grupo
+Remove {app} from this server? Documents stay in the drive; it is not installed again until you add it.	Remover {app} deste servidor? Os documentos ficam no drive; ele só é instalado de novo quando você adicioná-lo.
+Rename	Renomear
+Rename {current}	Renomear {current}
+Reset password	Redefinir senha
+Restore	Restaurar
+Role	Função
+Roll back to {version}	Voltar para {version}
+Roll {app} back to {version}?	Voltar {app} para {version}?
+Same as the browser	Igual ao navegador
+Same as the system	Igual ao sistema
+Save	Salvar
+Save a copy	Salvar uma cópia
+Save and create mailbox	Salvar e criar a caixa de correio
+Save changes to the drive a few seconds after you stop typing	Salvar as alterações no drive alguns segundos depois que você parar de digitar
+Save into {folder}	Salvar em {folder}
+Saved copy of an earlier fetch	Cópia salva de uma obtenção anterior
+Saved {candidate}.	{candidate} salvo.
+Saved.	Salvo.
+Saved. Each app uses it the next time it opens.	Salvo. Cada aplicativo usará isso na próxima vez que abrir.
+Security	Segurança
+Server	Servidor
+Server address	Endereço do servidor
+Set password	Definir senha
+Settings	Configurações
+Share	Compartilhar
+Share {name}	Compartilhar {name}
+Shared	Compartilhados
+Shared by me	Compartilhados por mim
+Shared files	Arquivos compartilhados
+Shared link	Link compartilhado
+Shared with me	Compartilhados comigo
+Shown next to your comments.	Exibidas ao lado dos seus comentários.
+Shown on comments, tracked changes and document properties.	Exibido em comentários, alterações controladas e propriedades do documento.
+Sign in	Entrar
+Sign in with	Entrar com
+Sign out	Sair
+Signature	Assinatura
+Signed by the publisher	Assinado pelo editor
+Size	Tamanho
+Someone else changed this file.	Outra pessoa alterou este arquivo.
+Someone else changed this file. Save a copy to keep your version.	Outra pessoa alterou este arquivo. Salve uma cópia para manter sua versão.
+Source	Origem
+Source code	Código-fonte
+Stalwart's web address as this server reaches it, e.g. http://stalwart:8080 with the compose mail profile.	O endereço web do Stalwart como este servidor o alcança, por ex. http://stalwart:8080 com o perfil mail do compose.
+Starting…	Iniciando…
+Status	Status
+Stop sharing	Parar de compartilhar
+Stored encrypted and never shown. Leave empty to keep it.	Armazenado criptografado e nunca exibido. Deixe vazio para mantê-lo.
+Stored encrypted on this server and never shown again.	Armazenado criptografado neste servidor e nunca mais exibido.
+Suggested	Sugerido
+Super admin	Superadministrador
+System	Sistema
+Test connection	Testar conexão
+Testing…	Testando…
+That app	Esse aplicativo
+The account name, e.g. admin or admin@example.com.	O nome da conta, por ex. admin ou admin@example.com.
+The account was created, but the mail server did not create the mailbox. Try again from Email.	A conta foi criada, mas o servidor de e-mail não criou a caixa de correio. Tente novamente em E-mail.
+The account was disabled and its mailbox suspended.	A conta foi desativada e sua caixa de correio suspensa.
+The account was disabled, but the mail server did not suspend the mailbox yet ({error}). artcraftCloud retries every few minutes.	A conta foi desativada, mas o servidor de e-mail ainda não suspendeu a caixa ({error}). O artcraftCloud tenta de novo a cada poucos minutos.
+The account was enabled and its mailbox restored.	A conta foi ativada e sua caixa de correio restaurada.
+The account was enabled, but the mail server did not restore the mailbox yet ({error}). artcraftCloud retries every few minutes.	A conta foi ativada, mas o servidor de e-mail ainda não restaurou a caixa ({error}). O artcraftCloud tenta de novo a cada poucos minutos.
+The admin password is then kept on this server (encrypted). An API key can be revoked on its own without changing the admin password.	A senha de administrador fica então guardada neste servidor (criptografada). Uma chave de API pode ser revogada sozinha, sem mudar a senha de administrador.
+The app registry is up to date.	O registro de apps está atualizado.
+The app sent a save with no bytes.	O aplicativo enviou um salvamento sem dados.
+The current password is not right.	A senha atual não está correta.
+The drive and the apps that have this language use it.	O drive e os aplicativos que têm este idioma o usam.
+The drive is not translated into this language yet and shows English; the apps that have it use it.	O drive ainda não foi traduzido para este idioma e aparece em inglês; os aplicativos que o têm o usam.
+The mail server does not serve this domain, so only the address is kept.	O servidor de e-mail não atende este domínio, então só o endereço é salvo.
+The mail server has no domains yet. Add the one your addresses end in.	O servidor de e-mail ainda não tem domínios. Adicione aquele em que seus endereços terminam.
+The mail server has not restored the mailbox yet: {error}. artcraftCloud retries every few minutes.	O servidor de e-mail ainda não restaurou a caixa: {error}. O artcraftCloud tenta de novo a cada poucos minutos.
+The mail server has not suspended the mailbox yet: {error}. artcraftCloud retries every few minutes.	O servidor de e-mail ainda não suspendeu a caixa: {error}. O artcraftCloud tenta de novo a cada poucos minutos.
+The mailbox still has a generated password. It becomes their artcraftCloud password at their next sign-in or password change; until then other mail apps cannot sign in.	A caixa de correio ainda tem uma senha gerada. Ela passa a ser a senha do artcraftCloud da pessoa no próximo login ou troca de senha; até lá, outros apps de e-mail não conseguem entrar.
+The new password is the same as the current one.	A nova senha é igual à atual.
+The new passwords do not match.	As novas senhas não coincidem.
+The registry could not be fetched: {error}	Não foi possível obter o registro: {error}
+The trash is empty.	A lixeira está vazia.
+Their last password change did not reach the mail server. artcraftCloud retries every few minutes and at their next sign-in.	A última troca de senha não chegou ao servidor de e-mail. O artcraftCloud tenta de novo a cada poucos minutos e no próximo login.
+Theme	Tema
+These settings are yours on every browser. A change is written into each app's own options and takes effect the next time the app opens.	Estas configurações são suas em qualquer navegador. Uma alteração é gravada nas opções de cada aplicativo e vale na próxima vez que ele abrir.
+They cannot sign in to the mailbox from any app (IMAP, SMTP, MailCraft) and cannot send mail. Mail sent to them is still delivered. Enabling the person restores it.	Nenhum app (IMAP, SMTP, MailCraft) consegue entrar na caixa, e não é possível enviar e-mail. O e-mail enviado à pessoa continua sendo entregue. Ativar a pessoa restaura tudo.
+This cannot be undone.	Isso não pode ser desfeito.
+This deletes {address} and all of its mail on the mail server. It cannot be undone. Type the address to confirm.	Isso exclui {address} e todos os seus e-mails no servidor. Não pode ser desfeito. Digite o endereço para confirmar.
+This link has a password	Este link tem senha
+This link has expired.	Este link expirou.
+This server was started with ARTCRAFT_MAIL_URL={url}.	Este servidor foi iniciado com ARTCRAFT_MAIL_URL={url}.
+Toggle sidebar	Mostrar ou ocultar a barra lateral
+Too many tries. Wait a few minutes and try again.	Tentativas demais. Aguarde alguns minutos e tente novamente.
+Trash	Lixeira
+Type	Tipo
+Unknown	Desconhecido
+Unlink mailbox	Desvincular caixa de correio
+Unlock	Desbloquear
+Unsaved changes	Alterações não salvas
+Up one folder	Subir uma pasta
+Update	Atualizar
+Update available: {version}	Atualização disponível: {version}
+Updating {app}	Atualizando {app}
+Upload	Enviar
+Use it	Usar
+Use this login once to create an API key, and store only the key (recommended)	Usar este login uma vez para criar uma chave de API e guardar só a chave (recomendado)
+Used once to create the API key, then forgotten.	Usada uma vez para criar a chave de API e depois descartada.
+User	Usuário
+Username	Nome de usuário
+Valid until	Válido até
+Value	Valor
+Verified	Verificada
+Version {version}	Versão {version}
+Versions…	Versões…
+View only — the file was not stored.	Somente leitura — o arquivo não foi salvo.
+What people enter as IMAP and SMTP server in other mail apps. Leave empty to use the MX host of their domain.	O que as pessoas informam como servidor IMAP e SMTP em outros apps de e-mail. Deixe vazio para usar o host MX do domínio.
+You can restore it from the trash later.	Você pode restaurá-lo da lixeira depois.
+You have not shared anything yet.	Você ainda não compartilhou nada.
+Your artcraftCloud password	Sua senha do artcraftCloud
+Your files	Seus arquivos
+Your files, in the Crafting Apps.	Seus arquivos, nos Crafting Apps.
+Your last password change has not reached the mail server yet ({error}). Other mail apps still use your previous password; artcraftCloud keeps retrying every few minutes and at your next sign-in.	Sua última troca de senha ainda não chegou ao servidor de e-mail ({error}). Outros apps de e-mail ainda usam sua senha anterior; o artcraftCloud tenta de novo a cada poucos minutos e no seu próximo login.
+Your latest changes to this document have not been saved to the drive.	Suas últimas alterações neste documento não foram salvas no drive.
+Your mailbox gets your artcraftCloud password the next time you sign in or change it. Until then other mail apps cannot sign in; MailCraft works already.	Sua caixa de correio recebe sua senha do artcraftCloud no próximo login ou quando você a trocar. Até lá, outros apps de e-mail não conseguem entrar; o MailCraft já funciona.
+Your mailbox works in any IMAP mail app (Thunderbird, Apple Mail, Outlook, phones) with your email address and your artcraftCloud password.	Sua caixa de correio funciona em qualquer app de e-mail IMAP (Thunderbird, Apple Mail, Outlook, celulares) com seu endereço de e-mail e sua senha do artcraftCloud.
+Your name in documents	Seu nome nos documentos
+expired: new apps cannot be installed until it is renewed	expirado: novos apps não podem ser instalados até que seja renovado
+mail password at next sign-in	senha de e-mail no próximo login
+mail password not updated	senha de e-mail não atualizada
+mailbox not suspended yet	caixa ainda não suspensa
+mailbox still suspended	caixa ainda suspensa
+mailbox suspended	caixa suspensa
+never	nunca
+password	senha
+port {port}, SSL/TLS	porta {port}, SSL/TLS
+port {port}, SSL/TLS (or {starttls} with STARTTLS)	porta {port}, SSL/TLS (ou {starttls} com STARTTLS)
+serial {serial}	série {serial}
+{app} is back on {version}.	{app} voltou para {version}.
+{app} is still downloading	{app} ainda está sendo baixado
+{app} versions	Versões de {app}
+{app} {version} is blocked by the app registry ({reason}). It was disabled because no allowed earlier version is on this server.	{app} {version} está bloqueado pelo registro de apps ({reason}). Foi desativado porque não há uma versão anterior permitida neste servidor.
+{app} {version} is blocked by the app registry ({reason}). It was rolled back to {to} automatically.	{app} {version} está bloqueado pelo registro de apps ({reason}). Voltou automaticamente para {to}.
+{app} {version} is blocked by the app registry ({reason}). Update it or roll it back.	{app} {version} está bloqueado pelo registro de apps ({reason}). Atualize-o ou volte para a versão anterior.
+{app} {version} is installed. People see it the next time their page loads.	{app} {version} está instalado. As pessoas o verão na próxima vez que a página carregar.
+{count} DNS records	{count} registros DNS
+{count} optional records (autoconfig, SRV, MTA-STS…)	{count} registros opcionais (autoconfig, SRV, MTA-STS…)
+{domain} added. Publish its DNS records below.	{domain} adicionado. Publique os registros DNS abaixo.
+{name} was added with the mailbox {address}.	{name} foi adicionado com a caixa de correio {address}.

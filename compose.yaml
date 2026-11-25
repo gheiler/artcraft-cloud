@@ -1,0 +1,79 @@
+# artcraftCloud with Docker Compose (or `podman compose`).
+#
+#   docker compose up -d                      # the office suite only
+#   docker compose --profile mail up -d       # plus the optional Stalwart mail server
+#
+# First start installs the ArtCraft apps into the data volume (about 550 MB) and prints the
+# generated admin password in the logs unless ARTCRAFT_ADMIN_PASSWORD is set. The downloaded
+# archives are kept in the shared `artcraft-app-cache` volume, so a new data volume (another
+# project name, `docker run`, a reinstall) installs them from there instead of downloading them
+# again; each is still checked against its release's signed checksums (docs/build.md):
+#   docker compose logs artcraft-cloud | grep -A2 "admin password"
+# Put a TLS reverse proxy in front for anything but localhost (the apps need a secure context).
+
+services:
+  artcraft-cloud:
+    image: ${ARTCRAFT_IMAGE:-ghcr.io/gheiler/artcraft-cloud:latest}
+    build: .
+    container_name: artcraft-cloud
+    restart: unless-stopped
+    ports:
+      - "${ARTCRAFT_PORT:-8080}:8080"
+    environment:
+      ARTCRAFT_PUBLIC_URL: ${ARTCRAFT_PUBLIC_URL:-}
+      ARTCRAFT_ADMIN_USER: ${ARTCRAFT_ADMIN_USER:-admin}
+      ARTCRAFT_ADMIN_PASSWORD: ${ARTCRAFT_ADMIN_PASSWORD:-}
+      # auto: Secure cookies when ARTCRAFT_PUBLIC_URL is https. Force with 1/0.
+      ARTCRAFT_COOKIE_SECURE: ${ARTCRAFT_COOKIE_SECURE:-auto}
+      ARTCRAFT_MAX_UPLOAD_MB: ${ARTCRAFT_MAX_UPLOAD_MB:-512}
+      # Optional: a mirror of the app registry and its keys (docs/registry.md).
+      ARTCRAFT_REGISTRY_URL: ${ARTCRAFT_REGISTRY_URL:-}
+      ARTCRAFT_REGISTRY_KEYS: ${ARTCRAFT_REGISTRY_KEYS:-}
+      # Offered on the Mail page as the server address (the `mail` profile's Stalwart). Only a
+      # suggestion: the super admin saves it there with a credential (docs/mail.md).
+      ARTCRAFT_MAIL_URL: ${ARTCRAFT_MAIL_URL:-http://stalwart:8080}
+      ARTCRAFT_APP_CACHE: /cache
+    volumes:
+      - artcraft-data:/data
+      - artcraft-app-cache:/cache
+    mem_limit: 128m
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  # Optional mail (AGPL-3.0, runs as its own container, never linked into artcraftCloud).
+  # Read docs/mail.md before turning this on: sending straight from a home or dynamic IP lands in spam.
+  stalwart:
+    profiles: ["mail"]
+    # Pinned: upgrade on purpose after reading the release notes (docs/mail.md, "Upgrading Stalwart").
+    image: docker.io/stalwartlabs/stalwart:${STALWART_TAG:-v1.2.0}
+    container_name: artcraft-mail
+    restart: unless-stopped
+    ports:
+      - "25:25"     # SMTP from other mail servers
+      - "465:465"   # SMTP submission (TLS) for mail apps
+      - "993:993"   # IMAP (TLS) for mail apps
+      - "127.0.0.1:8081:8080"   # Stalwart admin UI, keep it private
+      # 587 (STARTTLS submission) and 143 (IMAP) are off in Stalwart's default listeners; add
+      # them here after turning them on in Stalwart (Settings › Network › Listeners).
+    # First start prints a one-time admin password (`docker compose logs stalwart`). To pin one
+    # instead, uncomment and set STALWART_RECOVERY_ADMIN=admin:<long password> in .env:
+    # environment:
+    #   STALWART_RECOVERY_ADMIN: ${STALWART_RECOVERY_ADMIN}
+    volumes:
+      # Stalwart 1.x keeps its configuration and its data in these two places.
+      - stalwart-config:/etc/stalwart
+      - stalwart-data:/var/lib/stalwart
+    mem_limit: 256m
+
+volumes:
+  artcraft-data:
+  # A fixed name (no project prefix), so every install on this host shares it. Only verified
+  # app archives; safe to delete (`docker volume rm artcraft-app-cache`), and `down -v` does.
+  artcraft-app-cache:
+    name: artcraft-app-cache
+  stalwart-config:
+  stalwart-data:

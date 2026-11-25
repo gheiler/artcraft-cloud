@@ -1,0 +1,47 @@
+[package]
+name = "artcraft-cloud-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+description = "artcraftCloud HTTP server: accounts, files, sharing, WebDAV, static apps"
+
+[dependencies]
+artcraft-cloud-types = { path = "../types" }
+argon2 = "0.5"
+axum = { version = "0.8", features = ["json", "multipart", "tokio"] }
+base64 = "0.22"
+brotli = "8"
+bytes = "1"
+ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+flate2 = "1"
+fs2 = "0.4"
+chacha20poly1305 = "0.10"
+futures-util = "0.3"
+hex = "0.4"
+hmac = "0.12"
+http = "1"
+http-body-util = "0.1"
+httpdate = "1"
+percent-encoding = "2"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+rusqlite = { version = "0.34", features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7", features = ["io"] }
+tracing = { workspace = true }
+url = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+base64 = "0.22"
+http-body-util = "0.1"
+serde_json = { workspace = true }
+tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { version = "0.5", features = ["util"] }

@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # No RUSTFLAGS here: it would replace the wasm32 rustflags in .cargo/config.toml.
+
+jobs:
+  rust:
+    name: build, test, clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y gpg
+      - run: cargo build --release --locked
+      - run: cargo test --workspace --locked
+        env:
+          # Pull requests and main may carry an edited registry the registry workflow has not
+          # signed yet; a release tag must embed a signed one.
+          ARTCRAFT_REGISTRY_UNSIGNED_OK: ${{ startsWith(github.ref, 'refs/tags/') && '0' || '1' }}
+      - name: check the app registry
+        run: |
+          git fetch -q --depth=1 origin main && git show origin/main:registry/apps.json > /tmp/main-apps.json || rm -f /tmp/main-apps.json
+          target/release/artcraft-cloud registry verify --unsigned-ok --against /tmp/main-apps.json
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo clippy -p artcraft-cloud-shell --target wasm32-unknown-unknown --locked -- -D warnings
+      # trunk keeps wasm-bindgen and wasm-opt (pinned in Trunk.toml) in ~/.cache/trunk; cache them
+      # so the shell build downloads nothing once they are there.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/trunk
+          key: trunk-tools-${{ hashFiles('crates/shell/Trunk.toml') }}
+      - name: build the shell
+        run: |
+          curl -fsSL -o /tmp/trunk.tar.gz https://github.com/trunk-rs/trunk/releases/download/v0.22.2/trunk-x86_64-unknown-linux-musl.tar.gz
+          echo "4a90216d93c553f3d8b7401fce0dee588e0fb1eb1c6a379ebac81fabe820f25b  /tmp/trunk.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/trunk.tar.gz -C /usr/local/bin trunk
+          cd crates/shell && trunk build --release
+
+  deploy-files:
+    name: helm + manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: lint and validate
+        run: |
+          curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar -xz -C /usr/local/bin kubeconform
+          helm lint deploy/helm/artcraft-cloud
+          helm template t deploy/helm/artcraft-cloud --set ingress.enabled=true --set admin.password=x | kubeconform -strict -summary
+          kubeconform -strict -summary deploy/kubernetes/artcraft-cloud.yaml
+          cp deploy/kubernetes/artcraft-cloud.yaml /tmp/before.yaml
+          sh scripts/render-manifest.sh
+          diff -u /tmp/before.yaml deploy/kubernetes/artcraft-cloud.yaml
+
+  image:
+    name: docker image
+    runs-on: ubuntu-latest
+    needs: rust
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: ${{ github.event_name == 'pull_request' }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: CARGO_BUILD_JOBS=4
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: smoke test
+        if: github.event_name == 'pull_request'
+        run: |
+          tag=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          docker run -d --name ac -p 8080:8080 -e ARTCRAFT_SKIP_APP_SYNC=1 -e ARTCRAFT_ADMIN_PASSWORD=ci-password-123 "$tag"
+          for i in $(seq 1 30); do curl -fsS localhost:8080/healthz && break; sleep 1; done
+          curl -fsS localhost:8080/ | grep -q artcraftCloud
+          docker exec ac artcraft-cloud apps list
+          docker logs ac
