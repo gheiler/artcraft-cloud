@@ -95,16 +95,17 @@ async function waitFor(frame, pred, timeout = 15000, step = 400) {
   await page.screenshot({ path: `${OUT}/calfiles-reloaded.png` });
 
   // Local unsaved edit + another external change => conflict dialog.
-  const after = await api(page, 'GET', '/api/files/stat?path=' + encodeURIComponent(path));
+  // Autosave is debounced 1.5s from the first dirty tick; stay well under that.
   const calId = fileCal.id || ((reloaded.fileCalendars || [])[0] || {}).id;
   await frame.evaluate((title, calendar, date) => {
     window.calendarcraft.execute('event.add', { title, calendar, date });
   }, 'My unsaved note', calId, day.toISOString().slice(0, 10));
-  await sleep(400);
+  const dirtied = await waitFor(frame, s => (s.fileCalendars || []).some(c => c.dirty), 4000);
+  check((dirtied.fileCalendars || []).some(c => c.dirty), 'local edit is still unsaved before the second external write');
   const conflictIcs = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//e2e//EN\r\nX-WR-CALNAME:${calName}\r\nBEGIN:VEVENT\r\nUID:ext2-${Date.now()}\r\nDTSTAMP:${ymd(today)}T000000Z\r\nDTSTART;VALUE=DATE:${ymd(day)}\r\nDTEND;VALUE=DATE:${ymd(new Date(day.getTime() + 86400000))}\r\nSUMMARY:Second external change\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
-  const etag2 = after.json && after.json.etag;
-  const put2 = await api(page, 'PUT', '/api/files/content?path=' + encodeURIComponent(path), conflictIcs, true, { 'If-Match': '"' + String(etag2).replace(/"/g, '') + '"' });
-  check(put2.status === 200, 'second external write succeeded: ' + put2.status);
+  // If-Match: * overwrites whatever is on disk so a stale tag cannot hide the conflict.
+  const put2 = await api(page, 'PUT', '/api/files/content?path=' + encodeURIComponent(path), conflictIcs, true, { 'If-Match': '*' });
+  check(put2.status === 200, 'second external write succeeded: ' + put2.status + ' ' + JSON.stringify(put2.json).slice(0, 180));
   await frame.evaluate(() => window.calendarcraft.execute('calendar.syncFiles'));
   const conflicted = await waitFor(frame, s => !!(s.conflict && s.conflict.path), 12000);
   check(!!(conflicted.conflict && conflicted.conflict.path), 'conflict dialog state is set: ' + JSON.stringify(conflicted.conflict));
