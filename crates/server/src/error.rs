@@ -57,7 +57,7 @@ impl From<Error> for ApiError {
             Error::NotFound => Self::new(StatusCode::NOT_FOUND, "not found"),
             Error::Exists => Self::new(StatusCode::CONFLICT, "already exists"),
             Error::Conflict { etag } => Self {
-                status: StatusCode::CONFLICT,
+                status: StatusCode::PRECONDITION_FAILED,
                 message: "etag conflict".into(),
                 etag: Some(etag),
                 code: None,

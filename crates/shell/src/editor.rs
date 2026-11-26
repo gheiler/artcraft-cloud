@@ -402,6 +402,7 @@ pub fn install(editor: Editor) {
             "handoff" => on_handoff(editor, &data, &frame),
             "settings-set" => on_settings_set(editor, &data),
             "settings-remove" => on_settings_remove(editor, &data),
+            "file" => on_app_file(editor, &data, frame.clone()),
             _ => {}
         }
         set_title(editor);
@@ -533,14 +534,25 @@ fn on_ready(editor: Editor, frame: &HtmlIFrameElement) {
     if let Some(bytes) = editor.bytes.try_update(|slot| slot.take()).flatten() {
         let name = editor.name.get_untracked();
         let buffer = bytes_to_buffer(&bytes);
+        let mut fields = vec![
+            ("name", JsValue::from_str(&name)),
+            ("bytes", buffer.clone().into()),
+        ];
+        if let Some(path) = editor.path.get_untracked() {
+            if !path.is_empty() {
+                fields.push(("path", JsValue::from_str(&path)));
+            }
+        }
+        if let Some(etag) = editor.etag.get_untracked() {
+            if !etag.is_empty() {
+                fields.push(("etag", JsValue::from_str(&etag)));
+            }
+        }
         post(
             frame,
             &editor.app.get_untracked(),
             "open",
-            &[
-                ("name", JsValue::from_str(&name)),
-                ("bytes", buffer.clone().into()),
-            ],
+            &fields,
             Some(&buffer),
         );
         let _ = editor.status.try_set(String::new());
@@ -1288,4 +1300,272 @@ pub fn confirm_save_as(editor: Editor, typed: String, folder: Option<String>) {
             ui().refresh();
         }
     });
+}
+
+/// `<app>:file` — create, read, stat or write a drive file that is not necessarily the open document.
+/// CalendarCraft uses this for file-backed calendars in `Calendars/`.
+fn on_app_file(editor: Editor, data: &JsValue, frame: HtmlIFrameElement) {
+    let request_id = string_field(data, "requestId").unwrap_or_default();
+    let op = string_field(data, "op").unwrap_or_default();
+    let path = string_field(data, "path");
+    let name = string_field(data, "name");
+    let folder = string_field(data, "folder").unwrap_or_else(|| "Calendars".into());
+    let if_match = string_field(data, "ifMatch");
+    let bytes = bytes_field(data);
+    let app = editor.app.get_untracked();
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = handle_app_file(&op, path, name, folder, bytes, if_match).await;
+        reply_app_file(&frame, &app, &request_id, result);
+    });
+}
+
+struct AppFileResult {
+    ok: bool,
+    conflict: bool,
+    path: Option<String>,
+    name: Option<String>,
+    etag: Option<String>,
+    bytes: Option<Vec<u8>>,
+    error: Option<String>,
+}
+
+async fn handle_app_file(
+    op: &str,
+    path: Option<String>,
+    name: Option<String>,
+    folder: String,
+    bytes: Option<Vec<u8>>,
+    if_match: Option<String>,
+) -> AppFileResult {
+    match op {
+        "create" => app_file_create(&folder, path, name, bytes).await,
+        "read" => app_file_read(path.as_deref()).await,
+        "stat" => app_file_stat(path.as_deref()).await,
+        "write" => app_file_write(path.as_deref(), bytes, if_match.as_deref()).await,
+        _ => AppFileResult {
+            ok: false,
+            conflict: false,
+            path: None,
+            name: None,
+            etag: None,
+            bytes: None,
+            error: Some(format!("unknown file op {op}")),
+        },
+    }
+}
+
+async fn ensure_folder(folder: &str) -> Result<(), String> {
+    if folder.is_empty() {
+        return Ok(());
+    }
+    match api::post_json::<_, artcraft_cloud_types::FileEntry>(
+        "/api/files/mkdir",
+        &serde_json::json!({ "path": folder }),
+    )
+    .await
+    {
+        Ok(_) => Ok(()),
+        Err(err) if err.to_ascii_lowercase().contains("already exists") => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
+fn unique_in(folder: &str, file_name: &str, existing: &[String]) -> String {
+    let file_name = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name);
+    let (stem, ext) = match file_name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => (stem, ext),
+        _ => (file_name, "ics"),
+    };
+    let candidate = |n: u32| {
+        let name = if n <= 1 {
+            format!("{stem}.{ext}")
+        } else {
+            format!("{stem} {n}.{ext}")
+        };
+        if folder.is_empty() {
+            name
+        } else {
+            format!("{folder}/{name}")
+        }
+    };
+    let mut n = 1u32;
+    loop {
+        let path = candidate(n);
+        if !existing.iter().any(|p| p.eq_ignore_ascii_case(&path)) {
+            return path;
+        }
+        n = n.saturating_add(1);
+        if n > 200 {
+            return candidate(n);
+        }
+    }
+}
+
+async fn app_file_create(
+    folder: &str,
+    path: Option<String>,
+    name: Option<String>,
+    bytes: Option<Vec<u8>>,
+) -> AppFileResult {
+    let Some(bytes) = bytes else {
+        return fail("create sent no bytes");
+    };
+    if let Err(err) = ensure_folder(folder).await {
+        return fail(err);
+    }
+    let existing = match api::list_dir(folder).await {
+        Ok(list) => list.entries.into_iter().map(|e| e.path).collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    };
+    let suggested = path
+        .or_else(|| {
+            name.as_ref().map(|n| {
+                if folder.is_empty() {
+                    n.clone()
+                } else {
+                    format!("{folder}/{}", n.rsplit(['/', '\\']).next().unwrap_or(n))
+                }
+            })
+        })
+        .unwrap_or_else(|| format!("{folder}/Calendar.ics"));
+    let file_name = suggested.rsplit(['/', '\\']).next().unwrap_or(&suggested);
+    let target = unique_in(folder, file_name, &existing);
+    let url = api::home_content(&target);
+    match api::put_bytes(&url, &bytes, None).await {
+        Ok(written) => AppFileResult {
+            ok: true,
+            conflict: false,
+            path: Some(written.path.clone()),
+            name: Some(written.path.rsplit(['/', '\\']).next().unwrap_or(&written.path).to_string()),
+            etag: Some(written.etag),
+            bytes: None,
+            error: None,
+        },
+        Err(api::PutFail::Conflict(etag)) => AppFileResult {
+            ok: false,
+            conflict: true,
+            path: Some(target),
+            name: None,
+            etag,
+            bytes: None,
+            error: Some("etag conflict".into()),
+        },
+        Err(api::PutFail::Other(err)) => fail(err),
+    }
+}
+
+async fn app_file_read(path: Option<&str>) -> AppFileResult {
+    let Some(path) = path else {
+        return fail("missing path");
+    };
+    let url = api::home_content(path);
+    match api::send("GET", &url, None, None, None).await {
+        Ok(reply) if reply.status < 400 => AppFileResult {
+            ok: true,
+            conflict: false,
+            path: Some(path.to_string()),
+            name: Some(path.rsplit(['/', '\\']).next().unwrap_or(path).to_string()),
+            etag: reply.etag,
+            bytes: Some(reply.body),
+            error: None,
+        },
+        Ok(reply) => fail(format!("read failed ({})", reply.status)),
+        Err(err) => fail(err),
+    }
+}
+
+async fn app_file_stat(path: Option<&str>) -> AppFileResult {
+    let Some(path) = path else {
+        return fail("missing path");
+    };
+    let url = format!("/api/files/stat?path={}", api::enc(path));
+    match api::get_json::<artcraft_cloud_types::FileEntry>(&url).await {
+        Ok(entry) => AppFileResult {
+            ok: true,
+            conflict: false,
+            path: Some(entry.path),
+            name: Some(entry.name),
+            etag: Some(entry.etag),
+            bytes: None,
+            error: None,
+        },
+        Err(err) => fail(err),
+    }
+}
+
+async fn app_file_write(path: Option<&str>, bytes: Option<Vec<u8>>, if_match: Option<&str>) -> AppFileResult {
+    let Some(path) = path else {
+        return fail("missing path");
+    };
+    let Some(bytes) = bytes else {
+        return fail("write sent no bytes");
+    };
+    let url = api::home_content(path);
+    let tag = if_match.map(|t| {
+        if t == "*" || t.starts_with('"') || t.starts_with("W/") {
+            t.to_string()
+        } else {
+            format!("\"{t}\"")
+        }
+    });
+    match api::put_bytes(&url, &bytes, tag.as_deref()).await {
+        Ok(written) => AppFileResult {
+            ok: true,
+            conflict: false,
+            path: Some(written.path.clone()),
+            name: Some(written.path.rsplit(['/', '\\']).next().unwrap_or(&written.path).to_string()),
+            etag: Some(written.etag),
+            bytes: None,
+            error: None,
+        },
+        Err(api::PutFail::Conflict(etag)) => AppFileResult {
+            ok: false,
+            conflict: true,
+            path: Some(path.to_string()),
+            name: None,
+            etag,
+            bytes: None,
+            error: Some("etag conflict".into()),
+        },
+        Err(api::PutFail::Other(err)) => fail(err),
+    }
+}
+
+fn fail(error: impl Into<String>) -> AppFileResult {
+    AppFileResult {
+        ok: false,
+        conflict: false,
+        path: None,
+        name: None,
+        etag: None,
+        bytes: None,
+        error: Some(error.into()),
+    }
+}
+
+fn reply_app_file(frame: &HtmlIFrameElement, app: &str, request_id: &str, result: AppFileResult) {
+    let mut fields = vec![
+        ("requestId", JsValue::from_str(request_id)),
+        ("ok", JsValue::from_bool(result.ok)),
+        ("conflict", JsValue::from_bool(result.conflict)),
+    ];
+    if let Some(path) = &result.path {
+        fields.push(("path", JsValue::from_str(path)));
+    }
+    if let Some(name) = &result.name {
+        fields.push(("name", JsValue::from_str(name)));
+    }
+    if let Some(etag) = &result.etag {
+        fields.push(("etag", JsValue::from_str(etag)));
+    }
+    if let Some(error) = &result.error {
+        fields.push(("error", JsValue::from_str(error)));
+    }
+    if let Some(bytes) = &result.bytes {
+        let buffer = bytes_to_buffer(bytes);
+        fields.push(("bytes", buffer.clone().into()));
+        post(frame, app, "file-result", &fields, Some(&buffer));
+    } else {
+        post(frame, app, "file-result", &fields, None);
+    }
 }

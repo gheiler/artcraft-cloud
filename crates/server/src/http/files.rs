@@ -226,7 +226,7 @@ pub async fn file_response(path: std::path::PathBuf, entry: FileEntry) -> Result
 }
 
 fn write_result(entry: &FileEntry) -> WriteResult {
-    WriteResult { path: entry.path.clone(), etag: entry.etag.clone(), size: entry.size, is_dir: entry.is_dir }
+    WriteResult { path: entry.path.clone(), etag: entry.etag.clone(), size: entry.size, is_dir: entry.is_dir, rev: entry.rev }
 }
 
 fn trash_entry(row: crate::db::TrashRow) -> TrashEntry {
@@ -252,3 +252,33 @@ pub async fn file_kind(State(state): State<AppState>, AuthUser(user): AuthUser, 
     .await?;
     Ok(Json(kind))
 }
+
+/// `HEAD /api/files/content?path=`: ETag, revision and size without the body.
+pub async fn head_file(State(state): State<AppState>, AuthUser(user): AuthUser, Query(query): Query<PathQuery>) -> Result<Response, ApiError> {
+    let rel = rel_of(query.path.as_deref())?;
+    let store = state.store.clone();
+    let id = user.id;
+    let entry = blocking(move || store.stat(id, &rel)).await?;
+    if entry.is_dir {
+        return Err(ApiError::from(crate::error::Error::Invalid("not a file".into())));
+    }
+    let mut response = StatusCode::OK.into_response();
+    let headers = response.headers_mut();
+    if let Ok(value) = HeaderValue::from_str(&quote_etag(&entry.etag)) {
+        headers.insert(header::ETAG, value);
+    }
+    if let Ok(value) = HeaderValue::from_str(&entry.size.to_string()) {
+        headers.insert(header::CONTENT_LENGTH, value);
+    }
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    Ok(response)
+}
+
+/// `GET /api/files/stat?path=`: metadata including ETag, revision and mtime.
+pub async fn stat_file(State(state): State<AppState>, AuthUser(user): AuthUser, Query(query): Query<PathQuery>) -> Result<Json<FileEntry>, ApiError> {
+    let rel = rel_of(query.path.as_deref())?;
+    let store = state.store.clone();
+    let id = user.id;
+    Ok(Json(blocking(move || store.stat(id, &rel)).await?))
+}
+
