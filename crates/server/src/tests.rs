@@ -145,7 +145,7 @@ async fn files_etag_trash_and_traversal() {
                 .unwrap(),
         )
         .await;
-    assert_eq!(status, StatusCode::CONFLICT, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(status, StatusCode::PRECONDITION_FAILED, "{}", String::from_utf8_lossy(&body));
     let err: artcraft_cloud_types::ErrorBody = json(&body);
     assert_eq!(err.etag.as_deref(), Some(written.etag.as_str()));
 
@@ -163,6 +163,49 @@ async fn files_etag_trash_and_traversal() {
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     let updated: artcraft_cloud_types::WriteResult = json(&body);
     assert_ne!(updated.etag, written.etag);
+    assert!(updated.rev >= 1, "write results expose a revision");
+    assert_eq!(updated.rev, artcraft_cloud_types::rev_from_etag(&updated.etag));
+
+    let (status, _, body) = env
+        .call(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/files/content?path=docs/note.txt")
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(Body::from("ignored"))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::PRECONDITION_FAILED, "overwrite without If-Match: {}", String::from_utf8_lossy(&body));
+
+    let (status, _, body) = env
+        .call(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/files/content?path=docs/note.txt")
+                .header(header::IF_MATCH, "*")
+                .header(header::CONTENT_TYPE, "application/octet-stream")
+                .body(Body::from("star"))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let starred: artcraft_cloud_types::WriteResult = json(&body);
+
+    let (status, headers, _) = env
+        .call(Request::builder().method("HEAD").uri("/api/files/content?path=docs/note.txt").body(Body::empty()).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let head_etag = headers.get(header::ETAG).and_then(|v| v.to_str().ok()).map(|v| v.trim_matches('"').to_string());
+    assert_eq!(head_etag.as_deref(), Some(starred.etag.as_str()));
+
+    let (status, _, body) = env.call(Request::builder().uri("/api/files/stat?path=docs/note.txt").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let meta: artcraft_cloud_types::FileEntry = json(&body);
+    assert_eq!(meta.path, "docs/note.txt");
+    assert_eq!(meta.etag, starred.etag);
+    assert_eq!(meta.rev, starred.rev);
+    assert_eq!(meta.size, 4);
 
     let (status, _, _) = env.call(Request::builder().method("POST").uri("/api/files/copy").body(Body::from(r#"{"from":"docs/note.txt","to_dir":"docs","name":"copy.txt"}"#)).unwrap()).await;
     assert_eq!(status, StatusCode::OK);
@@ -174,7 +217,7 @@ async fn files_etag_trash_and_traversal() {
     assert_eq!(status, StatusCode::OK);
     let (status, _, body) = env.call(Request::builder().uri("/api/files/content?path=other/renamed.txt").body(Body::empty()).unwrap()).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body, b"hello world");
+    assert_eq!(body, b"star");
 
     let (status, _, _) = env.call(Request::builder().method("POST").uri("/api/files/delete").body(Body::from(r#"{"path":"other/renamed.txt"}"#)).unwrap()).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
@@ -188,7 +231,7 @@ async fn files_etag_trash_and_traversal() {
     assert_eq!(status, StatusCode::OK);
     let (status, _, body) = env.call(Request::builder().uri("/api/files/content?path=other/renamed.txt").body(Body::empty()).unwrap()).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body, b"hello world");
+    assert_eq!(body, b"star");
 
     for bad in ["/api/files/content?path=../secret", "/api/files/content?path=docs/../../etc/passwd"] {
         let (status, _, _) = env.call(Request::builder().uri(bad).body(Body::empty()).unwrap()).await;

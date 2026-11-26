@@ -54,8 +54,9 @@ impl Store {
                 path: child.as_str().to_string(),
                 is_dir,
                 size,
-                etag,
+                etag: etag.clone(),
                 modified: modified_secs(&meta),
+                rev: artcraft_cloud_types::rev_from_etag(&etag),
             });
         }
         entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
@@ -76,8 +77,9 @@ impl Store {
             path: rel.as_str().to_string(),
             is_dir,
             size: if is_dir { 0 } else { meta.len() },
-            etag,
+            etag: etag.clone(),
             modified: modified_secs(&meta),
+            rev: artcraft_cloud_types::rev_from_etag(&etag),
         })
     }
 
@@ -269,6 +271,7 @@ fn entry_of(rel: &RelPath, is_dir: bool, size: u64, etag: &str) -> FileEntry {
         size,
         etag: etag.to_string(),
         modified: paths::now_secs(),
+        rev: artcraft_cloud_types::rev_from_etag(etag),
     }
 }
 

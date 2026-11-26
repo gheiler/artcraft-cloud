@@ -381,7 +381,7 @@ async fn write_resolved(state: &AppState, owner: i64, full: &RelPath, headers: H
     });
     let _ = tokio::fs::remove_file(&tmp).await;
     let entry = result?;
-    let mut response = (StatusCode::OK, Json(WriteResult { path: entry.path.clone(), etag: entry.etag.clone(), size: entry.size, is_dir: entry.is_dir })).into_response();
+    let mut response = (StatusCode::OK, Json(WriteResult { path: entry.path.clone(), etag: entry.etag.clone(), size: entry.size, is_dir: entry.is_dir, rev: entry.rev })).into_response();
     if let Ok(etag) = HeaderValue::from_str(&quote_etag(&entry.etag)) {
         response.headers_mut().insert(header::ETAG, etag);
     }
