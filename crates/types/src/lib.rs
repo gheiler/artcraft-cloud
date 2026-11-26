@@ -65,6 +65,11 @@ pub fn conflict_copy_name(name: &str, n: u32) -> String {
     }
 }
 
+/// The revision prefix of an etag minted as `{rev}-{random hex}`.
+pub fn rev_from_etag(etag: &str) -> i64 {
+    etag.trim().trim_matches('"').split('-').next().and_then(|s| s.parse().ok()).unwrap_or(0)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct User {
     pub id: i64,
@@ -279,6 +284,9 @@ pub struct FileEntry {
     pub size: u64,
     pub etag: String,
     pub modified: i64,
+    /// Monotonic revision from which `etag` is minted (`{rev}-…`).
+    #[serde(default)]
+    pub rev: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -293,6 +301,9 @@ pub struct WriteResult {
     pub etag: String,
     pub size: u64,
     pub is_dir: bool,
+    /// Monotonic revision from which `etag` is minted (`{rev}-…`).
+    #[serde(default)]
+    pub rev: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -50,13 +50,20 @@ only talk to this origin (CSP `connect-src 'self'`), so those requests go throug
 Passwords for those accounts are sealed on the server (see above) and are not kept in the browser.
 The shell still treats `calendarcraft.secrets` and `calendarcraft.cache` as local-only (a leftover
 plaintext map from an older CalendarCraft is migrated into the vault and deleted on start; the
-cache is a copy of server events). Accounts and local calendars (`calendarcraft.store`) are options
-and follow the person.
+cache is a copy of server events). Accounts and file-id references for drive calendars
+(`calendarcraft.store`) are options and follow the person. Events of those calendars live in
+`.ics` files under `Calendars/`, not in the store.
 
 ## Files and settings
 
 - `.ics`, `.ical`, `.ifb` open in CalendarCraft; the file shows as its own calendar, and Save /
-  Autosave write it back (only that calendar's events).
+  Autosave write it back (only that calendar's events). Creating *Calendar in my files* writes a
+  new `.ics` into `Calendars/` through `calendarcraft:file` (create / read / stat / write with
+  If-Match). Several file calendars persist by path; a background check (and window focus)
+  reloads a file whose ETag changed when there are no local edits, or shows a conflict dialog
+  if both sides changed. Older store-backed local calendars are exported to `Calendars/` once.
+- Conditional writes on `/api/files/content` return **412** (with the current ETag) on mismatch.
+  `GET /api/files/stat` and `HEAD /api/files/content` expose ETag, revision and mtime.
 - Settings › theme, language (en, de, es, fr, it, pt-BR) and animations go into `calendarcraft.ui`.
 
 ## Installing
@@ -85,7 +92,11 @@ without a signature.
   app is on Stalwart (`curl` REPORT and PROPFIND as the person); an event `PUT` with `curl` shows in
   the app; a public `.ics` feed comes in through `/api/calendar/remote`; an `.ics` in the drive opens
   and is saved back with a new event.
+- `tests/e2e/calfiles.js`: creating *Calendar in my files* writes `Calendars/<name>.ics`; an external
+  change is reloaded; a local unsaved edit plus another external change shows the conflict dialog
+  (reload theirs / keep mine / save a copy). Screenshots: `/workspace/artcraft-cloud-shots/calfiles-*.png`.
 
 ```sh
 BASE=http://127.0.0.1:8097 STALWART=http://127.0.0.1:8091 E2E_USER=cara E2E_PASS=… node tests/e2e/calendar.js
+BASE=http://127.0.0.1:8094 OUT=/workspace/artcraft-cloud-shots node tests/e2e/calfiles.js
 ```

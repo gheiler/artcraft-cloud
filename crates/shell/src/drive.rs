@@ -316,6 +316,7 @@ async fn load(
                     size: 0,
                     etag: String::new(),
                     modified: 0,
+                    rev: 0,
                 });
             }
             let _ = entries.try_set(list);
