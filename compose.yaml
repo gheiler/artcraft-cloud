@@ -20,7 +20,12 @@ services:
     ports:
       - "${ARTCRAFT_PORT:-8080}:8080"
     environment:
-      ARTCRAFT_PUBLIC_URL: ${ARTCRAFT_PUBLIC_URL:-}
+      ARTCRAFT_PUBLIC_URL: ${ARTCRAFT_PUBLIC_URL:-http://localhost:8080}
+      # Sideloaded apps run on this origin so they cannot use the session cookie.
+      # Modern browsers resolve *.localhost to 127.0.0.1; the same container serves both hosts.
+      # In production set this to https://apps.your-domain and point DNS + TLS at this service.
+      # Optional extra origin isolation. Uncomment and point DNS at this service:
+      # ARTCRAFT_APPS_URL: ${ARTCRAFT_APPS_URL:-http://apps.localhost:8080}
       ARTCRAFT_ADMIN_USER: ${ARTCRAFT_ADMIN_USER:-admin}
       ARTCRAFT_ADMIN_PASSWORD: ${ARTCRAFT_ADMIN_PASSWORD:-}
       # auto: Secure cookies when ARTCRAFT_PUBLIC_URL is https. Force with 1/0.

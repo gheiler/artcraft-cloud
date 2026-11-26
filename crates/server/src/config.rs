@@ -32,6 +32,8 @@ pub struct Config {
     pub registry: crate::registry::RegistryConfig,
     /// What a registry block does to an installed version (`ARTCRAFT_BLOCKED_APPS`).
     pub blocked_apps: crate::apps::BlockAction,
+    /// Optional second origin for sideloaded apps (`ARTCRAFT_APPS_URL`). Unset: same host, sandboxed.
+    pub apps_url: Option<String>,
 }
 
 impl Config {
@@ -39,7 +41,7 @@ impl Config {
         let data_dir = env_path("ARTCRAFT_DATA").or_else(|| env_path("ARTCRAFT_DATA_DIR")).unwrap_or_else(|| PathBuf::from("data"));
         let listen = std::env::var("ARTCRAFT_LISTEN")
             .unwrap_or_else(|_| "0.0.0.0:8080".into())
-            .parse()
+            .parse::<SocketAddr>()
             .map_err(|_| Error::Invalid("ARTCRAFT_LISTEN is not a socket address".into()))?;
         let shell_dir = env_path("ARTCRAFT_SHELL_DIR").unwrap_or_else(|| PathBuf::from("crates/shell/dist"));
         let public_url = std::env::var("ARTCRAFT_PUBLIC_URL").ok().filter(|s| !s.is_empty());
@@ -65,6 +67,7 @@ impl Config {
             .unwrap_or(512 * 1024 * 1024);
         let oidc_issuer = std::env::var("ARTCRAFT_OIDC_ISSUER").ok().filter(|s| !s.is_empty());
         let mail_url = std::env::var("ARTCRAFT_MAIL_URL").ok().filter(|s| !s.is_empty());
+        let apps_url = parse_apps_url(std::env::var("ARTCRAFT_APPS_URL").ok(), public_url.as_deref(), listen.port());
         Ok(Self {
             data_dir,
             listen,
@@ -83,6 +86,7 @@ impl Config {
             mail_url,
             registry: crate::registry::RegistryConfig::from_env(),
             blocked_apps: crate::apps::BlockAction::from_env(),
+            apps_url,
         })
     }
 
@@ -105,6 +109,8 @@ impl Config {
             mail_url: None,
             registry: crate::registry::RegistryConfig::builtin(),
             blocked_apps: crate::apps::BlockAction::Security,
+            // Same-domain sandbox is the default; tests that want a second host set this.
+            apps_url: None,
         }
     }
 
@@ -115,6 +121,92 @@ impl Config {
             CookieSecure::Auto => self.public_url.as_deref().is_some_and(|url| url.starts_with("https://")),
         }
     }
+
+    /// Origin isolated apps are served from, with no trailing slash.
+    pub fn apps_origin(&self) -> Option<&str> {
+        self.apps_url.as_deref()
+    }
+
+    /// The shell's public origin, when `ARTCRAFT_PUBLIC_URL` is set.
+    pub fn public_origin(&self) -> Option<String> {
+        self.public_url.as_deref().and_then(|url| origin_of(url).ok())
+    }
+
+    pub fn is_apps_host(&self, host: &str) -> bool {
+        let Some(apps) = self.apps_url.as_deref() else {
+            return false;
+        };
+        host_matches(apps, host)
+    }
+}
+
+/// `ARTCRAFT_APPS_URL` if set. Unset or empty leaves sideloaded apps on the main host
+/// (sandboxed iframes, no second hostname). This is optional extra origin isolation.
+fn parse_apps_url(explicit: Option<String>, _public_url: Option<&str>, _listen_port: u16) -> Option<String> {
+    let value = explicit?;
+    let value = value.trim();
+    if value.is_empty() || value == "off" || value == "0" {
+        return None;
+    }
+    origin_of(value).ok()
+}
+
+/// Scheme + host[+port], no path, or an error if the URL is not a plain http(s) origin.
+pub fn origin_of(url: &str) -> Result<String, String> {
+    let url = url.trim().trim_end_matches('/');
+    let (scheme, rest) = url.split_once("://").ok_or_else(|| "apps origin needs an http(s) URL".to_string())?;
+    if scheme != "http" && scheme != "https" {
+        return Err("apps origin must be http or https".into());
+    }
+    let host = rest.split('/').next().unwrap_or("").split('?').next().unwrap_or("").trim();
+    if host.is_empty() || host.contains(' ') || host.contains(char::from(92)) {
+        return Err("apps origin has no host".into());
+    }
+    Ok(format!("{scheme}://{host}"))
+}
+
+fn host_of(origin: &str) -> Option<String> {
+    origin.split_once("://").map(|(_, rest)| rest.to_ascii_lowercase())
+}
+
+fn split_host_port(host: &str) -> (&str, Option<u16>) {
+    if let Some(rest) = host.strip_prefix('[') {
+        if let Some((name, port)) = rest.split_once("]:") {
+            return (name, port.parse().ok());
+        }
+        return (rest.trim_end_matches(']'), None);
+    }
+    match host.rsplit_once(':') {
+        Some((name, port)) if !name.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => (name, port.parse().ok()),
+        _ => (host, None),
+    }
+}
+
+#[allow(dead_code)]
+fn is_loopback_name(name: &str) -> bool {
+    matches!(name, "localhost" | "127.0.0.1" | "::1" | "[::1]") || name.ends_with(".localhost")
+}
+
+/// Compare a configured origin to a request `Host` header (port included when not default).
+pub fn host_matches(origin: &str, host_header: &str) -> bool {
+    let Ok(origin) = origin_of(origin) else {
+        return false;
+    };
+    let Some(want) = host_of(&origin) else {
+        return false;
+    };
+    let got = host_header.trim().trim_end_matches('.').to_ascii_lowercase();
+    if want == got {
+        return true;
+    }
+    // `http://apps.localhost` vs Host: apps.localhost:80, and the reverse.
+    let (want_name, want_port) = split_host_port(&want);
+    let (got_name, got_port) = split_host_port(&got);
+    if want_name != got_name {
+        return false;
+    }
+    let default = if origin.starts_with("https://") { 443 } else { 80 };
+    want_port.unwrap_or(default) == got_port.unwrap_or(default)
 }
 
 fn env_path(key: &str) -> Option<PathBuf> {

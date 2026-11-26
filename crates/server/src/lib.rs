@@ -2,11 +2,13 @@
 //! the static Crafting App builds.
 
 pub mod apps;
+mod capability;
 mod config;
 mod db;
 mod error;
 mod http;
 mod manifest;
+pub mod sideload;
 mod oidc;
 mod password;
 mod paths;
@@ -23,7 +25,7 @@ mod webdav;
 pub use config::Config;
 pub use db::{Account, Db};
 pub use error::Error;
-pub use manifest::{current_dir, read_manifest, version_dir, write_manifest, InstalledApp, Manifest};
+pub use manifest::{current_dir, read_manifest, version_dir, write_manifest, InstalledApp, Manifest, SideloadMeta, SideloadSource};
 pub use password::hash_password;
 pub use paths::{check_password_policy, normalize_username};
 pub use state::{bootstrap, print_generated_password, AppState, Boot};

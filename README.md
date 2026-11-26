@@ -106,6 +106,10 @@ PhotoCraft, VectorCraft, DesignCraft and the other Crafting Apps are not include
 builds do not speak the host bridge. `docs/upstream-gaps.md` lists what is missing upstream, with the
 existing issues and pull requests.
 
+The super admin can also sideload an app that is not on the trust list (Apps › Danger zone, or
+`artcraft-cloud apps sideload`). Those builds are marked Unverified and run in a sandboxed iframe so
+they cannot use the signed-in session. See [docs/sideloaded-apps.md](docs/sideloaded-apps.md).
+
 ## Screenshots
 
 | Sign in | WordCraft |
@@ -219,7 +223,8 @@ docker exec artcraft-cloud artcraft-cloud apps rollback wordcraft   # back to th
 docker exec artcraft-cloud artcraft-cloud apps disable wordcraft    # enable, remove, auto-update on|off
 docker exec artcraft-cloud artcraft-cloud apps registry refresh     # fetch the registry now
 docker exec artcraft-cloud artcraft-cloud apps registry show        # what is in use: source, serial, expiry
-docker exec artcraft-cloud artcraft-cloud apps install calendarcraft /data/calendarcraft-web-0.2.0.zip --version 0.2.0   # a local build
+docker exec artcraft-cloud artcraft-cloud apps install calendarcraft /data/calendarcraft-web-0.2.0.zip --version 0.2.0   # a local build of a registry app
+docker exec artcraft-cloud artcraft-cloud apps sideload /data/myapp-web-0.1.0.zip --id myapp --name "My App" --ext md --bridge --confirm
 ```
 
 `scripts/update-apps.sh` wraps the same commands for the host (`ARTCRAFT_CONTAINER=artcraft-cloud` or
@@ -238,6 +243,7 @@ switch on the next request; no restart. No GitHub API calls are made, so no toke
 | `ARTCRAFT_DATA` | `/data` (image), `data` | Everything persistent: `db.sqlite`, `files/<user id>/`, `trash/`, `apps/`, `secret.key` |
 | `ARTCRAFT_LISTEN` | `0.0.0.0:8080` | |
 | `ARTCRAFT_PUBLIC_URL` | | `https://…` turns on Secure cookies (with `ARTCRAFT_COOKIE_SECURE=auto`) |
+| `ARTCRAFT_APPS_URL` | unset | Optional second origin for sideloads set to separate-domain isolation. See [docs/sideloaded-apps.md](docs/sideloaded-apps.md) |
 | `ARTCRAFT_ADMIN_USER` / `ARTCRAFT_ADMIN_PASSWORD` | `admin` / generated | Only used when the database has no users yet |
 | `ARTCRAFT_COOKIE_SECURE` | `auto` | `1` / `0` to force |
 | `ARTCRAFT_SESSION_HOURS` | `336` | |

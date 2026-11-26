@@ -198,3 +198,10 @@ air-gapped network or a curated list. To sign it yourself, set `ARTCRAFT_REGISTR
 public key(s), comma-separated; they replace the built-in keys (the embedded snapshot is then
 ignored, since it is signed with the built-in key). Changing the URL or keys starts the serial
 floor over for that source.
+
+## Sideloaded apps
+
+The signed list is still the only source of automatic trust. A super admin can also install an app
+that is not on it (Apps › Danger zone). Those builds are unverified, run on a separate origin, and
+are still subject to this registry's blocks (by id, version or checksum). See
+[sideloaded-apps.md](sideloaded-apps.md).

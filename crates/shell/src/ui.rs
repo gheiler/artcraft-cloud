@@ -57,6 +57,13 @@ pub enum Modal {
         id: i64,
         username: String,
     },
+    /// First open of a sideloaded app: warn ordinary users, then ack and continue.
+    Unverified {
+        app: String,
+        title: String,
+    },
+    /// The app wants to create a file or save a copy; the user picks the folder and name.
+    SaveAs,
 }
 
 #[derive(Clone, Copy)]

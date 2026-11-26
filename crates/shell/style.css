@@ -539,3 +539,35 @@ select.field { padding-right: var(--space-8); }
 .progress-bar { height: 100%; background: var(--primary-strong); transition: width .3s ease; }
 .progress.indeterminate .progress-bar { animation: progress-slide 1.2s ease-in-out infinite; }
 @keyframes progress-slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+
+.badge.danger { background: var(--danger-soft); color: var(--danger); }
+.badge.primary { background: var(--primary-soft, #3b82f622); color: var(--primary-strong, #2563eb); }
+.card-title .badge { margin-left: 0.4rem; vertical-align: middle; }
+.doc-name .badge { margin-left: 0.4rem; }
+.danger-zone { border-color: var(--danger); }
+.danger-zone h2 { color: var(--danger); }
+.sideload-form { display: grid; gap: var(--space-16); }
+.sideload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-16); }
+.sideload-grid .wide { grid-column: 1 / -1; }
+.sideload-form .check, .grant-list .check { align-items: flex-start; }
+.sideload-form .confirm-risk, .dialog-body .confirm-risk { font-weight: var(--weight-semibold); }
+.sideload-form .stack .muted, .grant-list .muted, .dialog-body .stack .muted {
+  font-size: var(--text-12); line-height: var(--leading-12);
+}
+.grant-list { display: grid; gap: var(--space-12); margin: 0; padding: 0; border: 0; }
+.grant-list legend { font-weight: var(--weight-semibold); margin-bottom: var(--space-8); }
+.grant-list .check span { display: grid; gap: 2px; }
+.save-as-dialog .picker-list { max-height: 220px; overflow: auto; }
+.audit-log { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.audit-log th, .audit-log td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border, #ddd); vertical-align: top; }
+.audit-log code, .audit-log td:last-child { word-break: break-all; }
+@media (max-width: 720px) {
+    .sideload-grid { grid-template-columns: 1fr; }
+    .sideload-grid .wide { grid-column: auto; }
+}
+
+.isolation-picker { margin-top: var(--space-4); }
+.isolation-compare { width: 100%; border-collapse: collapse; margin-top: var(--space-3); font-size: 0.9em; }
+.isolation-compare th, .isolation-compare td { text-align: left; vertical-align: top; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border, rgba(0,0,0,.12)); }
+.isolation-compare caption { text-align: left; margin-bottom: var(--space-2); }
+.isolation-compare tbody th { font-weight: 600; white-space: nowrap; }

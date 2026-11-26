@@ -40,6 +40,7 @@ impl Account {
             mail_sync: String::new(),
             mail_suspended: false,
             mail_access_error: None,
+            apps_origin: None,
         }
     }
 }
@@ -821,6 +822,58 @@ impl Db {
             Ok(())
         })
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn append_app_audit(&self, actor: &str, action: &str, app: &str, version: Option<&str>, sha256: Option<&str>, source: Option<&str>, detail: Option<&str>) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute(
+                "INSERT INTO app_audit (at, actor, action, app, version, sha256, source, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![now_secs(), actor, action, app, version, sha256, source, detail],
+            )?;
+            // Keep the log bounded; the Apps page shows the last events.
+            c.execute("DELETE FROM app_audit WHERE id < (SELECT MAX(id) FROM app_audit) - 500", [])?;
+            Ok(())
+        })
+    }
+
+    pub fn list_app_audit(&self, limit: i64) -> Result<Vec<artcraft_cloud_types::AuditEvent>, Error> {
+        self.with(|c| {
+            let mut stmt = c.prepare("SELECT id, at, actor, action, app, version, sha256, source, detail FROM app_audit ORDER BY id DESC LIMIT ?1")?;
+            let rows = stmt.query_map(params![limit], |row| {
+                Ok(artcraft_cloud_types::AuditEvent {
+                    id: row.get(0)?,
+                    at: row.get(1)?,
+                    actor: row.get(2)?,
+                    action: row.get(3)?,
+                    app: row.get(4)?,
+                    version: row.get(5)?,
+                    sha256: row.get(6)?,
+                    source: row.get(7)?,
+                    detail: row.get(8)?,
+                })
+            })?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(Error::from)
+        })
+    }
+
+    pub fn ack_unverified_app(&self, user_id: i64, app: &str) -> Result<(), Error> {
+        self.with(|c| {
+            c.execute(
+                "INSERT INTO app_acks (user_id, app, acked_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(user_id, app) DO UPDATE SET acked_at = excluded.acked_at",
+                params![user_id, app, now_secs()],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn unverified_acks(&self, user_id: i64) -> Result<Vec<String>, Error> {
+        self.with(|c| {
+            let mut stmt = c.prepare("SELECT app FROM app_acks WHERE user_id = ?1")?;
+            let rows = stmt.query_map(params![user_id], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(Error::from)
+        })
+    }
 }
 
 fn map_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
@@ -985,6 +1038,24 @@ CREATE TABLE IF NOT EXISTS calendar_remote_credentials (
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, account_id)
 );
+CREATE TABLE IF NOT EXISTS app_audit (
+    id INTEGER PRIMARY KEY,
+    at INTEGER NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    app TEXT NOT NULL,
+    version TEXT,
+    sha256 TEXT,
+    source TEXT,
+    detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_app_audit_at ON app_audit(at DESC);
+CREATE TABLE IF NOT EXISTS app_acks (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    app TEXT NOT NULL,
+    acked_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, app)
+);
 "#;
 
 const MAILBOX_COLUMNS: &str = "user_id, address, account_id, secret, proxy_kind, proxy_id, password_sync, sync_error, pending_secret, sync_attempts, suspended, suspend_added, access_error";
@@ -1047,6 +1118,24 @@ fn migrate(c: &Connection) -> Result<(), Error> {
     secret BLOB NOT NULL,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (user_id, account_id)
+)")?;
+    c.execute_batch("CREATE TABLE IF NOT EXISTS app_audit (
+    id INTEGER PRIMARY KEY,
+    at INTEGER NOT NULL,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    app TEXT NOT NULL,
+    version TEXT,
+    sha256 TEXT,
+    source TEXT,
+    detail TEXT
+)")?;
+    c.execute_batch("CREATE INDEX IF NOT EXISTS idx_app_audit_at ON app_audit(at DESC)")?;
+    c.execute_batch("CREATE TABLE IF NOT EXISTS app_acks (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    app TEXT NOT NULL,
+    acked_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, app)
 )")?;
     ensure_super(c)
 }

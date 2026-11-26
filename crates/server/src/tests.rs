@@ -1601,3 +1601,369 @@ async fn calendar_remote_credentials_are_sealed_and_not_returned() {
         "bob's credential is still there"
     );
 }
+
+fn sidecraft_zip(id: &str, version: &str) -> Vec<u8> {
+    use std::io::Write;
+    let mut out = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(&mut out);
+    let options = zip::write::SimpleFileOptions::default();
+    zip.start_file("index.html", options).unwrap();
+    write!(
+        zip,
+        "<!doctype html><title>SideCraft {version}</title><script>parent.postMessage({{type:'{id}:ready'}},'*') // host=parent\nwindow.__probe=async()=>{{try{{const r=await fetch('/api/me',{{credentials:'include',headers:{{'x-requested-with':'artcraft'}}}});return {{status:r.status,body:await r.text()}};}}catch(e){{return {{error:String(e)}}}}}};</script>"
+    )
+    .unwrap();
+    zip.finish().unwrap();
+    out.into_inner()
+}
+
+fn multipart(meta: &serde_json::Value, zip: &[u8]) -> (String, Vec<u8>) {
+    let bound = "testdroptestboundary";
+    let mut body = Vec::new();
+    body.extend_from_slice(format!("--{bound}\r\nContent-Disposition: form-data; name=\"meta\"\r\n\r\n{meta}\r\n", meta = meta).as_bytes());
+    body.extend_from_slice(format!("--{bound}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"app.zip\"\r\nContent-Type: application/zip\r\n\r\n").as_bytes());
+    body.extend_from_slice(zip);
+    body.extend_from_slice(format!("\r\n--{bound}--\r\n").as_bytes());
+    (format!("multipart/form-data; boundary={bound}"), body)
+}
+
+fn host_req(method: &str, uri: &str, host: &str, body: Vec<u8>, content_type: Option<&str>, cookie: Option<&str>) -> Request<Body> {
+    let mut builder = Request::builder().method(method).uri(uri).header(header::HOST, host);
+    if let Some(ct) = content_type {
+        builder = builder.header(header::CONTENT_TYPE, ct);
+    }
+    if let Some(cookie) = cookie {
+        builder = builder.header(header::COOKIE, cookie);
+    }
+    builder.body(Body::from(body)).unwrap()
+}
+
+#[tokio::test]
+async fn sideloaded_apps_are_isolated_updated_blocked_and_audited() {
+    use sha2::{Digest, Sha256};
+
+    let (base, files) = fake_registry::start().await;
+    let env = Env::boot().await;
+    let zip = sidecraft_zip("sidecraft", "0.1.0");
+    let sha1 = hex::encode(Sha256::digest(&zip));
+
+    // Same-host sandbox is the default: no second origin is required.
+    let (status, _, body) = env.call(Request::builder().uri("/api/me").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    let me: artcraft_cloud_types::User = json(&body);
+    assert!(me.apps_origin.is_none());
+
+    // A sandboxed iframe sends Origin: null; the API must not honour the session cookie.
+    let (status, _, body) = env
+        .call(Request::builder().uri("/api/me").header(header::ORIGIN, "null").body(Body::empty()).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{}", String::from_utf8_lossy(&body));
+
+    // Confirm is required.
+    let meta = serde_json::json!({"id":"sidecraft","name":"SideCraft","version":"0.1.0","bridge":true,"extensions":["side"],"confirm":false});
+    let (ct, body) = multipart(&meta, &zip);
+    let (status, _, body) = env.call(host_req("POST", "/api/admin/apps/sideload", "127.0.0.1", body, Some(&ct), None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{}", String::from_utf8_lossy(&body));
+
+    // Official file types need extra confirmation (and stay the default unless claimed).
+    let meta = serde_json::json!({"id":"sidecraft","name":"SideCraft","version":"0.1.0","bridge":true,"extensions":["docx"],"confirm":true,"confirm_conflicts":false});
+    let (ct, body) = multipart(&meta, &zip);
+    let (status, _, body) = env.call(host_req("POST", "/api/admin/apps/sideload", "127.0.0.1", body, Some(&ct), None)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let err: artcraft_cloud_types::ErrorBody = json(&body);
+    assert_eq!(err.code.as_deref(), Some("type_conflict"));
+    assert!(err.conflicts.iter().any(|c| c.ext == "docx" && c.official));
+
+    // A unique type installs.
+    let meta = serde_json::json!({"id":"sidecraft","name":"SideCraft","version":"0.1.0","publisher":"Test","blurb":"A sideload","bridge":true,"extensions":["side"],"grants":["document"],"confirm":true});
+    let (ct, body) = multipart(&meta, &zip);
+    let (status, _, body) = env.call(host_req("POST", "/api/admin/apps/sideload", "127.0.0.1", body, Some(&ct), None)).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let view: artcraft_cloud_types::AdminApps = json(&body);
+    let app = view.apps.iter().find(|a| a.id == "sidecraft").unwrap();
+    assert!(app.unverified);
+    assert_eq!(app.installed.as_deref(), Some("0.1.0"));
+    assert_eq!(app.sha256.as_deref(), Some(sha1.as_str()));
+    assert!(view.audit.iter().any(|e| e.action == "install" && e.app == "sidecraft"));
+
+    // Catalog: unverified, isolated, default handler for .side, first-open warning pending.
+    let (status, _, body) = env.call(Request::builder().uri("/api/apps").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    let catalog: Vec<artcraft_cloud_types::AppStatus> = json(&body);
+    let app = catalog.iter().find(|a| a.id == "sidecraft").unwrap();
+    assert!(app.unverified && app.isolated && app.needs_ack && app.bridge);
+    assert_eq!(app.isolation, "sandbox");
+    assert!(app.defaults.iter().any(|e| e == "side"));
+    assert!(app.extensions.iter().any(|e| e == "side"));
+
+    // Ordinary user must ack once.
+    let (status, _, _) = env.call(Request::builder().method("POST").uri("/api/apps/sidecraft/ack").body(Body::from("{}")).unwrap()).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, _, body) = env.call(Request::builder().uri("/api/apps").body(Body::empty()).unwrap()).await;
+    let catalog: Vec<artcraft_cloud_types::AppStatus> = json(&body);
+    assert!(!catalog.iter().find(|a| a.id == "sidecraft").unwrap().needs_ack);
+
+    // Sideloaded apps are served on this host, sandboxed, with no mail/calendar hooks.
+    let (status, headers, body) = env.call(Request::builder().uri("/apps/sidecraft/index.html").header(header::HOST, "127.0.0.1").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    let csp = headers.get("content-security-policy").and_then(|v| v.to_str().ok()).unwrap_or("");
+    assert!(csp.contains("sandbox") && csp.contains("allow-scripts"), "{csp}");
+    assert!(!csp.contains("allow-same-origin"), "{csp}");
+    assert!(csp.contains("frame-ancestors"), "{csp}");
+    assert!(csp.contains("connect-src 'self'"), "{csp}");
+    let html = String::from_utf8_lossy(&body);
+    assert!(html.contains("SideCraft 0.1.0"));
+    assert!(html.contains("__ARTCRAFT_PARENT__"), "{html}");
+    assert!(!html.contains("mailcraftJmap") && !html.contains("calendarcraftHost"));
+
+    // Capability token: scoped to one file the user already has.
+    let (status, _, _) = env
+        .call(Request::builder().method("PUT").uri("/api/files/content?path=hello.side").body(Body::from("hello")).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = env
+        .call(Request::builder().method("PUT").uri("/api/files/content?path=other.side").body(Body::from("other")).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, body) = env
+        .call(Request::builder().method("POST").uri("/api/apps/sidecraft/capability").body(Body::from(r#"{"path":"hello.side"}"#)).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let cap: serde_json::Value = json(&body);
+    let token = cap["token"].as_str().expect("token").to_string();
+
+    // Origin: null + cookie, no token: still forbidden on the opened file.
+    let (status, _, _) = env
+        .call(Request::builder().uri("/api/files/content?path=hello.side").header(header::ORIGIN, "null").body(Body::empty()).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Origin: null + token: can read and write only hello.side.
+    let (status, headers, body) = env
+        .call(Request::builder().uri("/api/files/content?path=hello.side").header(header::ORIGIN, "null").header(header::AUTHORIZATION, format!("Bearer {token}")).body(Body::empty()).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(body, b"hello");
+    let etag = headers.get(header::ETAG).and_then(|v| v.to_str().ok()).expect("etag").to_string();
+    let (status, _, _) = env
+        .call(Request::builder().uri("/api/files/content?path=other.side").header(header::ORIGIN, "null").header(header::AUTHORIZATION, format!("Bearer {token}")).body(Body::empty()).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, body) = env
+        .call(Request::builder().method("PUT").uri("/api/files/content?path=hello.side").header(header::ORIGIN, "null").header(header::AUTHORIZATION, format!("Bearer {token}")).header(header::IF_MATCH, etag).body(Body::from("saved")).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let (status, _, _) = env
+        .call(Request::builder().uri("/api/me").header(header::ORIGIN, "null").header(header::AUTHORIZATION, format!("Bearer {token}")).body(Body::empty()).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // A create-only token cannot read existing files.
+    let (status, _, body) = env
+        .call(Request::builder().method("POST").uri("/api/apps/sidecraft/capability").body(Body::from(r#"{"create":true}"#)).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let create: serde_json::Value = json(&body);
+    let create_token = create["token"].as_str().expect("token");
+    let (status, _, _) = env
+        .call(Request::builder().uri("/api/files/content?path=hello.side").header(header::ORIGIN, "null").header(header::AUTHORIZATION, format!("Bearer {create_token}")).body(Body::empty()).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Connect a manifest source and install a newer zip from it.
+    let zip2 = sidecraft_zip("sidecraft", "0.2.0");
+    let sha2 = hex::encode(Sha256::digest(&zip2));
+    {
+        let mut files = files.lock().unwrap();
+        files.insert("sidecraft-web-0.2.0.zip".into(), zip2);
+        files.insert(
+            "sidecraft.json".into(),
+            serde_json::to_vec(&serde_json::json!({
+                "id": "sidecraft",
+                "versions": [{"version": "0.2.0", "url": format!("{base}/sidecraft-web-0.2.0.zip"), "sha256": sha2}]
+            }))
+            .unwrap(),
+        );
+    }
+    let source = serde_json::json!({"kind":"manifest","url": format!("{base}/sidecraft.json")});
+    let (status, _, body) = env
+        .call(Request::builder().method("POST").uri("/api/admin/apps/sidecraft/source").body(Body::from(source.to_string())).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let (status, _, body) = env
+        .call(Request::builder().method("POST").uri("/api/admin/apps/sidecraft/check").body(Body::from("{}")).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let view: artcraft_cloud_types::AdminApps = json(&body);
+    let app = view.apps.iter().find(|a| a.id == "sidecraft").unwrap();
+    assert_eq!(app.update.as_deref(), Some("0.2.0"));
+    let offered = app.versions.iter().find(|v| v.version == "0.2.0").expect("offered 0.2.0");
+    assert_eq!(offered.signed, "source");
+
+    let (status, _, _) = env
+        .call(Request::builder().method("POST").uri("/api/admin/apps/sidecraft/install").body(Body::from(r#"{"version":"0.2.0"}"#)).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    let mut installed = None;
+    for _ in 0..200 {
+        let (_, _, body) = env.call(Request::builder().uri("/api/admin/apps").body(Body::empty()).unwrap()).await;
+        let view: artcraft_cloud_types::AdminApps = json(&body);
+        let app = view.apps.iter().find(|a| a.id == "sidecraft").cloned().unwrap();
+        if app.job.as_ref().is_none_or(|j| j.done) {
+            assert!(app.job.as_ref().and_then(|j| j.error.clone()).is_none(), "{:?}", app.job);
+            installed = Some(app);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    let app = installed.expect("source update finished");
+    assert_eq!(app.installed.as_deref(), Some("0.2.0"));
+    assert_eq!(app.sha256.as_deref(), Some(sha2.as_str()));
+
+    // The official blocklist applies by checksum, even under this sideload id.
+    let registry = env.state.registry.current().unwrap().registry.clone();
+    let mut blocked = registry.clone();
+    if let Some(first) = blocked.apps.first_mut() {
+        if let Some(ver) = first.versions.first_mut() {
+            ver.sha256 = sha2.clone();
+            ver.status = artcraft_cloud_types::registry::VersionStatus::Blocked;
+            ver.reason = Some("test block".into());
+            ver.security = true;
+        }
+    }
+    let done = crate::apps::enforce(&env.state.config.data_dir, &blocked, crate::apps::BlockAction::Security);
+    assert!(done.iter().any(|line| line.contains("sidecraft") && line.contains("disabled")), "{done:?}");
+    let row = crate::manifest::read_manifest(&env.state.config.data_dir).apps.get("sidecraft").cloned().unwrap();
+    assert!(row.disabled.is_some(), "{row:?}");
+    let (status, _, _) = env.call(Request::builder().uri("/apps/sidecraft/index.html").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // Enable is refused while the version is blocked? We disabled via enforce with a temporary registry
+    // that is not the one in use, so enabling may succeed. Disable through the API and check the audit log.
+    let (status, _, body) = env
+        .call(Request::builder().method("PUT").uri("/api/admin/apps/sidecraft/settings").body(Body::from(r#"{"disabled":true}"#)).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let view: artcraft_cloud_types::AdminApps = json(&body);
+    assert!(view.audit.iter().any(|e| e.action == "disable" && e.app == "sidecraft"));
+    assert!(view.audit.iter().any(|e| e.action == "update" && e.app == "sidecraft"));
+    assert!(view.apps.iter().find(|a| a.id == "sidecraft").unwrap().disabled.is_some());
+}
+
+#[tokio::test]
+async fn an_optional_apps_host_still_hides_the_api() {
+    let env = Env::boot_with(|c| {
+        c.apps_url = Some("http://apps.localhost".into());
+        c.public_url = Some("http://127.0.0.1".into());
+    })
+    .await;
+    let (status, _, body) = env.call(Request::builder().uri("/api/me").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    let me: artcraft_cloud_types::User = json(&body);
+    assert_eq!(me.apps_origin.as_deref(), Some("http://apps.localhost"));
+    let (status, headers, _) = env
+        .call(host_req("GET", "/api/me", "apps.localhost", Vec::new(), None, Some(&env.cookie)))
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "apps host must not serve the API");
+    assert!(headers.get(header::SET_COOKIE).is_none());
+}
+
+
+#[tokio::test]
+async fn sideloaded_isolation_modes_are_chosen_and_enforced() {
+    let env = Env::boot().await;
+    let zip = sidecraft_zip("sidecraft", "0.1.0");
+
+    // Regular needs an extra confirmation: the app can use the signed-in session.
+    let meta = serde_json::json!({"id":"sidecraft","name":"SideCraft","version":"0.1.0","bridge":true,"extensions":["side"],"confirm":true,"isolation":"regular"});
+    let (ct, body) = multipart(&meta, &zip);
+    let (status, _, body) = env.call(host_req("POST", "/api/admin/apps/sideload", "127.0.0.1", body, Some(&ct), None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{}", String::from_utf8_lossy(&body));
+    assert!(String::from_utf8_lossy(&body).to_lowercase().contains("session") || String::from_utf8_lossy(&body).contains("regular"));
+
+    let meta = serde_json::json!({"id":"sidecraft","name":"SideCraft","version":"0.1.0","bridge":true,"extensions":["side"],"confirm":true,"isolation":"regular","confirm_regular":true});
+    let (ct, body) = multipart(&meta, &zip);
+    let (status, _, body) = env.call(host_req("POST", "/api/admin/apps/sideload", "127.0.0.1", body, Some(&ct), None)).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let view: artcraft_cloud_types::AdminApps = json(&body);
+    let app = view.apps.iter().find(|a| a.id == "sidecraft").unwrap();
+    assert_eq!(app.isolation, "regular");
+    assert!(view.audit.iter().any(|e| e.action == "install" && e.detail.as_deref().is_some_and(|d| d.contains("isolation=regular"))));
+
+    let (status, _, body) = env.call(Request::builder().uri("/api/apps").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    let catalog: Vec<artcraft_cloud_types::AppStatus> = json(&body);
+    let app = catalog.iter().find(|a| a.id == "sidecraft").unwrap();
+    assert!(app.unverified);
+    assert!(!app.isolated);
+    assert_eq!(app.isolation, "regular");
+
+    let (status, headers, _) = env.call(Request::builder().uri("/apps/sidecraft/index.html").header(header::HOST, "127.0.0.1").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    let csp = headers.get("content-security-policy").and_then(|v| v.to_str().ok()).unwrap_or("");
+    assert!(!csp.contains("sandbox"), "{csp}");
+
+    // Domain is refused until ARTCRAFT_APPS_URL is set.
+    let (status, _, body) = env
+        .call(Request::builder().method("PUT").uri("/api/admin/apps/sidecraft/settings").body(Body::from(r#"{"isolation":"domain"}"#)).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{}", String::from_utf8_lossy(&body));
+
+    // Switching back to the default sandbox is recorded.
+    let (status, _, body) = env
+        .call(Request::builder().method("PUT").uri("/api/admin/apps/sidecraft/settings").body(Body::from(r#"{"isolation":"sandbox"}"#)).unwrap())
+        .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let view: artcraft_cloud_types::AdminApps = json(&body);
+    assert_eq!(view.apps.iter().find(|a| a.id == "sidecraft").unwrap().isolation, "sandbox");
+    assert!(view.audit.iter().any(|e| (e.action == "isolation" || e.action == "settings") && e.detail.as_deref() == Some("isolation=sandbox")));
+
+    let (status, headers, _) = env.call(Request::builder().uri("/apps/sidecraft/index.html").header(header::HOST, "127.0.0.1").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::OK);
+    let csp = headers.get("content-security-policy").and_then(|v| v.to_str().ok()).unwrap_or("");
+    assert!(csp.contains("sandbox") && csp.contains("allow-scripts"), "{csp}");
+
+    // With a second origin, domain mode redirects and the apps host keeps a real (unsandboxed) origin.
+    let env = Env::boot_with(|c| {
+        c.apps_url = Some("http://apps.localhost".into());
+        c.public_url = Some("http://127.0.0.1".into());
+    })
+    .await;
+    let zip = sidecraft_zip("sidecraft", "0.1.0");
+    let meta = serde_json::json!({"id":"sidecraft","name":"SideCraft","version":"0.1.0","bridge":true,"extensions":["side"],"confirm":true,"isolation":"domain"});
+    let (ct, body) = multipart(&meta, &zip);
+    let (status, _, body) = env.call(host_req("POST", "/api/admin/apps/sideload", "127.0.0.1", body, Some(&ct), None)).await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let view: artcraft_cloud_types::AdminApps = json(&body);
+    assert_eq!(view.apps.iter().find(|a| a.id == "sidecraft").unwrap().isolation, "domain");
+
+    let (status, headers, _) = env.call(Request::builder().uri("/apps/sidecraft/index.html").header(header::HOST, "127.0.0.1").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(headers.get(header::LOCATION).and_then(|v| v.to_str().ok()), Some("http://apps.localhost/apps/sidecraft/index.html"));
+
+    let (status, headers, _) = env
+        .call(host_req("GET", "/apps/sidecraft/index.html", "apps.localhost", Vec::new(), None, Some(&env.cookie)))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(headers.get(header::SET_COOKIE).is_none());
+    let csp = headers.get("content-security-policy").and_then(|v| v.to_str().ok()).unwrap_or("");
+    assert!(!csp.contains("sandbox"), "separate-domain apps need a real origin for storage: {csp}");
+    assert!(csp.contains("frame-ancestors"), "{csp}");
+}
+
+#[tokio::test]
+async fn a_zip_that_escapes_its_directory_is_refused() {
+    use std::io::Write;
+    let env = Env::boot().await;
+    let mut out = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(&mut out);
+    zip.start_file("../evil.html", zip::write::SimpleFileOptions::default()).unwrap();
+    write!(zip, "nope").unwrap();
+    zip.finish().unwrap();
+    let evil = out.into_inner();
+    let meta = serde_json::json!({"id":"evilcraft","name":"Evil","version":"1.0.0","bridge":false,"confirm":true});
+    let (ct, body) = multipart(&meta, &evil);
+    let (status, _, body) = env.call(host_req("POST", "/api/admin/apps/sideload", "127.0.0.1", body, Some(&ct), None)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{}", String::from_utf8_lossy(&body));
+    assert!(String::from_utf8_lossy(&body).contains("unsafe") || String::from_utf8_lossy(&body).to_lowercase().contains("zip"));
+}

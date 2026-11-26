@@ -1,4 +1,5 @@
-use axum::extract::{Multipart, Path, Query, State};
+use axum::extract::{FromRequestParts, Multipart, Path, Query, State};
+use axum::http::request::Parts;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -21,6 +22,42 @@ fn rel_of(path: Option<&str>) -> Result<RelPath, ApiError> {
     RelPath::parse(path.unwrap_or("")).map_err(ApiError::from)
 }
 
+/// The signed-in person, or a capability token when the request comes from an opaque origin.
+pub struct FileActor {
+    pub user_id: i64,
+    pub cap: Option<crate::capability::Capability>,
+}
+
+impl FromRequestParts<AppState> for FileActor {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+        if crate::capability::origin_is_null(&parts.headers) {
+            let token = crate::capability::bearer(&parts.headers).ok_or_else(|| {
+                ApiError::new(StatusCode::FORBIDDEN, "opaque origin cannot use the session")
+            })?;
+            let cap = state.capabilities.lookup(token).ok_or_else(|| {
+                ApiError::new(StatusCode::FORBIDDEN, "invalid or expired capability token")
+            })?;
+            return Ok(FileActor { user_id: cap.user_id, cap: Some(cap) });
+        }
+        let AuthUser(user) = AuthUser::from_request_parts(parts, state).await?;
+        Ok(FileActor { user_id: user.id, cap: None })
+    }
+}
+
+fn cap_allows(actor: &FileActor, path: &str, write: bool) -> Result<(), ApiError> {
+    let Some(cap) = actor.cap.as_ref() else {
+        return Ok(());
+    };
+    let ok = if write { cap.can_write(path) } else { cap.can_read(path) };
+    if ok {
+        Ok(())
+    } else {
+        Err(ApiError::new(StatusCode::FORBIDDEN, "this capability token does not cover that file"))
+    }
+}
+
 pub async fn list_files(State(state): State<AppState>, AuthUser(user): AuthUser, Query(query): Query<PathQuery>) -> Result<Json<DirListing>, ApiError> {
     let rel = rel_of(query.path.as_deref())?;
     let id = user.id;
@@ -29,10 +66,11 @@ pub async fn list_files(State(state): State<AppState>, AuthUser(user): AuthUser,
     Ok(Json(DirListing { path: query.path.unwrap_or_default(), entries }))
 }
 
-pub async fn read_file(State(state): State<AppState>, AuthUser(user): AuthUser, Query(query): Query<PathQuery>) -> Result<Response, ApiError> {
+pub async fn read_file(State(state): State<AppState>, actor: FileActor, Query(query): Query<PathQuery>) -> Result<Response, ApiError> {
     let rel = rel_of(query.path.as_deref())?;
+    cap_allows(&actor, rel.as_str(), false)?;
     let store = state.store.clone();
-    let id = user.id;
+    let id = actor.user_id;
     let rel2 = rel.clone();
     let (path, entry) = blocking(move || store.open_path(id, &rel2)).await?;
     file_response(path, entry).await
@@ -40,12 +78,13 @@ pub async fn read_file(State(state): State<AppState>, AuthUser(user): AuthUser, 
 
 pub async fn write_file(
     State(state): State<AppState>,
-    AuthUser(user): AuthUser,
+    actor: FileActor,
     Query(query): Query<PathQuery>,
     headers: axum::http::HeaderMap,
     body: axum::body::Body,
 ) -> Result<Response, ApiError> {
     let rel = rel_of(query.path.as_deref())?;
+    cap_allows(&actor, rel.as_str(), true)?;
     if rel.is_root() {
         return Err(ApiError::from(crate::error::Error::BadPath));
     }
@@ -57,7 +96,7 @@ pub async fn write_file(
     let if_match = headers.get(header::IF_MATCH).and_then(|v| v.to_str().ok()).map(str::to_string);
     let store = state.store.clone();
     let tmp2 = tmp.clone();
-    let id = user.id;
+    let id = actor.user_id;
     let result = blocking(move || store.write_file(id, &rel, &tmp2, if_match.as_deref())).await;
     let _ = tokio::fs::remove_file(&tmp).await;
     let entry = result?;

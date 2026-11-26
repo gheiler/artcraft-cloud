@@ -46,7 +46,7 @@ pub async fn login(State(state): State<AppState>, Json(body): Json<LoginRequest>
     state.db.insert_session(&token, account.id, state.config.session_ttl_secs).map_err(ApiError::from)?;
     state.store.ensure_home(account.id).map_err(ApiError::from)?;
     super::mail::sync_after_login(&state, account.id, &body.password);
-    let mut response = Json(account.public()).into_response();
+    let mut response = Json(user_view(&account, &state.config)).into_response();
     let cookie = session_cookie(&token, state.config.session_ttl_secs, state.config.cookie_is_secure());
     response.headers_mut().insert(header::SET_COOKIE, HeaderValue::from_str(&cookie).map_err(|_| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "cookie"))?);
     Ok(response)
@@ -62,8 +62,14 @@ pub async fn logout(State(state): State<AppState>, headers: axum::http::HeaderMa
     Ok(response)
 }
 
-pub async fn me(AuthUser(user): AuthUser) -> Json<User> {
-    Json(user.public())
+pub async fn me(State(state): State<AppState>, AuthUser(user): AuthUser) -> Json<User> {
+    Json(user_view(&user, &state.config))
+}
+
+fn user_view(account: &crate::db::Account, config: &crate::Config) -> User {
+    let mut user = account.public();
+    user.apps_origin = config.apps_origin().map(str::to_string);
+    user
 }
 
 pub async fn change_password(

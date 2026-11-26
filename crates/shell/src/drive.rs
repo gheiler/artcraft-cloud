@@ -210,7 +210,7 @@ fn NewCards() -> impl IntoView {
                         }
                     }>
                     {app_icon(&app.id, "card-icon")}
-                    <span class="card-title">{app.title.clone()}</span>
+                    <span class="card-title">{app.title.clone()}{app.unverified.then(|| view! { <span class="badge danger">{t("Unverified")}</span> })}</span>
                     <span class="card-blurb">{if app.installed { app.blurb.clone() } else { t("Downloading…").to_string() }}</span>
                 </button>
             </For>

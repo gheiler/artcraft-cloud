@@ -16,8 +16,16 @@ spec:
   {{- end }}
   {{- if .Values.ingress.tls.enabled }}
   tls:
-    - hosts: [{{ .Values.ingress.host | quote }}]
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+        {{- if and .Values.ingress.appsHost (not .Values.ingress.tls.appsSecretName) }}
+        - {{ .Values.ingress.appsHost | quote }}
+        {{- end }}
       secretName: {{ .Values.ingress.tls.secretName }}
+    {{- if and .Values.ingress.appsHost .Values.ingress.tls.appsSecretName }}
+    - hosts: [{{ .Values.ingress.appsHost | quote }}]
+      secretName: {{ .Values.ingress.tls.appsSecretName }}
+    {{- end }}
   {{- end }}
   rules:
     - host: {{ .Values.ingress.host | quote }}
@@ -30,4 +38,16 @@ spec:
                 name: {{ include "artcraft-cloud.fullname" . }}
                 port:
                   name: http
+    {{- with .Values.ingress.appsHost }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "artcraft-cloud.fullname" $ }}
+                port:
+                  name: http
+    {{- end }}
 {{- end }}

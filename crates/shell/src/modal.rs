@@ -8,7 +8,7 @@ use leptos::prelude::*;
 
 use crate::api;
 use crate::drive::{app_of_name, apps_for, share_target};
-use crate::editor::{file_name, finish_leave, parent_folder};
+use crate::editor::{confirm_save_as, file_name, finish_leave, parent_folder};
 use crate::icons::{app_icon, icon, Icon};
 use crate::picker;
 use crate::route::Route;
@@ -45,6 +45,8 @@ pub fn Modals() -> impl IntoView {
             Modal::OpenWith { path, share } => view! { <OpenWithDialog path=path share=share /> }.into_any(),
             Modal::Pick { id, accept, multiple } => view! { <PickDialog id=id accept=accept multiple=multiple /> }.into_any(),
             Modal::UserEmail { id, username } => view! { <crate::mail::UserEmailDialog id=id username=username /> }.into_any(),
+            Modal::Unverified { app, title } => view! { <UnverifiedDialog app=app title=title /> }.into_any(),
+            Modal::SaveAs => view! { <SaveAsDialog /> }.into_any(),
             Modal::ResetPassword { id, username } => view! { <NameDialog title=tf("New password for {username}", &[("username", &username)]) label=t("Password (at least 10 characters)").into() initial=String::new() confirm=t("Set password").into() password=true
                 on_ok=Callback::new(move |password: String| reset_password(id, password)) /> }.into_any(),
         })
@@ -768,6 +770,126 @@ fn PickDialog(id: u32, accept: String, multiple: bool) -> impl IntoView {
                         picker::dismiss(id);
                         ui.close_modal();
                     }>{t("Cancel")}</button>
+                </footer>
+            </div>
+        </Dialog>
+    }
+}
+
+/// Create or save a copy: the user picks a folder in My files and types a name.
+#[component]
+fn SaveAsDialog() -> impl IntoView {
+    let ui = ui();
+    let editor = ui.editor;
+    let start = editor.folder.get_untracked();
+    let folder = RwSignal::new(start);
+    let dirs = RwSignal::new(Vec::<FileEntry>::new());
+    let name = RwSignal::new(editor.save_as.with_untracked(|slot| {
+        slot.as_ref()
+            .map(|(name, _, _)| name.clone())
+            .unwrap_or_default()
+    }));
+    Effect::new(move |_| {
+        let at = folder.get();
+        wasm_bindgen_futures::spawn_local(async move {
+            match api::list_dir(&at).await {
+                Ok(listing) => {
+                    let mut list: Vec<FileEntry> =
+                        listing.entries.into_iter().filter(|e| e.is_dir).collect();
+                    list.sort_by_key(|e| e.name.to_lowercase());
+                    let _ = dirs.try_set(list);
+                }
+                Err(err) => ui.say(err),
+            }
+        });
+    });
+    let close = Callback::new(move |_| {
+        editor.save_as.set(None);
+        ui.close_modal();
+    });
+    let input = NodeRef::<leptos::html::Input>::new();
+    focus_on_load(input, true);
+    view! {
+        <Dialog title=t("Save as").to_string() on_close=close>
+            <form class="dialog-body save-as-dialog" on:submit=move |ev| {
+                ev.prevent_default();
+                let typed = name.get_untracked();
+                if typed.trim().is_empty() {
+                    return;
+                }
+                let at = folder.get_untracked();
+                ui.close_modal();
+                confirm_save_as(editor, typed, Some(at));
+            }>
+                <p class="muted">{t("Choose a folder, then name the file. The app cannot see the rest of your drive.")}</p>
+                <div class="picker-path">
+                    <button type="button" class="crumb" on:click=move |_| folder.set(String::new())>{icon(Icon::Home)}<span>{t("My files")}</span></button>
+                    {move || {
+                        let mut acc = String::new();
+                        folder.get().split('/').filter(|s| !s.is_empty()).map(|segment| {
+                            acc = if acc.is_empty() { segment.to_string() } else { format!("{acc}/{segment}") };
+                            let target = acc.clone();
+                            view! { <span class="sep">{icon(Icon::Chevron)}</span><button type="button" class="crumb" on:click=move |_| folder.set(target.clone())>{segment.to_string()}</button> }
+                        }).collect_view()
+                    }}
+                </div>
+                <ul class="picker-list">
+                    <For each=move || dirs.get() key=|e| e.path.clone() let(entry)>
+                        <li><button type="button" class="file-name" on:click={
+                            let target = entry.path.clone();
+                            move |_| folder.set(target.clone())
+                        }><span class="file-icon">{icon(Icon::Folder)}</span><span class="label">{entry.name.clone()}</span></button></li>
+                    </For>
+                    <Show when=move || dirs.get().is_empty()><li class="empty">{t("No folders inside.")}</li></Show>
+                </ul>
+                <label class="stack">
+                    <span>{t("File name")}</span>
+                    <input class="field" node_ref=input prop:value=move || name.get() on:input=move |ev| name.set(event_target_value(&ev)) />
+                </label>
+                <footer>
+                    <button type="button" class="button" on:click=move |_| {
+                        editor.save_as.set(None);
+                        ui.close_modal();
+                    }>{t("Cancel")}</button>
+                    <button type="submit" class="button primary" disabled=move || name.get().trim().is_empty()>{t("Save")}</button>
+                </footer>
+            </form>
+        </Dialog>
+    }
+}
+
+#[component]
+fn UnverifiedDialog(app: String, title: String) -> impl IntoView {
+    let ui = ui();
+    let app_id = app.clone();
+    view! {
+        <Dialog title=t("Unverified app").to_string() on_close=Callback::new(move |_| ui.close_modal())>
+            <div class="dialog-body">
+                <p>{
+                    let mode = app_by_id(&app).map(|item| item.isolation).unwrap_or("sandbox");
+                    if mode == "regular" {
+                        tf("{app} was added by the administrator and is not on the artcraftCloud trust list. It runs on this site like an official app: it has full browser storage and can act as your signed-in user. Only open it if you trust this software.", &[("app", &title)])
+                    } else if mode == "domain" {
+                        tf("{app} was added by the administrator and is not on the artcraftCloud trust list. It runs on a separate domain with its own browser storage, and it cannot use your signed-in session. It can edit the document you open here, and it can create a new file only where you choose in the save dialog.", &[("app", &title)])
+                    } else {
+                        tf("{app} was added by the administrator and is not on the artcraftCloud trust list. It runs in a sandbox on this site and cannot use your signed-in session. It can edit the document you open here, and it can create a new file only where you choose in the save dialog.", &[("app", &title)])
+                    }
+                }</p>
+                <footer>
+                    <button type="button" class="button" on:click=move |_| ui.close_modal()>{t("Cancel")}</button>
+                    <button type="button" class="button primary" on:click=move |_| {
+                        let id = app_id.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let _ = crate::api::post_empty(&format!("/api/apps/{id}/ack")).await;
+                            if let Ok(list) = crate::api::apps().await {
+                                crate::catalog::adopt(crate::ui::ui(), list);
+                            }
+                            crate::ui::ui().close_modal();
+                            if let Some(spec) = crate::editor::take_pending_launch() {
+                                crate::ui::ui().editor.launch_now(spec);
+                            }
+                        });
+                    }>{t("Open anyway")}</button>
                 </footer>
             </div>
         </Dialog>

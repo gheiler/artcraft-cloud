@@ -107,6 +107,87 @@ enum AppsCmd {
         #[command(subcommand)]
         cmd: AppsRegistryCmd,
     },
+    /// Install an app that is not on the trust list (a zip, with optional source). Super-admin equivalent of the Danger zone.
+    Sideload {
+        /// The web-build zip (optional if --github or --manifest can supply the first version).
+        zip: Option<std::path::PathBuf>,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long, default_value = "0.1.0")]
+        version: String,
+        #[arg(long, default_value = "")]
+        publisher: String,
+        #[arg(long, default_value = "")]
+        blurb: String,
+        /// File types it opens, comma separated (e.g. md,txt).
+        #[arg(long, value_delimiter = ',')]
+        ext: Vec<String>,
+        /// The web build speaks the craft-web-host bridge.
+        #[arg(long)]
+        bridge: bool,
+        /// Make it the default handler even if an official app already claims a type.
+        #[arg(long)]
+        claim_defaults: bool,
+        /// Required: confirm this build is not on the trust list.
+        #[arg(long)]
+        confirm: bool,
+        /// Confirm file-type or official-app conflicts.
+        #[arg(long)]
+        confirm_conflicts: bool,
+        /// GitHub owner/repo to check for later versions.
+        #[arg(long)]
+        github: Option<String>,
+        /// https manifest URL to check for later versions.
+        #[arg(long)]
+        manifest: Option<String>,
+        /// Isolation: sandbox (default), regular, or domain (needs ARTCRAFT_APPS_URL).
+        #[arg(long, default_value = "sandbox")]
+        isolation: String,
+        /// Required with --isolation regular: the app can use the signed-in session.
+        #[arg(long)]
+        confirm_regular: bool,
+    },
+    /// Connect or clear a version source on a sideloaded app.
+    SetSource {
+        app: String,
+        #[arg(long, conflicts_with = "manifest")]
+        github: Option<String>,
+        #[arg(long)]
+        manifest: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
+    /// Check a sideloaded app's source for newer versions.
+    Check { app: String },
+    /// Change the file types a sideloaded app opens.
+    SetTypes {
+        app: String,
+        #[arg(long, value_delimiter = ',')]
+        ext: Vec<String>,
+        #[arg(long)]
+        claim_defaults: bool,
+        #[arg(long)]
+        confirm_conflicts: bool,
+    },
+    /// Change grants on a sideloaded app (`document`, `drive`, `clipboard`, `fullscreen`).
+    SetGrants {
+        app: String,
+        #[arg(long, value_delimiter = ',')]
+        grants: Vec<String>,
+    },
+    /// Set how a sideloaded app is isolated: sandbox, regular, or domain.
+    SetIsolation {
+        app: String,
+        /// `sandbox`, `regular` or `domain`.
+        isolation: String,
+        /// Required when setting regular: the app can use the signed-in session.
+        #[arg(long)]
+        confirm_regular: bool,
+    },
+    /// Show recent app install, update, disable and remove actions. Needs the data directory (no log from a remote server).
+    Audit,
 }
 
 #[derive(Subcommand)]
@@ -336,6 +417,15 @@ async fn run(command: Command) -> Result<(), String> {
             AppsCmd::List => apps::list(&config),
             AppsCmd::Registry { cmd: AppsRegistryCmd::Refresh } => apps::registry_refresh(&config).await,
             AppsCmd::Registry { cmd: AppsRegistryCmd::Show } => apps::registry_show(&config),
+            AppsCmd::Sideload { zip, id, name, version, publisher, blurb, ext, bridge, claim_defaults, confirm, confirm_conflicts, github, manifest, isolation, confirm_regular } => {
+                apps::sideload(&config, apps::SideloadArgs { zip, id, name, version, publisher, blurb, ext, bridge, claim_defaults, confirm, confirm_conflicts, github, manifest, isolation, confirm_regular }).await
+            }
+            AppsCmd::SetSource { app, github, manifest, clear } => apps::set_source(&config, &app, github, manifest, clear),
+            AppsCmd::Check { app } => apps::check_source(&config, &app).await,
+            AppsCmd::SetTypes { app, ext, claim_defaults, confirm_conflicts } => apps::set_types(&config, &app, ext, claim_defaults, confirm_conflicts),
+            AppsCmd::SetGrants { app, grants } => apps::set_grants(&config, &app, grants),
+            AppsCmd::SetIsolation { app, isolation, confirm_regular } => apps::set_isolation(&config, &app, &isolation, confirm_regular),
+            AppsCmd::Audit => apps::audit(&config),
         },
         Command::Registry { cmd } => registry_cmd(cmd).await,
         Command::User { cmd } => user_cmd(&config, cmd),
