@@ -175,10 +175,11 @@ pub async fn put_bytes(
     )
     .await
     .map_err(PutFail::Other)?;
-    if reply.status == 409 {
+    if reply.status == 412 || reply.status == 409 {
         let etag = serde_json::from_slice::<ErrorBody>(&reply.body)
             .ok()
-            .and_then(|err| err.etag);
+            .and_then(|err| err.etag)
+            .or(reply.etag);
         return Err(PutFail::Conflict(etag));
     }
     if reply.status >= 400 {
