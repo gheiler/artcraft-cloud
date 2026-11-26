@@ -47,6 +47,16 @@ async function waitFor(frame, pred, timeout = 15000, step = 400) {
   return last;
 }
 
+function matchesCal(c, calName) {
+  const n = String((c && c.name) || '').replace(/\.ics$/i, '');
+  const p = (c && c.path) || '';
+  return p === 'Calendars/' + calName + '.ics' || n === calName;
+}
+
+function eventsOn(state, calId) {
+  return (state.events || []).filter(e => !calId || e.calendar === calId);
+}
+
 (async () => {
   const fs = require('fs');
   fs.mkdirSync(OUT, { recursive: true });
@@ -72,10 +82,9 @@ async function waitFor(frame, pred, timeout = 15000, step = 400) {
 
   const calName = `Team plans ${Date.now() % 100000}`;
   await frame.evaluate(name => window.calendarcraft.execute('calendar.create', { name }), calName);
-  const created = await waitFor(frame, s => (s.fileCalendars || []).some(c => (c.path || '').includes('Calendars/') && (c.name || '').startsWith('Team plans') || (s.calendars || []).some(c => c.name === calName)));
-  const fileCal = (created.fileCalendars || []).find(c => (c.path || '').startsWith('Calendars/'))
-    || (created.fileCalendars || [])[0];
-  check(!!fileCal && !!(fileCal.path), 'created a file-backed calendar: ' + JSON.stringify(created.fileCalendars || created.calendars));
+  const created = await waitFor(frame, s => (s.fileCalendars || []).some(c => matchesCal(c, calName)));
+  const fileCal = (created.fileCalendars || []).find(c => matchesCal(c, calName));
+  check(!!fileCal && !!(fileCal.path), 'created a file-backed calendar: ' + JSON.stringify(fileCal || created.fileCalendars));
   const path = fileCal && fileCal.path;
   const listed = path ? await api(page, 'GET', '/api/files/stat?path=' + encodeURIComponent(path)) : { status: 0 };
   check(listed.status === 200 && listed.json && listed.json.etag, 'the .ics is in the drive with an etag: ' + listed.status);
@@ -90,33 +99,34 @@ async function waitFor(frame, pred, timeout = 15000, step = 400) {
   const put = await api(page, 'PUT', '/api/files/content?path=' + encodeURIComponent(path), ics, true, { 'If-Match': '"' + String(etag).replace(/"/g, '') + '"' });
   check(put.status === 200, 'external write succeeded: ' + put.status + ' ' + JSON.stringify(put.json).slice(0, 180));
   await frame.evaluate(() => window.calendarcraft.execute('calendar.syncFiles'));
-  const reloaded = await waitFor(frame, s => (s.events || []).some(e => e.title === 'External planning day'));
-  check((reloaded.events || []).some(e => e.title === 'External planning day'), 'reloaded the external event after sync');
+  const calId = fileCal && fileCal.id;
+  const reloaded = await waitFor(frame, s => eventsOn(s, calId).some(e => e.title === 'External planning day'));
+  check(eventsOn(reloaded, calId).some(e => e.title === 'External planning day'), 'reloaded the external event after sync');
   await page.screenshot({ path: `${OUT}/calfiles-reloaded.png` });
 
   // Local unsaved edit + another external change => conflict dialog.
   // Autosave is debounced 1.5s from the first dirty tick; stay well under that.
-  const calId = fileCal.id || ((reloaded.fileCalendars || [])[0] || {}).id;
   await frame.evaluate((title, calendar, date) => {
     window.calendarcraft.execute('event.add', { title, calendar, date });
   }, 'My unsaved note', calId, day.toISOString().slice(0, 10));
-  const dirtied = await waitFor(frame, s => (s.fileCalendars || []).some(c => c.dirty), 4000);
-  check((dirtied.fileCalendars || []).some(c => c.dirty), 'local edit is still unsaved before the second external write');
+  const dirtied = await waitFor(frame, s => (s.fileCalendars || []).some(c => c.id === calId && c.dirty), 4000);
+  check((dirtied.fileCalendars || []).some(c => c.id === calId && c.dirty), 'local edit is still unsaved before the second external write');
+  const after = await api(page, 'GET', '/api/files/stat?path=' + encodeURIComponent(path));
   const conflictIcs = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//e2e//EN\r\nX-WR-CALNAME:${calName}\r\nBEGIN:VEVENT\r\nUID:ext2-${Date.now()}\r\nDTSTAMP:${ymd(today)}T000000Z\r\nDTSTART;VALUE=DATE:${ymd(day)}\r\nDTEND;VALUE=DATE:${ymd(new Date(day.getTime() + 86400000))}\r\nSUMMARY:Second external change\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n`;
-  // If-Match: * overwrites whatever is on disk so a stale tag cannot hide the conflict.
-  const put2 = await api(page, 'PUT', '/api/files/content?path=' + encodeURIComponent(path), conflictIcs, true, { 'If-Match': '*' });
-  check(put2.status === 200, 'second external write succeeded: ' + put2.status + ' ' + JSON.stringify(put2.json).slice(0, 180));
+  const etag2 = after.json && after.json.etag;
+  const put2 = await api(page, 'PUT', '/api/files/content?path=' + encodeURIComponent(path), conflictIcs, true, { 'If-Match': '"' + String(etag2).replace(/"/g, '') + '"' });
+  check(put2.status === 200, 'second external write succeeded: ' + put2.status);
   await frame.evaluate(() => window.calendarcraft.execute('calendar.syncFiles'));
-  const conflicted = await waitFor(frame, s => !!(s.conflict && s.conflict.path), 12000);
-  check(!!(conflicted.conflict && conflicted.conflict.path), 'conflict dialog state is set: ' + JSON.stringify(conflicted.conflict));
+  const conflicted = await waitFor(frame, s => !!(s.conflict && s.conflict.path === path), 12000);
+  check(!!(conflicted.conflict && conflicted.conflict.path === path), 'conflict dialog state is set: ' + JSON.stringify(conflicted.conflict));
   await sleep(800);
   await page.screenshot({ path: `${OUT}/calfiles-conflict.png` });
 
   await frame.evaluate(() => window.calendarcraft.execute('calendar.resolveConflict', { choice: 'theirs' }));
-  const resolved = await waitFor(frame, s => !s.conflict && (s.events || []).some(e => e.title === 'Second external change'), 12000);
+  const resolved = await waitFor(frame, s => !s.conflict && eventsOn(s, calId).some(e => e.title === 'Second external change'), 12000);
   check(!resolved.conflict, 'conflict cleared after reload theirs');
-  check((resolved.events || []).some(e => e.title === 'Second external change'), 'theirs version is shown');
-  check(!(resolved.events || []).some(e => e.title === 'My unsaved note'), 'the unsaved local event was discarded');
+  check(eventsOn(resolved, calId).some(e => e.title === 'Second external change'), 'theirs version is shown');
+  check(!eventsOn(resolved, calId).some(e => e.title === 'My unsaved note'), 'the unsaved local event was discarded');
 
   await browser.close();
   console.log(fails.length ? `\n${fails.length} FAILED` : '\nall passed');
