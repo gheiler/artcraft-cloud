@@ -67,6 +67,10 @@ jobs:
           cp deploy/kubernetes/artcraft-cloud.yaml /tmp/before.yaml
           sh scripts/render-manifest.sh
           diff -u /tmp/before.yaml deploy/kubernetes/artcraft-cloud.yaml
+      - name: cloud-init recipe
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck python3-yaml
+          deploy/cloud-init/check.sh
 
   image:
     name: docker image
