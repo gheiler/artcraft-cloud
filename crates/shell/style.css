@@ -176,7 +176,7 @@ a { color: var(--primary-strong); }
 .field:focus { outline: none; border-color: var(--primary); box-shadow: var(--focus-ring); }
 .field.narrow { flex: none; width: auto; }
 select.field { padding-right: var(--space-8); }
-.stack { display: grid; gap: var(--space-4); color: var(--black-80); }
+.stack { display: grid; gap: var(--space-4); color: var(--black-80); align-content: start; }
 .stack .field { height: 40px; }
 .bare { border: 0; outline: none; background: transparent; min-width: 120px; flex: 1; height: 28px; }
 
