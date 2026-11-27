@@ -76,6 +76,16 @@ helm install office ./deploy/helm/artcraft-cloud \
 One replica with `Recreate` (SQLite has one writer), a 10 Gi PVC, startup/liveness/readiness probes on
 `/healthz` and `/readyz`, non-root, read-only root filesystem. See `deploy/helm/artcraft-cloud/values.yaml`.
 
+### A VPS with cloud-init
+
+[`deploy/cloud-init/artcraft-cloud.yaml`](deploy/cloud-init/artcraft-cloud.yaml) turns a fresh
+Ubuntu 24.04 or Debian 12 VPS (x86_64, 1 GB RAM is enough without mail) into a running artcraftCloud
+with HTTPS. Paste it into the host's "user data" or "cloud-init" box when you create the server, after
+filling in your domain at the top (or leave it empty to get `https://<ip>.sslip.io`). It installs
+Docker, opens 22/80/443 in ufw, runs artcraftCloud behind Caddy (automatic Let's Encrypt), and
+saves the admin login to `/root/artcraft-admin-password.txt`. Set `ARTCRAFT_MAIL=1` to also start
+Stalwart (read [docs/mail.md](docs/mail.md) first). `deploy/cloud-init/check.sh` dry-runs it.
+
 ## Apps
 
 | App | Opens | Release tested | Status |
